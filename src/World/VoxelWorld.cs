@@ -282,6 +282,7 @@ public sealed partial class VoxelWorld : Node3D
         {
             VertexColorUseAsAlbedo = true,
             Roughness = 0.92f,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
         };
     }
 
