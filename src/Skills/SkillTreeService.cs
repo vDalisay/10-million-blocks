@@ -10,6 +10,7 @@ public sealed class SkillDerivedStats
     public int ManualBlocksPerClick { get; internal set; } = 1;
     public double MinerRateMultiplier { get; internal set; } = 1.0;
     public int MinerPatternWidth { get; internal set; } = 1;
+    public int ShovelSearchRadius { get; internal set; } = 1;
     public HashSet<string> UnlockedMiners { get; } = new(StringComparer.Ordinal);
     public HashSet<string> UnlockedPatterns { get; } = new(StringComparer.Ordinal) { "line" };
     public HashSet<string> ResourceFilters { get; } = new(StringComparer.Ordinal);
@@ -139,6 +140,9 @@ public sealed class SkillTreeService
                 break;
             case "set_miner_pattern_width":
                 stats.MinerPatternWidth = Math.Max(stats.MinerPatternWidth, (int)Math.Round(effect.Value));
+                break;
+            case "set_shovel_search_radius":
+                stats.ShovelSearchRadius = Math.Max(stats.ShovelSearchRadius, (int)Math.Round(effect.Value));
                 break;
             case "unlock_resource_filter":
                 if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.ResourceFilters.Add(effect.StringValue);
