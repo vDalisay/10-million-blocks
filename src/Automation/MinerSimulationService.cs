@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using TenMillionBlocks.Automation.MiningPatterns;
+using TenMillionBlocks.Content;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
+using TenMillionBlocks.World.Generation;
 using TenMillionBlocks.World.Rendering;
 
 namespace TenMillionBlocks.Automation;
@@ -14,6 +16,8 @@ public partial class MinerSimulationService : Node3D
 {
     // KayKit "Go Deeper" shovel. The source mesh is ~6.7 units along its handle and is modelled off
     // to one side of its origin, so it needs a scale and a recentring offset to stand on a block.
+    // This preserves the current locally-authored presentation while the tool-class visual registry
+    // is built out as additional axe/pickaxe assets become available.
     private const float ShovelScale = 0.22f;
     private static readonly Vector3 ShovelRecentre = new(2.30f, 0.0f, -0.55f);
 
@@ -37,6 +41,8 @@ public partial class MinerSimulationService : Node3D
     public IReadOnlyList<MinerInstance> Miners => _miners;
     public int MaxMiningOperationsPerFrame { get; set; } = 96;
 
+    // This is the nominal un-affinitized rate. A shovel/pickaxe/axe can exceed it while working on
+    // blocks carrying matching tags; the scheduler applies that bonus without spawning more nodes.
     public double BlocksPerSecond => _miners
         .Where(miner => !miner.Exhausted)
         .Sum(miner => _catalog.Get(miner.DefinitionId).BaseRate * _skills.Derived.MinerRateMultiplier);
@@ -59,8 +65,6 @@ public partial class MinerSimulationService : Node3D
 
     public override void _Process(double delta)
     {
-        float dt = (float)delta;
-
         int budget = MaxMiningOperationsPerFrame;
         bool changed = false;
         double rateMultiplier = _skills.Derived.MinerRateMultiplier;
@@ -72,12 +76,12 @@ public partial class MinerSimulationService : Node3D
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
             miner.WorkAccumulator += definition.BaseRate * rateMultiplier * delta;
 
-            int requested = Math.Min((int)Math.Floor(miner.WorkAccumulator), budget);
-            if (requested <= 0) continue;
-
-            miner.WorkAccumulator -= requested;
-            for (int i = 0; i < requested && budget > 0; i++)
+            // Consume work dynamically rather than precomputing a request count. Block affinity can
+            // refund a fraction of one work unit after a successful mine, allowing the extra work to
+            // be used in the same frame while the global operation budget still caps worst-case cost.
+            while (budget > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
             {
+                miner.WorkAccumulator -= 1.0;
                 budget--;
                 if (Advance(miner, definition, emitPresentation: true))
                 {
@@ -86,7 +90,6 @@ public partial class MinerSimulationService : Node3D
                 else if (miner.Exhausted)
                 {
                     changed = true;
-                    break;
                 }
             }
         }
@@ -183,9 +186,8 @@ public partial class MinerSimulationService : Node3D
     {
         if (elapsedSeconds <= 0.0 || operationCap <= 0 || _miners.Count == 0) return 0L;
 
-        // Current small-world implementation performs exact logical mining while suppressing visual
-        // debris. It is intentionally capped. The region-aggregate path in the scale milestone will
-        // replace this loop for million-scale worlds rather than ever replaying unbounded ticks.
+        // Small worlds replay exact logical work but still use the same affinity scheduler as live
+        // mining. Large worlds use region aggregation elsewhere and never replay unbounded ticks.
         double seconds = Math.Min(elapsedSeconds, 7.0 * 24.0 * 60.0 * 60.0);
         long operationsLeft = operationCap;
         long minedBefore = _mining.TotalMined;
@@ -196,12 +198,11 @@ public partial class MinerSimulationService : Node3D
             if (operationsLeft <= 0 || miner.Exhausted) break;
 
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            double accumulated = miner.WorkAccumulator + definition.BaseRate * rateMultiplier * seconds;
-            long requested = Math.Min((long)Math.Floor(accumulated), operationsLeft);
-            miner.WorkAccumulator = accumulated - requested;
+            miner.WorkAccumulator += definition.BaseRate * rateMultiplier * seconds;
 
-            for (long i = 0; i < requested && operationsLeft > 0 && !miner.Exhausted; i++)
+            while (operationsLeft > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
             {
+                miner.WorkAccumulator -= 1.0;
                 operationsLeft--;
                 _ = Advance(miner, definition, emitPresentation: false);
             }
@@ -237,13 +238,21 @@ public partial class MinerSimulationService : Node3D
                 return false;
             }
 
-            if (!_world.IsPresent(candidate.Value)) continue;
+            BlockSample sample = _world.SampleVoxel(candidate.Value);
+            if (!sample.Present) continue;
+
+            BlockDefinition block = _mining.GetBlockDefinition(sample.BlockId);
+            if (!MatchesAllowedTags(definition, block))
+            {
+                continue;
+            }
 
             MiningResult result = _mining.TryMine(candidate.Value, MiningSource.Automated, requireExposed: false);
             if (!result.Success) continue;
 
             miner.BlocksMined++;
             miner.LastMinedVoxel = candidate.Value;
+            ApplyAffinityCredit(miner, definition, block);
             _view.MarkDirtyAround(candidate.Value);
             if (emitPresentation) EmitDebris(miner, result);
             UpdateVisual(miner);
@@ -251,6 +260,26 @@ public partial class MinerSimulationService : Node3D
         }
 
         return false;
+    }
+
+    private static bool MatchesAllowedTags(MinerDefinition definition, BlockDefinition block)
+    {
+        if (definition.AllowedBlockTags.Count == 0) return true;
+        foreach (string tag in block.Tags)
+        {
+            if (definition.AllowedBlockTags.Contains(tag, StringComparer.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static void ApplyAffinityCredit(MinerInstance miner, MinerDefinition definition, BlockDefinition block)
+    {
+        double affinity = definition.RateMultiplierForTags(block.Tags);
+        if (affinity <= 1.0) return;
+
+        // A normal block costs one accumulated work unit. At 2.5x affinity it costs 0.4 units, so
+        // refund 0.6. This makes specialisation compose cleanly with the global skill speed multiplier.
+        miner.WorkAccumulator += 1.0 - 1.0 / affinity;
     }
 
     private static Vector3I? CandidateAt(
