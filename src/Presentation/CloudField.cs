@@ -1,30 +1,69 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 
 namespace TenMillionBlocks.Presentation;
 
 public partial class CloudField : Node3D
 {
-    private const int CloudCubeCount = 56;
     private const int StarCount = 180;
+    private readonly List<(Node3D Layer, float Speed, float BobPhase)> _cloudLayers = new();
+    private double _elapsed;
 
     public override void _Ready()
     {
-        AddChild(BuildClouds());
+        AddCloudLayer("CloudLayerNear", 73021, 14.0f, 21.0f, 26, 0.030f, -0.08f);
+        AddCloudLayer("CloudLayerMid", 73031, 20.0f, 29.0f, 28, -0.020f, 0.04f);
+        AddCloudLayer("CloudLayerFar", 73051, 28.0f, 38.0f, 22, 0.012f, -0.02f);
         AddChild(BuildStars());
     }
 
-    private static MultiMeshInstance3D BuildClouds()
+    public override void _Process(double delta)
+    {
+        _elapsed += delta;
+        foreach ((Node3D layer, float speed, float phase) in _cloudLayers)
+        {
+            Vector3 rotation = layer.Rotation;
+            rotation.Y += speed * (float)delta;
+            rotation.Z = MathF.Sin((float)_elapsed * 0.11f + phase) * 0.025f;
+            layer.Rotation = rotation;
+
+            Vector3 position = layer.Position;
+            position.Y = MathF.Sin((float)_elapsed * 0.18f + phase) * 0.45f;
+            layer.Position = position;
+        }
+    }
+
+    private void AddCloudLayer(
+        string name,
+        int seed,
+        float minRadius,
+        float maxRadius,
+        int cubeCount,
+        float angularSpeed,
+        float tilt)
+    {
+        var layer = new Node3D
+        {
+            Name = name,
+            Rotation = new Vector3(tilt, 0.0f, 0.0f),
+        };
+        layer.AddChild(BuildCloudBatch(seed, minRadius, maxRadius, cubeCount));
+        AddChild(layer);
+        _cloudLayers.Add((layer, angularSpeed, seed * 0.001f));
+    }
+
+    private static MultiMeshInstance3D BuildCloudBatch(int seed, float minRadius, float maxRadius, int cubeCount)
     {
         var material = new StandardMaterial3D
         {
             AlbedoColor = new Color(0.92f, 0.96f, 1.0f, 1.0f),
-            Roughness = 0.82f,
+            Roughness = 0.88f,
         };
 
         var mesh = new BoxMesh
         {
-            Size = new Vector3(1.9f, 1.25f, 1.4f),
+            Size = new Vector3(1.9f, 0.72f, 1.35f),
             Material = material,
         };
 
@@ -32,34 +71,39 @@ public partial class CloudField : Node3D
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
             Mesh = mesh,
-            InstanceCount = CloudCubeCount,
-            VisibleInstanceCount = CloudCubeCount,
+            InstanceCount = cubeCount,
+            VisibleInstanceCount = cubeCount,
         };
 
-        var random = new Random(73021);
-        for (int i = 0; i < CloudCubeCount; i++)
+        var random = new Random(seed);
+        int clusterCount = Math.Max(1, cubeCount / 4);
+        for (int i = 0; i < cubeCount; i++)
         {
-            int cluster = i / 7;
-            float angle = cluster * 0.82f + 0.25f;
-            float radius = 19.0f + (cluster % 3) * 3.8f;
+            int cluster = i % clusterCount;
+            float baseAngle = (cluster / (float)clusterCount) * Mathf.Tau;
+            baseAngle += ((float)random.NextDouble() - 0.5f) * 0.24f;
+            float radius = minRadius + (float)random.NextDouble() * (maxRadius - minRadius);
+            float height = ((float)random.NextDouble() - 0.5f) * 19.0f;
+
             Vector3 center = new(
-                MathF.Cos(angle) * radius,
-                ((cluster % 5) - 2) * 5.5f,
-                MathF.Sin(angle) * radius);
+                MathF.Cos(baseAngle) * radius,
+                height,
+                MathF.Sin(baseAngle) * radius);
 
-            Vector3 jitter = new(
-                ((float)random.NextDouble() - 0.5f) * 5.5f,
-                ((float)random.NextDouble() - 0.5f) * 2.2f,
-                ((float)random.NextDouble() - 0.5f) * 4.0f);
+            float localIndex = i / (float)clusterCount;
+            Vector3 local = new(
+                (localIndex - 1.45f) * 1.45f,
+                ((float)random.NextDouble() - 0.5f) * 0.55f,
+                ((float)random.NextDouble() - 0.5f) * 1.1f);
 
-            float scale = 0.65f + (float)random.NextDouble() * 0.55f;
-            Basis basis = Basis.Identity.Scaled(new Vector3(scale * 1.25f, scale * 0.75f, scale));
-            multiMesh.SetInstanceTransform(i, new Transform3D(basis, center + jitter));
+            float scale = 0.72f + (float)random.NextDouble() * 0.58f;
+            Basis basis = Basis.Identity.Scaled(new Vector3(scale * 1.35f, scale * 0.72f, scale));
+            multiMesh.SetInstanceTransform(i, new Transform3D(basis, center + local));
         }
 
         return new MultiMeshInstance3D
         {
-            Name = "LayeredBlockClouds",
+            Name = "MovingBlockClouds",
             Multimesh = multiMesh,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
@@ -71,6 +115,7 @@ public partial class CloudField : Node3D
         {
             AlbedoColor = new Color(0.72f, 0.82f, 0.96f, 1.0f),
             Roughness = 1.0f,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
         };
 
         var mesh = new BoxMesh
