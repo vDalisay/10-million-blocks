@@ -8,292 +8,212 @@ Source plan: `docs/IMPLEMENTATION_PLAN.md`
 - Phase 1 — Project foundation + asset catalog: **complete and locally validated**
 - Phase 2 — Reference visual slice: **superseded by the real generator; reference remains the art target**
 - Phase 3 — Virtual world data + deterministic generator: **implemented and locally iterated**
-- Phase 4 — Rendering + picking: **small-world near renderer validated; bounded large-world streaming/far proxy now implemented**
+- Phase 4 — Rendering + picking: **small-world path validated; large-world renderer is in measured optimization**
 - Phase 5 — Manual mining: **complete and locally validated**
 - Phase 6 — Automation framework: **implemented and locally iterated**
 - Phase 7 — Skill-tree runtime: **implemented**
 - Phase 8 — Skill-tree editor: **implemented**
 - Phase 9 — World completion/progression: **implemented**
-- Phase 10 — Save/load/offline foundation: **implemented; save schema now also supports aggregate exhausted regions**
-- Phase 11 — 1000-scale stress/optimization milestone: **architecture + instrumentation implemented; actual local performance measurement required**
+- Phase 10 — Save/load/offline foundation: **implemented; aggregate exhausted regions supported**
+- Phase 11 — 1000-scale stress/optimization: **first benchmark measured a severe chunk-build bottleneck; remediation implemented and awaiting rerun**
 - Phase 12 — Game-feel/reference polish: **partial**
-- Phase 13 — final-scale logical architecture validation: **implemented as startup/self-test architecture; no attempt is made to render a million-wide world in block detail**
-- Phase 14 — tool-class automation/world-event proposal: **foundation started; surface pattern + block affinity schema/scheduler implemented**
+- Phase 13 — final-scale validation: **reframed to the clarified one-million-block total target**
+- Phase 14 — tool-class automation/world-event proposal: **foundation started**
 
-The user's latest local changes were pulled into the branch before this work. In particular, the added KayKit forest variants, local terrain/presentation tuning, Godot UID files, and current shovel-based miner presentation were preserved rather than overwritten.
-
-The next checkpoint is no longer subjective design approval. It is a real performance/compatibility checkpoint: Phase 11 now has enough implementation that the remaining unknowns are actual Godot frame time, managed memory, chunk-build cost and rendering correctness on the user's machine.
-
----
-
-## Phase 11 — bounded 1000-scale rendering
-
-Large logical worlds now take a separate rendering path instead of calling the eager small-world chunk builder.
-
-### World profile controls
-
-`WorldProfile` now has explicit large-scale controls:
-
-- `targetMineableBlocks`
-- `aggregateRewardPerBlock`
-- `regionSizeInChunks`
-- `streamingThresholdMaxCoordinate`
-- `streamingChunkRadius`
-- `detailedSurfaceDepthChunks`
-- `macroResolution`
-
-Small authored worlds keep exact startup counting and the existing detailed renderer. Large worlds use an authored exact logical total and bounded rendering/state paths.
-
-### Stress profile
-
-`stress_1000` remains a 1000 × 1000 × 1000 logical address-space test but now has:
-
-- exact authored 64-bit target counter instead of a startup world scan
-- 32-voxel chunks
-- 8 × 8 × 8 chunk regions
-- bounded detailed streaming radius
-- one detailed surface-depth chunk
-- fixed-resolution whole-world macro representation
-
-Starting this profile therefore does **not** allocate every logical voxel, chunk, region, Node3D or collider.
-
-### Camera-driven detailed working set
-
-`WorldView` now has two modes:
-
-1. **eager detail** for the current small authored cubes;
-2. **streamed macro + detail** for large profiles.
-
-The streamed path:
-
-- determines the cube face currently facing the camera
-- derives a bounded surface chunk focus
-- keeps only the configured tangential chunk radius/depth resident
-- queues missing detailed chunks
-- unloads chunks that leave the working set
-- limits streamed chunk construction to one chunk per frame
-- retains the existing dirty-chunk path for mining changes
-- skips known exhausted regions without rebuilding their detailed voxels
-- exposes streaming/build metrics
-
-With the default stress settings the intended detailed working set is roughly `(2r+1)^2 * depth` chunks, rather than a function of the 1000-wide world volume.
-
-### Far representation
-
-`MacroWorldProxy` provides a bounded whole-world representation:
-
-- samples a fixed grid on all six cube faces
-- searches only a bounded distance inward for generated terrain
-- groups cells into grass, sand, shallow-water, water, deep-water and stone families
-- batches them through MultiMesh
-- is deliberately slightly inset beneath detailed blocks
-- its cost is `6 * macroResolution^2` samples/cells, independent of logical world width
-
-This is the first far representation. It is intentionally a coarse proxy, not final LOD art.
-
-### Picking optimization
-
-The logical voxel raycaster no longer starts DDA traversal at the camera and walks through potentially enormous empty space. It now:
-
-1. ray-intersects the world AABB;
-2. jumps to the AABB entry point;
-3. performs voxel DDA only inside the logical bounds.
-
-This matters once camera distance and world radius become hundreds or hundreds of thousands of logical cells.
+The user's locally added forest assets, terrain/presentation tuning, UID files, shovel presentation and
+plan additions remain preserved on this branch.
 
 ---
 
-## Phase 11 — hierarchical mining/state
+## Clarified scale target
 
-Large-world progress can now be represented without one sparse entry per mined block.
+The intended gameplay end goal is **1,000,000 mineable blocks total**.
 
-### Region quotas
+The earlier implementation interpreted a prior "million by million" description too literally and
+created diagnostic counters of 1,000,000,000 and 1,000,000,000,000 blocks. That was not the intended
+final gameplay target and has been corrected.
 
-For profiles with `targetMineableBlocks`, `VirtualWorld` deterministically partitions the exact total across the region address space with quotient/remainder arithmetic.
+Current meanings:
 
-Properties:
-
-- no per-region table is allocated at world creation
-- any region's quota is available in O(1)
-- the quotas sum exactly to the authored 64-bit block total
-- individual mining is prevented from exceeding a region's logical quota
-- once sparse mining reaches a region quota, that region compacts to one exhausted marker
-
-### World state indexes
-
-`WorldStateStore` now tracks:
-
-- sparse mined local indices for partially modified chunks
-- O(1) sparse-mined count per modified region
-- modified chunks indexed per region
-- one aggregate marker for each fully exhausted region
-
-Exhausting a region removes its per-chunk sparse overrides and replaces them with one aggregate count. Region compaction is proportional to modified chunks in that region rather than every modified chunk in the world.
-
-### Authoritative bulk API
-
-`MiningService.TryExhaustRegion(...)` is the hierarchical mining API. It:
-
-- routes through the same authoritative world state
-- updates exact mined/remaining counters
-- grants aggregate resources
-- emits one `BulkMiningResult`
-- avoids one gameplay event for every logical block represented by the region
-
-This is currently exercised by the stress benchmark and is the path future extremely high-rate/offline tools can use.
-
-### Save/load
-
-World save data now stores both:
-
-- sparse modified chunks
-- exhausted region markers
-
-Untouched deterministic terrain remains absent from the save. An exhausted region can therefore represent millions of logical changes with one small record.
+- `stress_1000` is still a deliberately pathological **1000 x 1000 x 1000 logical address-space**
+  renderer test, but its authoritative mining target is now exactly **1,000,000 blocks**.
+- `final_target_1m` is a separate non-progression validation profile with an exact
+  **1,000,000-block** authoritative target and more plausible cube dimensions.
+- Exact final world dimensions remain a content/art-direction decision. The architecture no longer
+  assumes that the final playable world itself is one million blocks wide or contains billions/trillions of blocks.
 
 ---
 
-## Performance instrumentation
+## First Phase 11 measurement
 
-`docs/PERFORMANCE_BUDGETS.md` contains the engineering budgets and measurement table.
+The first real `stress_1000` run successfully proved several architecture properties but exposed a
+catastrophic render-path cost.
 
-Debug controls:
-
-- **F8** — toggle from the normal authored world into the non-persistent `stress_1000` world and back
-- **F9** — performance HUD
-- **F7** — on a streaming world, run the 20-second automated stress benchmark
-- **F10** — existing completion/Continue preview on an authored world
-
-The F9 HUD reports:
-
-- FPS
-- managed memory
-- GC collection counters
-- eager vs streamed renderer
-- camera distance
-- detailed chunks loaded / queued / dirty
-- last and average detailed chunk-build milliseconds
-- total chunk builds and voxel candidates examined
-- stream loads/unloads
-- macro proxy cell count/build time
-- sparse voxel count
-- modified chunks
-- exhausted regions
-- exact mined/remaining totals
-
-The F7 benchmark combines:
-
-- automated camera orbit to force streaming changes
-- 128 deterministic near-shell generator queries per frame
-- periodic region exhaustion through `MiningService`
-- FPS/memory/generator/chunk/streaming measurements
-
-It prints a report and writes:
+Measured baseline:
 
 ```text
-user://stress_benchmark_latest.txt
+duration_s=20.43
+generator_probes=1920
+generator_avg_us=8.430
+probe_batch_max_ms=1.654
+minimum_observed_fps=1.0
+chunk_build_avg_ms=1380.179
+chunk_build_last_ms=1341.115
+stream_loads=19
+stream_unloads=17
+aggregate_blocks_mined=56000000
+sparse_voxel_overrides=0
+exhausted_regions=7
+managed_memory_mb=8.2
 ```
 
-Actual values in `docs/PERFORMANCE_BUDGETS.md` intentionally remain blank until measured in a local Godot run.
+The main result is not the 1 FPS by itself. The profile showed that a streamed chunk build averaged
+**~1.38 seconds**, while an isolated procedural query averaged only **~8.4 microseconds**.
+
+### Root cause
+
+The old streamed `WorldView.RebuildChunk` used the small-world exact renderer algorithm:
+
+1. scan every voxel in a 32 x 32 x 32 chunk;
+2. call `SampleVoxel` for the voxel;
+3. call `IsExposed` for present voxels;
+4. `IsExposed` samples up to six neighbours;
+5. each sample evaluates the multi-field procedural terrain noise again.
+
+That turns one streamed build into hundreds of thousands of procedural evaluations. The call stack
+captured locally (`WorldView.RebuildChunk -> IsExposed -> noise sampling`) matches the measured cost.
+
+The original F7 benchmark also appeared to crash/freeze because `_Process(delta)` was used as its
+clock. Godot clamps very large process deltas, so at ~1.4 seconds per frame the nominal 20-second test
+required minutes of wall-clock time. There was no thrown runtime exception.
 
 ---
 
-## Phase 13 — million-scale logical validation
+## Phase 11 remediation now implemented
 
-A non-progression profile named `final_scale_1m` now exists for architecture validation.
+### 1. Wall-clock benchmark
 
-It has:
+`StressBenchmarkController` now uses `Time.GetTicksUsec()` for elapsed benchmark time.
 
-- logical dimensions of 1,000,000 on each configured address axis
-- exact authored gameplay target of **1,000,000,000,000 blocks**
-- 64-voxel chunks
-- 8 × 8 × 8 chunk regions
-- deterministic procedural querying
-- the same bounded renderer settings if it is ever loaded for diagnostics
+- 20 benchmark seconds now means ~20 real wall-clock seconds even during a severe frame-time regression.
+- automated orbit uses real elapsed time as well, with a per-frame jump clamp
+- orderly scene/window shutdown writes an `aborted` report if a benchmark is active
+- hard OS process termination remains inherently uncatchable
 
-Startup self-tests now prove, without traversing that world:
+### 2. Dedicated large-world surface sampler
 
-- construction leaves sparse chunk/region state empty
-- the hierarchy can expose billions of addressable regions without allocating them
-- arbitrary far procedural coordinates are deterministic
-- a distant region quota can be calculated directly
-- that distant region can be exhausted through one aggregate operation
-- the exact remaining counter changes correctly
-- no sparse per-voxel state is created by the aggregate operation
-- quotient/remainder region accounting reconstructs the exact 1e12 target
+`ProceduralWorldSource.TrySampleOutermostSurfaceVoxel(...)` is a new presentation-oriented fast path.
 
-This is the intended interpretation of Phase 13: prove the address-space and progress architecture, not create/render a trillion block instances.
+For one tangential column it:
+
+- evaluates the expensive terrain/climate/hydrology fields once
+- derives the outer generated radius directly
+- classifies the visible surface block from the same terrain context
+- uses only a two-voxel bounded quantization fallback
+
+The exact small-world `SampleVoxel` behavior remains intact.
+
+### 3. Streamed chunks no longer scan their volume
+
+Large-world detail rendering now has its own builder instead of reusing the eager small-world path.
+
+For each streamed chunk it:
+
+- samples tangential surface columns only
+- emits the one currently visible outer block for each column
+- does **not** call `IsExposed` on every candidate
+- does **not** scan the entire chunk volume
+- only performs a short inward exact search for columns that the player has actually modified/mined
+- continues to use MultiMesh batches for the resulting visible blocks
+
+Trees remain on the exact small-world path for now; large-world tree/detail LOD should be added after
+this performance path is validated rather than reintroducing expensive feature sampling prematurely.
+
+### 4. Smaller stress chunks
+
+`stress_1000` now uses:
+
+- 8-voxel chunks instead of 32
+- 16 x 16 x 16 chunk regions
+- automatic inward detail depth sufficient to cover the terrain relief band
+- a fixed 24-cell-per-face macro resolution
+
+The working set is still bounded and independent of the 1000-wide logical volume.
+
+### 5. Camera drag cannot be blocked by detail catch-up
+
+`OrbitCameraController` exposes whether RMB/MMB manipulation is active.
+
+While the user is actively orbiting or panning:
+
+- desired streaming focus may change
+- the always-present macro world remains visible
+- **no detailed chunk builds are run**
+
+After the drag is released, detail catches up with a ~2.5 ms per-frame build budget and at most four
+cheap chunk builds in one frame.
+
+### 6. Macro proxy holes/ridges addressed
+
+The first proxy deliberately left spacing between its coarse cells and used very shallow boxes. With
+large terrain-height differences this exposed black gaps and produced the Rubik's-cube ridge pattern
+seen in the local screenshots.
+
+The macro proxy now:
+
+- uses the direct one-sample surface-column API rather than an inward search loop
+- always emits all configured face cells, with a conservative seam fallback
+- slightly overlaps neighbouring cells tangentially
+- gives cells a deep inward skirt so height differences do not expose empty space
+- keeps the outer macro face inset below detailed blocks
+- disables specular response
+
+It remains a diagnostic/far representation, not final large-world art.
 
 ---
 
-## Phase 12 — safe game-feel work completed so far
+## Hierarchical mining/state remains valid
 
-Manual mining now reuses the existing block-aware debris presentation:
+The first benchmark did validate the non-render architecture:
 
-- manual clicks emit representative fragments
-- grass emits mostly brown dirt with occasional green turf
-- stone/ores/sand/water use their own representative colors
-- multi-block manual skills cap the presentation at three bursts per click so logical mining power does not linearly multiply particle work
+- managed memory stayed small
+- sparse voxel overrides stayed at zero during aggregate mining
+- region exhaustion represented many logical blocks with a few markers
+- no full logical world allocation occurred
 
-Further camera/UI/sound/reference polish is intentionally left until the new streaming path is measured rather than piling presentation work on top of an unprofiled renderer.
+`WorldStateStore`, `VirtualWorld` region quotas, `MiningService.TryExhaustRegion`, save/load aggregate
+markers and bounded offline architecture remain in place. Only the authored total has been corrected
+to the one-million-block gameplay target.
 
 ---
 
-## Phase 14 foundation from the locally expanded plan
+## Phase 14 foundation retained
 
-The plan now includes specialised tool-class automation. The underlying generic systems have been extended without forcing final balancing/content decisions.
+The locally expanded plan's specialised automation work remains available:
 
-### Miner definitions
+- miner `toolClass`
+- per-block-tag rate multipliers
+- allowed material tags
+- affinity-aware live/offline work-credit scheduler
+- tangential `surface_strip` pattern
+- provisional shovel miner content
 
-`MinerDefinition` now supports:
+Still intentionally deferred until the renderer checkpoint passes:
 
-- `toolClass`
-- `tagRateMultipliers`
-- the existing optional allowed-tag list
-
-For example, a shovel can work at ordinary rate on generic terrain but have a 2.5× affinity for `soil` and 3× for `sand`.
-
-### Affinity scheduler
-
-Live and bounded offline miner scheduling now uses a work-credit model:
-
-- one normal block costs one accumulated work unit
-- a 2.5× affinity block costs 0.4 units
-- the unused 0.6 work is credited back immediately
-- affinity therefore composes with global miner-speed skill multipliers
-- the existing per-frame operation budget remains the hard presentation/CPU cap
-
-Allowed block tags are also honored if a future tool is restricted to a material family.
-
-### Surface mining pattern
-
-`surface_strip` is now a registered pure mining pattern. It walks tangentially across the local cube face in a snaking strip rather than boring inward.
-
-A provisional `shovel_miner` content definition demonstrates:
-
-- `surface_strip`
-- surface/soil/sand targeting
-- material affinity multipliers
-
-It is not yet wired into a final skill-tree unlock or placement control. That is deliberate: the current local shovel-based presentation is preserved, while final tool roster/UX can still be authored after the additional axe/pickaxe assets and balance decisions exist.
-
-### Not implemented from Phase 14 yet
-
-- persistent tree-feature clearing for the axe
-- axe/pickaxe final placeable content/visuals
-- deterministic multi-hit bomb blocks
-- region-aware blast dirtying/presentation
-- gem pocket assets/content placement rules
-
-Those are not needed to validate Phase 11/13 and should not be allowed to hide a streaming/performance regression.
+- final shovel placement/unlock UX
+- tree-feature clearing for axe automation
+- axe/pickaxe final visuals/content
+- deterministic bomb blocks and region-aware blast rendering
+- gem-pocket placement/content
 
 ---
 
 ## Required local checkpoint
 
-A local run is now required before pushing deeper into Phase 12/14, because the unresolved questions are measurements and actual render behavior rather than code structure.
+The next local test is deliberately narrow: verify that the measured 1.38-second streamed chunk path
+is actually gone before building more systems on top of it.
 
-### First: normal world regression
+### Normal regression
 
 Run:
 
@@ -301,20 +221,28 @@ Run:
 play_game.bat
 ```
 
-Confirm the normal Verdant/Lakebound path still launches and that the user's local visual/input tweaks remain intact. A quick mining/orbit check is enough; the previously validated gameplay does not need a full retest.
+A quick launch/mine/orbit check on Verdant is sufficient.
 
-### Then: Phase 11 stress world
+### Stress regression
 
-1. Press **F8**. `stress_1000` should load without trying to build the entire world.
-2. Press **F9**. The HUD should say `streamed macro+detail`; detailed loaded chunks should remain a small bounded number rather than growing with the world size.
-3. Orbit with RMB for ~10 seconds. The detailed patch should follow the visible cube face while the coarse whole-world proxy remains present.
-4. Press **F7** and leave the benchmark running for its full ~20 seconds.
-5. If there are no errors, send either:
-   - the terminal output beginning with `Stress benchmark complete`, or
-   - the contents of `user://stress_benchmark_latest.txt`.
-6. A screenshot of the stress world with the **F9 HUD visible** is also useful because proxy/detail overlap and streaming holes are visual issues that metrics cannot reveal.
-7. Press **F8** again. It should return to the authored progression world without treating stress progress as player save progress.
+1. Press **F8** to enter `stress_1000`.
+2. Press **F9**.
+3. Confirm the counter is now `1,000,000` total rather than `1,000,000,000`.
+4. RMB-orbit continuously for several seconds. Camera movement should remain responsive because detail
+   builds are suspended during the drag.
+5. Release RMB and watch the detail queue catch up.
+6. Check the macro world for the previous black missing faces / pronounced Rubik-grid gaps.
+7. Record `chunk build ms last/avg` after the detail working set has populated.
+8. Press **F7**. It should now finish after roughly 20 wall-clock seconds and write the report.
+9. Send the F7 report and one F9 screenshot.
 
-If entering F8 freezes/crashes or build errors occur, the error/log is the checkpoint result; no further manual investigation is expected.
+### Success criterion for continuing without another renderer rewrite
 
-Once this passes, Phase 11 has real measurements and the implementation can continue with measured LOD/cache tuning, followed by deeper Phase 12 polish and the remaining Phase 14 tool/event systems.
+The key number is streamed chunk build time. The immediate target is:
+
+- average below **4 ms**
+- routine builds below **12 ms**
+- no pointer-drag stalls from chunk construction
+
+If builds are still materially above budget, the next step is worker-thread surface sampling / cached
+column contexts rather than adding more visual systems.
