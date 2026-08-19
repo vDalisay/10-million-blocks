@@ -10,6 +10,8 @@ namespace TenMillionBlocks.Save;
 public sealed class WorldSaveData
 {
     public string WorldId { get; set; } = string.Empty;
+    public long ManualBlocksMined { get; set; }
+    public long AutomatedBlocksMined { get; set; }
     public List<MinedChunkSnapshot> MinedChunks { get; set; } = new();
     public List<MinerSnapshot> Miners { get; set; } = new();
 }
@@ -58,6 +60,11 @@ public sealed class SaveService
 
         data.SkillRanks ??= new Dictionary<string, int>(StringComparer.Ordinal);
         data.Worlds ??= new Dictionary<string, WorldSaveData>(StringComparer.Ordinal);
+        foreach (WorldSaveData world in data.Worlds.Values)
+        {
+            world.MinedChunks ??= new List<MinedChunkSnapshot>();
+            world.Miners ??= new List<MinerSnapshot>();
+        }
         return data;
     }
 
