@@ -11,6 +11,8 @@ public partial class OrbitCameraController : Node3D
     public static readonly CameraPreset MediumPreset = new("Medium", -38.0f, -27.0f, 37.0f);
     public static readonly CameraPreset NearPreset = new("Near", -42.0f, -30.0f, 24.0f);
 
+    private const float ReferenceWorldRadius = 24.0f;
+
     [Export] public float OrbitSensitivity { get; set; } = 0.22f;
     [Export] public float PanSensitivity { get; set; } = 0.025f;
     [Export] public float ZoomStep { get; set; } = 0.88f;
@@ -33,9 +35,12 @@ public partial class OrbitCameraController : Node3D
     private float _targetPitch;
     private float _targetDistance;
     private Vector3 _targetPan;
+    private float _presetScale = 1.0f;
 
     public string ActivePresetName { get; private set; } = MediumPreset.Name;
     public Camera3D Camera => _camera;
+    public float CurrentDistance => _distance;
+    public float PresetScale => _presetScale;
 
     public override void _Ready()
     {
@@ -79,12 +84,28 @@ public partial class OrbitCameraController : Node3D
         }
     }
 
+    /// <summary>
+    /// Keeps the same framing language for tiny authored cubes and million-scale logical profiles.
+    /// Distances, pan range and far clip scale with the rendered world radius rather than being hard coded.
+    /// </summary>
+    public void ConfigureWorldExtent(float worldRadius)
+    {
+        _presetScale = MathF.Max(1.0f, worldRadius / ReferenceWorldRadius);
+        MinDistance = 16.0f * _presetScale;
+        MaxDistance = 65.0f * _presetScale;
+        if (_camera is not null)
+        {
+            _camera.Far = MathF.Max(300.0f, worldRadius * 6.0f);
+            _camera.Near = MathF.Max(0.05f, _presetScale * 0.015f);
+        }
+    }
+
     public void ApplyPreset(CameraPreset preset, bool immediate = false)
     {
         ActivePresetName = preset.Name;
         _targetYaw = Mathf.DegToRad(preset.YawDegrees);
         _targetPitch = Mathf.DegToRad(preset.PitchDegrees);
-        _targetDistance = Mathf.Clamp(preset.Distance, MinDistance, MaxDistance);
+        _targetDistance = Mathf.Clamp(preset.Distance * _presetScale, MinDistance, MaxDistance);
         _targetPan = Vector3.Zero;
 
         if (!immediate)
@@ -101,6 +122,16 @@ public partial class OrbitCameraController : Node3D
     public void Recenter()
     {
         _targetPan = Vector3.Zero;
+    }
+
+    public void AddOrbitDegrees(float yawDegrees, float pitchDegrees = 0.0f)
+    {
+        _targetYaw += Mathf.DegToRad(yawDegrees);
+        _targetPitch = Mathf.Clamp(
+            _targetPitch + Mathf.DegToRad(pitchDegrees),
+            Mathf.DegToRad(-78.0f),
+            Mathf.DegToRad(78.0f));
+        ActivePresetName = "Benchmark";
     }
 
     private void HandleMouseButton(InputEventMouseButton button)
@@ -180,11 +211,13 @@ public partial class OrbitCameraController : Node3D
         {
             Vector3 right = _camera.GlobalTransform.Basis.X;
             Vector3 up = _camera.GlobalTransform.Basis.Y;
-            float scale = PanSensitivity * MathF.Max(0.5f, _targetDistance / MediumPreset.Distance);
+            float scale = PanSensitivity * MathF.Max(0.5f, _targetDistance / (MediumPreset.Distance * _presetScale));
+            scale *= _presetScale;
             _targetPan += (-right * motion.Relative.X + up * motion.Relative.Y) * scale;
-            if (_targetPan.LengthSquared() > 64.0f)
+            float panLimit = 8.0f * _presetScale;
+            if (_targetPan.LengthSquared() > panLimit * panLimit)
             {
-                _targetPan = _targetPan.Normalized() * 8.0f;
+                _targetPan = _targetPan.Normalized() * panLimit;
             }
             ActivePresetName = "Custom";
         }
