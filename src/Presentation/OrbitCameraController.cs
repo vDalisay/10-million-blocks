@@ -7,15 +7,15 @@ public partial class OrbitCameraController : Node3D
 {
     public readonly record struct CameraPreset(string Name, float YawDegrees, float PitchDegrees, float Distance);
 
-    public static readonly CameraPreset FarPreset = new("Far", -38.0f, -24.0f, 50.0f);
-    public static readonly CameraPreset MediumPreset = new("Medium", -38.0f, -27.0f, 37.0f);
-    public static readonly CameraPreset NearPreset = new("Near", -42.0f, -30.0f, 24.0f);
+    public static readonly CameraPreset FarPreset = new("Far", -38.0f, -24.0f, 84.0f);
+    public static readonly CameraPreset MediumPreset = new("Medium", -38.0f, -27.0f, 66.0f);
+    public static readonly CameraPreset NearPreset = new("Near", -42.0f, -30.0f, 44.0f);
 
     [Export] public float OrbitSensitivity { get; set; } = 0.22f;
     [Export] public float PanSensitivity { get; set; } = 0.025f;
     [Export] public float ZoomStep { get; set; } = 0.88f;
-    [Export] public float MinDistance { get; set; } = 16.0f;
-    [Export] public float MaxDistance { get; set; } = 65.0f;
+    [Export] public float MinDistance { get; set; } = 24.0f;
+    [Export] public float MaxDistance { get; set; } = 110.0f;
     [Export] public float Smoothing { get; set; } = 10.0f;
 
     private Camera3D _camera = null!;
@@ -45,7 +45,7 @@ public partial class OrbitCameraController : Node3D
             Current = true,
             Fov = 55.0f,
             Near = 0.05f,
-            Far = 300.0f,
+            Far = 350.0f,
         };
         AddChild(_camera);
 
@@ -181,9 +181,9 @@ public partial class OrbitCameraController : Node3D
             Vector3 up = _camera.GlobalTransform.Basis.Y;
             float scale = PanSensitivity * MathF.Max(0.5f, _targetDistance / MediumPreset.Distance);
             _targetPan += (-right * motion.Relative.X + up * motion.Relative.Y) * scale;
-            if (_targetPan.LengthSquared() > 64.0f)
+            if (_targetPan.LengthSquared() > 144.0f)
             {
-                _targetPan = _targetPan.Normalized() * 8.0f;
+                _targetPan = _targetPan.Normalized() * 12.0f;
             }
             ActivePresetName = "Custom";
         }
