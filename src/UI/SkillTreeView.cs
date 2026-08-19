@@ -47,11 +47,7 @@ public partial class SkillTreeView : CanvasLayer
         backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(backdrop);
 
-        var title = new Label
-        {
-            Text = "SKILL TREE",
-            Position = new Vector2(32, 24),
-        };
+        var title = new Label { Text = "SKILL TREE", Position = new Vector2(32, 24) };
         title.AddThemeFontSizeOverride("font_size", 24);
         _root.AddChild(title);
 
@@ -89,10 +85,7 @@ public partial class SkillTreeView : CanvasLayer
 
     public override void _UnhandledKeyInput(InputEvent @event)
     {
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
-            return;
-        }
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
 
         if (key.Keycode == Key.K)
         {
@@ -132,7 +125,7 @@ public partial class SkillTreeView : CanvasLayer
             {
                 Position = SkillGraphCanvas.NodePosition(node),
                 Size = new Vector2(174, 82),
-                TooltipText = node.Description,
+                TooltipText = BuildTooltip(node),
             };
             string id = node.Id;
             button.Pressed += () => Purchase(id);
@@ -141,19 +134,30 @@ public partial class SkillTreeView : CanvasLayer
         }
     }
 
+    private string BuildTooltip(SkillNodeDefinition node)
+    {
+        if (node.Prerequisites.Count == 0) return node.Description;
+        var requirements = new List<string>();
+        foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
+        {
+            requirements.Add($"{_skills.Catalog.Get(prerequisite.NodeId).DisplayName} rank {prerequisite.RequiredRank}");
+        }
+        return node.Description + "\nRequires: " + string.Join(", ", requirements);
+    }
+
     private void Purchase(string skillId)
     {
         SkillPurchaseResult result = _skills.Purchase(skillId);
         if (result.Success)
         {
-            _feedback.Text = $"Purchased {_skills.Catalog.Get(skillId).DisplayName}.";
+            _feedback.Text = $"Purchased {_skills.Catalog.Get(skillId).DisplayName} rank {result.NewRank}.";
         }
         else
         {
             _feedback.Text = result.Failure switch
             {
                 SkillPurchaseFailure.InsufficientResources => "Not enough resources.",
-                SkillPurchaseFailure.MissingPrerequisite => "Purchase prerequisite skills first.",
+                SkillPurchaseFailure.MissingPrerequisite => "Required prerequisite rank has not been reached.",
                 SkillPurchaseFailure.MaxRank => "Skill is already maxed.",
                 _ => "Skill could not be purchased.",
             };
@@ -175,9 +179,21 @@ public partial class SkillTreeView : CanvasLayer
             bool prerequisites = _skills.PrerequisitesMet(node);
             long cost = checked(node.Cost * (rank + 1L));
 
-            button.Text = maxed
-                ? $"{node.DisplayName}\nOWNED"
-                : $"{node.DisplayName}\n{cost:N0} resources";
+            if (maxed)
+            {
+                button.Text = node.PurchaseMode == "repeatable"
+                    ? $"{node.DisplayName}\nMAX {rank}/{node.MaxRank}"
+                    : $"{node.DisplayName}\nOWNED";
+            }
+            else if (node.PurchaseMode == "repeatable")
+            {
+                button.Text = $"{node.DisplayName}\nRank {rank}/{node.MaxRank}  |  {cost:N0}";
+            }
+            else
+            {
+                button.Text = $"{node.DisplayName}\n{cost:N0} resources";
+            }
+
             button.Disabled = maxed || !prerequisites;
         }
 
@@ -197,22 +213,34 @@ public partial class SkillGraphCanvas : Control
 
         foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
-            Vector2 to = NodePosition(node) + new Vector2(87, 41);
-            foreach (string prerequisiteId in node.PrerequisiteNodeIds)
+            Vector2 target = NodeCenter(node);
+            foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             {
-                SkillNodeDefinition prerequisite = _skills.Catalog.Get(prerequisiteId);
-                Vector2 from = NodePosition(prerequisite) + new Vector2(87, 41);
-                bool owned = _skills.GetRank(prerequisiteId) > 0;
-                DrawLine(
-                    from,
-                    to,
-                    owned ? new Color(0.30f, 0.78f, 0.94f) : new Color(0.28f, 0.32f, 0.40f),
-                    3.0f,
-                    true);
+                SkillNodeDefinition sourceNode = _skills.Catalog.Get(prerequisite.NodeId);
+                Vector2 previous = NodeCenter(sourceNode);
+                bool requirementMet = _skills.GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank;
+                Color color = requirementMet
+                    ? new Color(0.30f, 0.78f, 0.94f)
+                    : new Color(0.28f, 0.32f, 0.40f);
+
+                foreach (SkillRoutePoint routePoint in prerequisite.Route)
+                {
+                    Vector2 next = RoutePointPosition(routePoint);
+                    DrawLine(previous, next, color, 3.0f, true);
+                    previous = next;
+                }
+
+                DrawLine(previous, target, color, 3.0f, true);
             }
         }
     }
 
     public static Vector2 NodePosition(SkillNodeDefinition node)
         => new(24 + node.GridX * 200, 40 + node.GridY * 112);
+
+    private static Vector2 NodeCenter(SkillNodeDefinition node)
+        => NodePosition(node) + new Vector2(87, 41);
+
+    private static Vector2 RoutePointPosition(SkillRoutePoint point)
+        => new(24 + point.GridX * 200 + 87, 40 + point.GridY * 112 + 41);
 }
