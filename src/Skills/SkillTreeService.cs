@@ -53,7 +53,7 @@ public sealed class SkillTreeService
     public int GetRank(string skillId) => _ranks.GetValueOrDefault(skillId);
 
     public bool PrerequisitesMet(SkillNodeDefinition node)
-        => node.PrerequisiteNodeIds.All(id => GetRank(id) > 0);
+        => node.Prerequisites.All(prerequisite => GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank);
 
     public SkillPurchaseResult Purchase(string skillId)
     {
