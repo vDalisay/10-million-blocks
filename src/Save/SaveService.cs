@@ -13,6 +13,7 @@ public sealed class WorldSaveData
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
     public List<MinedChunkSnapshot> MinedChunks { get; set; } = new();
+    public List<ExhaustedRegionSnapshot> ExhaustedRegions { get; set; } = new();
     public List<MinerSnapshot> Miners { get; set; } = new();
 }
 
@@ -63,6 +64,7 @@ public sealed class SaveService
         foreach (WorldSaveData world in data.Worlds.Values)
         {
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
+            world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
             world.Miners ??= new List<MinerSnapshot>();
         }
         return data;
