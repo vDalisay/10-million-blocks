@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Godot;
+using TenMillionBlocks.Automation;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
@@ -99,6 +100,7 @@ public partial class ManualMiningController : Node3D
         queue.Enqueue(initial);
         visited.Add(initial);
         int minedCount = 0;
+        int presentationBursts = 0;
 
         while (queue.Count > 0 && minedCount < requestedBlocks)
         {
@@ -111,6 +113,10 @@ public partial class ManualMiningController : Node3D
 
             minedCount++;
             _view.MarkDirtyAround(candidate);
+            if (presentationBursts < 3)
+            {
+                EmitDebris(result, presentationBursts++);
+            }
 
             foreach (Vector3I direction in VoxelMath.Neighbors)
             {
@@ -123,6 +129,22 @@ public partial class ManualMiningController : Node3D
         }
 
         return minedCount;
+    }
+
+    private void EmitDebris(MiningResult result, int burstIndex)
+    {
+        Vector3I outwardI = _world.Source.GetOutwardNormal(result.Voxel);
+        Vector3 outward = (Vector3)outwardI;
+        float spacing = _world.Profile.BlockSpacing;
+        Vector3 position = _view.VoxelToWorld(result.Voxel) + outward * spacing * 0.48f;
+        int seed = unchecked(result.Voxel.X * 73856093
+            ^ result.Voxel.Y * 19349663
+            ^ result.Voxel.Z * 83492791
+            ^ burstIndex * 265443576);
+
+        var burst = new DrillDebrisBurst { Name = "ManualMiningDebris" };
+        AddChild(burst);
+        burst.Initialize(position, outward, result.BlockId, spacing, seed);
     }
 
     private void UpdateHover()
