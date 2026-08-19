@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 4,
+  "content_version": 5,
   "nodes": [
     {
       "id": "manual_2x",
@@ -46,7 +46,7 @@
     {
       "id": "miner_speed_1",
       "display_name": "Faster Motors",
-      "description": "Repeatable motor upgrade. Each rank makes miners 15% faster.",
+      "description": "Repeatable motor upgrade. Each rank makes general-purpose miners 15% faster.",
       "grid_x": 2,
       "grid_y": 2,
       "category": "automation",
@@ -117,10 +117,10 @@
     {
       "id": "shovel_unlock",
       "display_name": "Powered Shovel",
-      "description": "Unlock a surface crawler that searches neighboring dirt/sand tiles instead of boring inward.",
+      "description": "Unlock a deliberately simple sand crawler. It mines about one sand block per second and initially only understands same-height cardinal neighbors.",
       "grid_x": 2,
       "grid_y": 4,
-      "category": "automation",
+      "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
         {
@@ -137,21 +137,84 @@
       ]
     },
     {
-      "id": "shovel_search_upgrade",
-      "display_name": "Terrain Scout",
-      "description": "When a shovel runs out of adjacent terrain, search up to 5 tiles away for another valid surface patch and jump to it.",
-      "grid_x": 2,
+      "id": "shovel_speed",
+      "display_name": "Shovel Gearbox",
+      "description": "Repeatable shovel-only speed upgrade. Each rank increases Powered Shovel speed by 25%.",
+      "grid_x": 4,
+      "grid_y": 5,
+      "category": "shovel",
+      "purchase_mode": "repeatable",
+      "prerequisites": [
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1,
+          "route": [{ "grid_x": 3, "grid_y": 4 }, { "grid_x": 4, "grid_y": 4 }]
+        }
+      ],
+      "cost": 90,
+      "max_rank": 4,
+      "effects": [
+        { "type": "multiply_shovel_rate", "value": 1.25 }
+      ]
+    },
+    {
+      "id": "shovel_high_torque",
+      "display_name": "High-Torque Drive",
+      "description": "Requires Shovel Gearbox rank 3. Gives the Powered Shovel another 50% speed increase.",
+      "grid_x": 4,
+      "grid_y": 7,
+      "category": "shovel",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "shovel_speed",
+          "required_rank": 3,
+          "route": [{ "grid_x": 4, "grid_y": 6 }]
+        }
+      ],
+      "cost": 420,
+      "max_rank": 1,
+      "effects": [
+        { "type": "multiply_shovel_rate", "value": 1.5 }
+      ]
+    },
+    {
+      "id": "shovel_vertical_sensing",
+      "display_name": "Slope Sensor",
+      "description": "Teach the Powered Shovel to detect sand one block above or below the current surface height while following a neighboring tile.",
+      "grid_x": 1,
       "grid_y": 6,
-      "category": "automation",
+      "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
         {
           "node_id": "shovel_unlock",
           "required_rank": 1,
-          "route": [{ "grid_x": 2, "grid_y": 5 }]
+          "route": [{ "grid_x": 1, "grid_y": 4 }, { "grid_x": 1, "grid_y": 5 }]
         }
       ],
-      "cost": 320,
+      "cost": 220,
+      "max_rank": 1,
+      "effects": [
+        { "type": "set_shovel_height_tolerance", "value": 1.0 }
+      ]
+    },
+    {
+      "id": "shovel_search_upgrade",
+      "display_name": "Terrain Scout",
+      "description": "After all valid adjacent sand is exhausted, search up to 5 tiles away for another valid sand patch and jump to it.",
+      "grid_x": 1,
+      "grid_y": 8,
+      "category": "shovel",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "shovel_vertical_sensing",
+          "required_rank": 1,
+          "route": [{ "grid_x": 1, "grid_y": 7 }]
+        }
+      ],
+      "cost": 360,
       "max_rank": 1,
       "effects": [
         { "type": "set_shovel_search_radius", "value": 5.0 }
