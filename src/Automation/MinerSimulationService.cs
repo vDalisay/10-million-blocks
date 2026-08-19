@@ -14,6 +14,7 @@ public partial class MinerSimulationService : Node3D
 {
     private readonly List<MinerInstance> _miners = new();
     private readonly Dictionary<long, Node3D> _visuals = new();
+    private readonly Dictionary<long, ulong> _lastDebrisAtMs = new();
 
     private VirtualWorld _world = null!;
     private MiningService _mining = null!;
@@ -51,6 +52,9 @@ public partial class MinerSimulationService : Node3D
 
     public override void _Process(double delta)
     {
+        float dt = (float)delta;
+        AnimateDrills(dt);
+
         int budget = MaxMiningOperationsPerFrame;
         bool changed = false;
         double rateMultiplier = _skills.Derived.MinerRateMultiplier;
@@ -122,6 +126,7 @@ public partial class MinerSimulationService : Node3D
             DefinitionId = definitionId,
             Origin = surfaceVoxel,
             Direction = -outward,
+            LastMinedVoxel = surfaceVoxel,
         };
 
         _miners.Add(instance);
@@ -159,7 +164,9 @@ public partial class MinerSimulationService : Node3D
             }
 
             miner.BlocksMined++;
+            miner.LastMinedVoxel = candidate.Value;
             _view.MarkDirtyAround(candidate.Value);
+            EmitDebris(miner, result);
             UpdateVisual(miner);
             return true;
         }
@@ -189,7 +196,7 @@ public partial class MinerSimulationService : Node3D
     private void BuildVisual(MinerInstance miner, Vector3I outward)
     {
         float spacing = _world.Profile.BlockSpacing;
-        Vector3 position = ((Vector3)miner.Origin + (Vector3)outward * 0.72f) * spacing;
+        Vector3 position = DrillPosition(miner, outward, spacing);
 
         var root = new Node3D
         {
@@ -198,32 +205,102 @@ public partial class MinerSimulationService : Node3D
         };
         AddChild(root);
 
-        var material = new StandardMaterial3D
+        var bodyMaterial = new StandardMaterial3D
         {
-            AlbedoColor = new Color(0.16f, 0.76f, 0.92f),
+            AlbedoColor = new Color(0.16f, 0.55f, 0.68f),
+            Metallic = 0.45f,
+            Roughness = 0.38f,
+        };
+        var bitMaterial = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.72f, 0.77f, 0.82f),
+            Metallic = 0.82f,
+            Roughness = 0.24f,
+        };
+        var accentMaterial = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.16f, 0.86f, 0.96f),
             EmissionEnabled = true,
-            Emission = new Color(0.03f, 0.14f, 0.18f),
-            Roughness = 0.55f,
+            Emission = new Color(0.025f, 0.18f, 0.22f),
+            Roughness = 0.42f,
         };
 
         root.AddChild(new MeshInstance3D
         {
-            Name = "Body",
-            Mesh = new BoxMesh
+            Name = "MotorHousing",
+            Position = new Vector3(0.0f, spacing * 0.18f, 0.0f),
+            Mesh = new CylinderMesh
             {
-                Size = new Vector3(spacing * 0.48f, spacing * 0.30f, spacing * 0.48f),
-                Material = material,
+                TopRadius = spacing * 0.25f,
+                BottomRadius = spacing * 0.25f,
+                Height = spacing * 0.34f,
+                RadialSegments = 10,
+                Material = bodyMaterial,
             },
         });
 
+        var drillBit = new Node3D
+        {
+            Name = "DrillBit",
+            Position = new Vector3(0.0f, -spacing * 0.18f, 0.0f),
+        };
+        root.AddChild(drillBit);
+
+        drillBit.AddChild(new MeshInstance3D
+        {
+            Name = "Shaft",
+            Mesh = new CylinderMesh
+            {
+                TopRadius = spacing * 0.11f,
+                BottomRadius = spacing * 0.11f,
+                Height = spacing * 0.34f,
+                RadialSegments = 8,
+                Material = bitMaterial,
+            },
+        });
+
+        drillBit.AddChild(new MeshInstance3D
+        {
+            Name = "Cone",
+            Position = new Vector3(0.0f, -spacing * 0.31f, 0.0f),
+            Mesh = new CylinderMesh
+            {
+                TopRadius = 0.0f,
+                BottomRadius = spacing * 0.23f,
+                Height = spacing * 0.46f,
+                RadialSegments = 8,
+                Material = bitMaterial,
+            },
+        });
+
+        for (int fin = 0; fin < 3; fin++)
+        {
+            float angle = fin * Mathf.Tau / 3.0f;
+            var finMesh = new MeshInstance3D
+            {
+                Name = $"CuttingFin_{fin}",
+                Position = new Vector3(
+                    MathF.Cos(angle) * spacing * 0.12f,
+                    -spacing * 0.16f,
+                    MathF.Sin(angle) * spacing * 0.12f),
+                Rotation = new Vector3(0.0f, -angle, Mathf.DegToRad(28.0f)),
+                Mesh = new BoxMesh
+                {
+                    Size = new Vector3(spacing * 0.06f, spacing * 0.38f, spacing * 0.14f),
+                    Material = bitMaterial,
+                },
+            };
+            drillBit.AddChild(finMesh);
+        }
+
         root.AddChild(new MeshInstance3D
         {
-            Name = "BoreDirection",
-            Position = new Vector3(0.0f, -spacing * 0.34f, 0.0f),
+            Name = "StatusLight",
+            Position = new Vector3(0.0f, spacing * 0.40f, 0.0f),
             Mesh = new BoxMesh
             {
-                Size = new Vector3(spacing * 0.14f, spacing * 0.45f, spacing * 0.14f),
-                Material = material,
+                Size = Vector3.One * spacing * 0.11f,
+                Material = accentMaterial,
             },
         });
 
@@ -237,9 +314,48 @@ public partial class MinerSimulationService : Node3D
             return;
         }
 
-        float pulse = miner.Exhausted ? 0.72f : 1.0f + 0.04f * MathF.Sin((float)Time.GetTicksMsec() * 0.008f);
-        root.Scale = Vector3.One * pulse;
+        Vector3I outward = -miner.Direction;
+        root.Position = DrillPosition(miner, outward, _world.Profile.BlockSpacing);
+        root.Scale = miner.Exhausted ? Vector3.One * 0.82f : Vector3.One;
     }
+
+    private void AnimateDrills(float delta)
+    {
+        foreach (Node3D root in _visuals.Values)
+        {
+            Node3D? bit = root.GetNodeOrNull<Node3D>("DrillBit");
+            if (bit is not null)
+            {
+                bit.RotateY(delta * 9.0f);
+            }
+        }
+    }
+
+    private void EmitDebris(MinerInstance miner, MiningResult result)
+    {
+        ulong now = Time.GetTicksMsec();
+        ulong last = _lastDebrisAtMs.GetValueOrDefault(miner.InstanceId);
+        if (now - last < 80UL)
+        {
+            return;
+        }
+
+        _lastDebrisAtMs[miner.InstanceId] = now;
+        Vector3 outward = (Vector3)(-miner.Direction);
+        float spacing = _world.Profile.BlockSpacing;
+        Vector3 position = _view.VoxelToWorld(result.Voxel) + outward * spacing * 0.48f;
+        int seed = unchecked((int)(miner.InstanceId * 73856093L)
+            ^ result.Voxel.X * 19349663
+            ^ result.Voxel.Y * 83492791
+            ^ result.Voxel.Z * 265443576);
+
+        var burst = new DrillDebrisBurst { Name = $"DrillDebris_{miner.InstanceId}" };
+        AddChild(burst);
+        burst.Initialize(position, outward, result.BlockId, spacing, seed);
+    }
+
+    private static Vector3 DrillPosition(MinerInstance miner, Vector3I outward, float spacing)
+        => ((Vector3)miner.LastMinedVoxel + (Vector3)outward * 0.78f) * spacing;
 
     private static Basis BasisForNormal(Vector3I normal)
     {
