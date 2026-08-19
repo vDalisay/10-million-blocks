@@ -34,4 +34,9 @@ public sealed class BlockDefinition
 
     [JsonPropertyName("tags")]
     public List<string> Tags { get; init; } = [];
+
+    // Optional RGBA multiplier. The source glTF material/texture remains authoritative;
+    // this only produces lightweight visual variants such as shallow/deep water.
+    [JsonPropertyName("render_tint")]
+    public List<float> RenderTint { get; init; } = [];
 }
