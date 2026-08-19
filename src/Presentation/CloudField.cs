@@ -11,6 +11,15 @@ public partial class CloudField : Node3D
 
     private readonly List<CloudOrbiter> _orbiters = new();
 
+    // Clouds must never clip the cube. The cube's own distance metric is the Chebyshev norm, so a
+    // single standoff radius in that metric keeps them clear of faces, edges and corners alike.
+    private float _minStandoff = 30.0f;
+
+    public void SetWorldExtent(float halfExtent)
+    {
+        _minStandoff = halfExtent + 4.0f;
+    }
+
     private sealed class CloudOrbiter
     {
         public Node3D Pivot { get; init; } = null!;
@@ -87,6 +96,15 @@ public partial class CloudField : Node3D
         foreach (CloudOrbiter orbiter in _orbiters)
         {
             Vector3 orbitalPosition = orbiter.Pivot.ToGlobal(orbiter.LocalOffset);
+
+            float chebyshev = MathF.Max(
+                MathF.Abs(orbitalPosition.X),
+                MathF.Max(MathF.Abs(orbitalPosition.Y), MathF.Abs(orbitalPosition.Z)));
+            if (chebyshev > 0.0001f && chebyshev < _minStandoff)
+            {
+                orbitalPosition *= _minStandoff / chebyshev;
+            }
+
             orbiter.Carrier.GlobalPosition = orbitalPosition;
 
             Vector3 outward = orbitalPosition.Normalized();

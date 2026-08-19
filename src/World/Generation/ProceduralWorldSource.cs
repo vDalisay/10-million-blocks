@@ -58,15 +58,17 @@ public sealed class ProceduralWorldSource
         // surface, which naturally creates contiguous lakes/oceans and visible depth.
         if (terrain.HasWater && radius > terrain.GroundRadius + 0.001f && radius <= terrain.WaterRadius + 0.001f)
         {
+            // Tier purely by how deep the whole column is. Mixing in the individual block's own
+            // depth used to tint neighbouring blocks of the same column differently, which read as
+            // speckle instead of a lake; keying off the column alone gives clean concentric bands.
             float totalDepth = MathF.Max(0.0f, terrain.WaterRadius - terrain.GroundRadius);
-            float belowSurface = MathF.Max(0.0f, terrain.WaterRadius - radius);
 
-            if (totalDepth <= 1.35f || belowSurface < 0.70f)
+            if (totalDepth <= 1.60f)
             {
                 return new BlockSample(true, _profile.ShallowWaterBlock, true);
             }
 
-            if (totalDepth >= 2.75f && belowSurface > 1.45f)
+            if (totalDepth > 2.60f)
             {
                 return new BlockSample(true, _profile.DeepWaterBlock, true);
             }
@@ -303,13 +305,17 @@ public sealed class ProceduralWorldSource
         float waterRadius = _profile.BaseRadius + _profile.SeaLevelOffset;
 
         float waterStrength = ocean
-            ? Smooth01((_profile.OceanThreshold - hydrology) / 0.48f)
-            : Smooth01((lakeSignal - _profile.WaterThreshold) / 0.42f);
+            ? Smooth01((_profile.OceanThreshold - hydrology) / 0.30f)
+            : Smooth01((lakeSignal - _profile.WaterThreshold) / 0.26f);
         if (hasWater)
         {
-            float minimumDepth = ocean ? 1.20f : 0.80f;
-            float maximumExtraDepth = ocean ? 3.10f : 1.75f;
-            float desiredFloor = waterRadius - minimumDepth - maximumExtraDepth * waterStrength;
+            // Water bodies are bowls, not sheets. The rim keeps a single shallow block against the
+            // shore while the interior floor drops away, so mining the surface layer of a lake
+            // centre reveals more water underneath.
+            float minimumDepth = ocean ? 1.60f : 1.40f;
+            float maximumExtraDepth = ocean ? 3.60f : 2.60f;
+            float bowl = waterStrength * waterStrength * (3.0f - 2.0f * waterStrength);
+            float desiredFloor = waterRadius - minimumDepth - maximumExtraDepth * bowl;
             groundRadius = MathF.Min(groundRadius, Quantize(desiredFloor, _profile.PlateauStep));
         }
 

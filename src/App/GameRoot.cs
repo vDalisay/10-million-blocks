@@ -28,6 +28,7 @@ public partial class GameRoot : Node3D
     private GameSaveData _save = null!;
 
     private OrbitCameraController _camera = null!;
+    private CloudField _clouds = null!;
     private WorldCompleteView _completionView = null!;
     private Node3D? _sessionRoot;
     private VirtualWorld? _world;
@@ -115,8 +116,8 @@ public partial class GameRoot : Node3D
 
     private void BuildPersistentPresentation()
     {
-        var clouds = new CloudField { Name = "SpacePresentation" };
-        AddChild(clouds);
+        _clouds = new CloudField { Name = "SpacePresentation" };
+        AddChild(_clouds);
 
         _camera = new OrbitCameraController { Name = "OrbitCamera" };
         AddChild(_camera);
@@ -135,6 +136,9 @@ public partial class GameRoot : Node3D
         TearDownWorldSession();
         _completionView.HideCompletion();
         _completionShown = false;
+
+        _clouds.SetWorldExtent(
+            profile.BlockSpacing * (profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude));
 
         _sessionRoot = new Node3D { Name = $"WorldSession_{profile.Id}" };
         AddChild(_sessionRoot);
@@ -370,10 +374,15 @@ public partial class GameRoot : Node3D
             BackgroundMode = Godot.Environment.BGMode.Color,
             BackgroundColor = new Color(0.003f, 0.008f, 0.025f, 1.0f),
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
-            AmbientLightColor = new Color(0.13f, 0.20f, 0.32f, 1.0f),
-            AmbientLightEnergy = 0.30f,
+            AmbientLightColor = new Color(0.74f, 0.78f, 0.84f, 1.0f),
+            AmbientLightEnergy = 0.42f,
             ReflectedLightSource = Godot.Environment.ReflectionSource.Disabled,
             TonemapMode = Godot.Environment.ToneMapper.Filmic,
+            TonemapWhite = 2.0f,
+            SsaoEnabled = true,
+            SsaoRadius = 1.6f,
+            SsaoIntensity = 2.6f,
+            SsaoPower = 1.4f,
         };
 
         AddChild(new WorldEnvironment
@@ -382,37 +391,31 @@ public partial class GameRoot : Node3D
             Environment = environment,
         });
 
+        // Reference look: one broad neutral key with soft shadows plus a dim opposite fill. The
+        // former blue omni fill is what gave the blocks their plastic, over-specular sheen.
         var keyLight = new DirectionalLight3D
         {
             Name = "KeyLight",
-            RotationDegrees = new Vector3(-48.0f, -36.0f, 0.0f),
-            LightColor = new Color(0.93f, 0.96f, 1.0f),
-            LightEnergy = 1.15f,
+            RotationDegrees = new Vector3(-52.0f, -34.0f, 0.0f),
+            LightColor = new Color(1.0f, 0.98f, 0.94f),
+            LightEnergy = 1.05f,
+            LightSpecular = 0.0f,
             ShadowEnabled = true,
-            DirectionalShadowMaxDistance = 120.0f,
+            DirectionalShadowMaxDistance = 140.0f,
+            ShadowBlur = 1.4f,
         };
         AddChild(keyLight);
 
-        var coolFill = new OmniLight3D
+        var fillLight = new DirectionalLight3D
         {
-            Name = "CoolFill",
-            Position = new Vector3(-30.0f, 22.0f, 35.0f),
-            LightColor = new Color(0.22f, 0.38f, 0.68f),
-            LightEnergy = 2.0f,
-            OmniRange = 85.0f,
+            Name = "FillLight",
+            RotationDegrees = new Vector3(24.0f, 146.0f, 0.0f),
+            LightColor = new Color(0.72f, 0.82f, 1.0f),
+            LightEnergy = 0.45f,
+            LightSpecular = 0.0f,
             ShadowEnabled = false,
         };
-        AddChild(coolFill);
-
-        var rimLight = new DirectionalLight3D
-        {
-            Name = "RimLight",
-            RotationDegrees = new Vector3(38.0f, 142.0f, 8.0f),
-            LightColor = new Color(0.22f, 0.38f, 0.64f),
-            LightEnergy = 0.30f,
-            ShadowEnabled = false,
-        };
-        AddChild(rimLight);
+        AddChild(fillLight);
     }
 
     private void ShowFatalError(string message)

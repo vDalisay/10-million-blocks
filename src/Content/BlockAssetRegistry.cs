@@ -79,39 +79,26 @@ public sealed class BlockAssetRegistry
         }
 
         BlockDefinition definition = _content.GetBlock(blockId);
-        if (definition.RenderTint.Count == 0)
-        {
-            _materialOverrides[blockId] = null;
-            return null;
-        }
-
-        float r = definition.RenderTint.Count > 0 ? definition.RenderTint[0] : 1.0f;
-        float g = definition.RenderTint.Count > 1 ? definition.RenderTint[1] : 1.0f;
-        float b = definition.RenderTint.Count > 2 ? definition.RenderTint[2] : 1.0f;
-        float a = definition.RenderTint.Count > 3 ? definition.RenderTint[3] : 1.0f;
-        Color tint = new(r, g, b, a);
-
         Mesh mesh = GetMesh(blockId);
         Material? source = mesh.GetSurfaceCount() > 0 ? mesh.SurfaceGetMaterial(0) : null;
-        Material material;
-        if (source is StandardMaterial3D standard)
+
+        // The reference art is flat-shaded voxel work: no specular highlights and no metallic
+        // sheen, so every block material is forced matte regardless of what the glTF shipped with.
+        StandardMaterial3D material = source is StandardMaterial3D standard
+            ? (StandardMaterial3D)standard.Duplicate(false)
+            : new StandardMaterial3D();
+        material.Roughness = 1.0f;
+        material.Metallic = 0.0f;
+        material.SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled;
+
+        if (definition.RenderTint.Count > 0)
         {
-            var duplicate = (StandardMaterial3D)standard.Duplicate(true);
-            Color baseColor = duplicate.AlbedoColor;
-            duplicate.AlbedoColor = new Color(
-                baseColor.R * tint.R,
-                baseColor.G * tint.G,
-                baseColor.B * tint.B,
-                baseColor.A * tint.A);
-            material = duplicate;
-        }
-        else
-        {
-            material = new StandardMaterial3D
-            {
-                AlbedoColor = tint,
-                Roughness = 0.82f,
-            };
+            float r = definition.RenderTint.Count > 0 ? definition.RenderTint[0] : 1.0f;
+            float g = definition.RenderTint.Count > 1 ? definition.RenderTint[1] : 1.0f;
+            float b = definition.RenderTint.Count > 2 ? definition.RenderTint[2] : 1.0f;
+            float a = definition.RenderTint.Count > 3 ? definition.RenderTint[3] : 1.0f;
+            Color baseColor = material.AlbedoColor;
+            material.AlbedoColor = new Color(baseColor.R * r, baseColor.G * g, baseColor.B * b, baseColor.A * a);
         }
 
         _materialOverrides[blockId] = material;
