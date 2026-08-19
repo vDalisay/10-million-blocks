@@ -27,6 +27,7 @@ public partial class GameRoot : Node3D
             MinerCatalog minerCatalog = MinerCatalog.Load();
             SkillTreeCatalog skillCatalog = SkillTreeCatalog.Load();
             var patterns = new MiningPatternRegistry();
+            ContentCrossValidator.Validate(minerCatalog, patterns, skillCatalog);
 
             WorldProfile profile = worlds.Get("reference_natural");
             var world = new VirtualWorld(profile);
