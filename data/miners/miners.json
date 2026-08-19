@@ -45,13 +45,9 @@
       "pattern_id": "surface_strip",
       "range": 36,
       "power": 1.0,
-      "allowed_block_tags": ["surface", "soil", "sand"],
-      "tag_rate_multipliers": {
-        "surface": 1.75,
-        "soil": 2.5,
-        "sand": 3.0
-      },
-      "description": "Crawls to neighboring exposed dirt/sand surface tiles instead of boring inward; Terrain Scout can bridge a wider gap."
+      "allowed_block_tags": ["sand"],
+      "tag_rate_multipliers": {},
+      "description": "Starts as a deliberately dumb one-block-per-second sand crawler. Skills add speed, slope sensing and longer-range terrain scouting."
     }
   ]
 }
