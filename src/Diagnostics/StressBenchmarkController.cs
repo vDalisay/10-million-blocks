@@ -11,6 +11,7 @@ public partial class StressBenchmarkController : Node
 {
     private const double BenchmarkDurationSeconds = 20.0;
     private const int GeneratorProbesPerFrame = 128;
+    private const double BulkIntervalSeconds = 2.0;
 
     private VirtualWorld _world = null!;
     private WorldView _view = null!;
@@ -18,7 +19,7 @@ public partial class StressBenchmarkController : Node
     private OrbitCameraController _camera = null!;
     private bool _running;
     private double _elapsed;
-    private double _bulkTimer;
+    private double _lastBulkAt;
     private long _probeCount;
     private long _bulkBlocks;
     private double _generatorMilliseconds;
@@ -26,6 +27,8 @@ public partial class StressBenchmarkController : Node
     private double _minimumFps = double.MaxValue;
     private long _regionCursor;
     private uint _randomState = 0x9e3779b9u;
+    private ulong _startedAtUsec;
+    private ulong _lastFrameUsec;
 
     public bool IsRunning => _running;
 
@@ -63,11 +66,22 @@ public partial class StressBenchmarkController : Node
 
     public override void _Process(double delta)
     {
+        _ = delta;
         if (!_running) return;
 
-        _elapsed += delta;
-        _bulkTimer += delta;
-        _camera.AddOrbitDegrees(14.0f * (float)delta, MathF.Sin((float)_elapsed * 0.7f) * 0.10f);
+        // Engine frame delta is intentionally not used as the benchmark clock. Godot clamps long
+        // frame deltas, which made a 20 second benchmark take minutes when chunk builds stalled for
+        // >1 second. Wall-clock microseconds keep the benchmark duration truthful even under severe
+        // frame-time regressions.
+        ulong nowUsec = Time.GetTicksUsec();
+        _elapsed = (nowUsec - _startedAtUsec) / 1_000_000.0;
+        double wallDelta = (nowUsec - _lastFrameUsec) / 1_000_000.0;
+        _lastFrameUsec = nowUsec;
+
+        // Use real elapsed time for the automated orbit too, but clamp an individual jump so one
+        // pathological frame cannot teleport the camera through several streaming working sets.
+        float orbitDelta = (float)Math.Min(wallDelta, 0.25);
+        _camera.AddOrbitDegrees(14.0f * orbitDelta, MathF.Sin((float)_elapsed * 0.7f) * 0.10f);
 
         ulong started = Time.GetTicksUsec();
         ProbeGenerator();
@@ -76,9 +90,9 @@ public partial class StressBenchmarkController : Node
         _maxProbeBatchMilliseconds = Math.Max(_maxProbeBatchMilliseconds, probeMs);
         _minimumFps = Math.Min(_minimumFps, Engine.GetFramesPerSecond());
 
-        if (_bulkTimer >= 2.0)
+        if (_elapsed - _lastBulkAt >= BulkIntervalSeconds)
         {
-            _bulkTimer = 0.0;
+            _lastBulkAt = _elapsed;
             RegionCoord region = RegionFromCursor(_regionCursor++);
             BulkMiningResult result = _mining.TryExhaustRegion(region, MiningSource.Debug);
             if (result.Success)
@@ -94,11 +108,25 @@ public partial class StressBenchmarkController : Node
         }
     }
 
+    public override void _ExitTree()
+    {
+        // Normal window close / scene teardown should still leave diagnostic evidence. A hard OS
+        // process kill cannot be intercepted, but every orderly exit now writes an aborted report.
+        if (_running)
+        {
+            ulong nowUsec = Time.GetTicksUsec();
+            _elapsed = _startedAtUsec == 0 ? _elapsed : (nowUsec - _startedAtUsec) / 1_000_000.0;
+            Finish("aborted");
+        }
+    }
+
     private void StartBenchmark()
     {
         _running = true;
+        _startedAtUsec = Time.GetTicksUsec();
+        _lastFrameUsec = _startedAtUsec;
         _elapsed = 0.0;
-        _bulkTimer = 0.0;
+        _lastBulkAt = 0.0;
         _probeCount = 0L;
         _bulkBlocks = 0L;
         _generatorMilliseconds = 0.0;
@@ -106,7 +134,7 @@ public partial class StressBenchmarkController : Node
         _minimumFps = double.MaxValue;
         _regionCursor = 0L;
         _randomState = unchecked((uint)_world.Profile.Seed) ^ 0x9e3779b9u;
-        GD.Print("Stress benchmark started: 20s camera orbit + generator probes + aggregate region mining. [F7] cancels.");
+        GD.Print("Stress benchmark started: 20s wall-clock camera orbit + generator probes + aggregate region mining. [F7] cancels.");
     }
 
     private void ProbeGenerator()
