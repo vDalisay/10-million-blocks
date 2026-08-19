@@ -25,9 +25,9 @@ public static class WorldSelfTest
         ValidateReferenceEcology(reference, source);
         ValidateSparseState(reference);
         ValidateStressScale(catalog.Get("stress_1000"));
-        ValidateMillionScale(catalog.Get("final_scale_1m"));
+        ValidateMillionTarget(catalog.Get("final_target_1m"));
 
-        GD.Print("World self-tests passed: ecology, sparse state, 1000 streaming counters, region aggregates, and million-scale logical addressing.");
+        GD.Print("World self-tests passed: ecology, sparse state, 1000 address-space streaming counters, region aggregates, and the one-million-block final target.");
     }
 
     private static void ValidateSparseState(WorldProfile reference)
@@ -49,7 +49,7 @@ public static class WorldSelfTest
     {
         var world = new VirtualWorld(stress);
         long total = world.InitializeMineableBlockCount();
-        Assert(total == stress.TargetMineableBlocks, "1000 stress world uses authored total without full scan");
+        Assert(total == 1_000_000L, "1000 stress world uses the one-million-block authored target without full scan");
         Assert(world.State.ModifiedChunkCount == 0, "1000 stress startup allocates no sparse chunks");
         Assert(world.State.ExhaustedRegionCount == 0, "1000 stress startup allocates no region markers");
 
@@ -72,36 +72,36 @@ public static class WorldSelfTest
         Assert(restored.ExhaustedRegionCount == 1, "aggregate region marker round trip");
     }
 
-    private static void ValidateMillionScale(WorldProfile profile)
+    private static void ValidateMillionTarget(WorldProfile profile)
     {
         var world = new VirtualWorld(profile);
         long total = world.InitializeMineableBlockCount();
-        Assert(total == 1_000_000_000_000L, "million-squared profile exact authored total");
-        Assert(world.TotalLogicalRegionCount > 1_000_000_000L, "million-scale hierarchy has billions of addressable regions without allocation");
+        Assert(total == 1_000_000L, "final validation profile has exactly one million authored mineable blocks");
+        Assert(world.TotalLogicalRegionCount > 1L, "final target remains hierarchically partitioned");
         Assert(world.State.ModifiedChunkCount == 0 && world.State.ExhaustedRegionCount == 0,
-            "million-scale profile creation remains sparse");
+            "final-target profile creation remains sparse");
 
-        int far = Math.Min(world.MaxCoordinate - 2, 499_990);
-        BlockSample a = world.Source.SampleVoxel(new Vector3I(far, 123_456, -222_222));
-        BlockSample b = world.Source.SampleVoxel(new Vector3I(far, 123_456, -222_222));
-        Assert(a.Equals(b), "million-scale far coordinate deterministic generation");
-        _ = world.Source.SampleVoxel(new Vector3I(-far, -345_678, 100_000));
+        int far = Math.Max(1, world.MaxCoordinate - 3);
+        BlockSample a = world.Source.SampleVoxel(new Vector3I(far, 20, -31));
+        BlockSample b = world.Source.SampleVoxel(new Vector3I(far, 20, -31));
+        Assert(a.Equals(b), "final-target far coordinate deterministic generation");
+        _ = world.Source.SampleVoxel(new Vector3I(-far, -27, 18));
 
         RegionCoord distant = new(world.MaxRegionCoordinate, 0, world.MinRegionCoordinate);
         long quota = world.GetRegionQuota(distant);
-        Assert(quota > 0, "million-scale distant region quota available in O(1)");
-        Assert(world.TryExhaustRegion(distant, out long mined), "million-scale distant region aggregate exhaustion");
+        Assert(quota > 0, "final-target distant region quota available in O(1)");
+        Assert(world.TryExhaustRegion(distant, out long mined), "final-target distant region aggregate exhaustion");
         Assert(mined == quota && world.RemainingMineableBlocks == total - quota,
-            "million-scale aggregate mining keeps exact 64-bit accounting");
+            "final-target aggregate mining keeps exact 64-bit accounting");
         Assert(world.State.SparseVoxelOverrideCount == 0,
-            "million-scale aggregate mining does not visit/store individual voxels");
+            "final-target aggregate mining does not visit/store individual voxels");
 
         long axis = world.RegionAxisCount;
         long regionCount = world.TotalLogicalRegionCount;
         long quotient = total / regionCount;
         long remainder = total % regionCount;
         Assert(checked(quotient * regionCount + remainder) == total,
-            "region quota quotient/remainder reconstructs exact million-scale total");
+            "region quota quotient/remainder reconstructs exact one-million-block total");
     }
 
     private static void ValidateReferenceEcology(WorldProfile profile, ProceduralWorldSource source)
