@@ -12,7 +12,7 @@ public sealed class VirtualWorld
     {
         Profile = profile;
         Source = new ProceduralWorldSource(profile);
-        State = new WorldStateStore(profile.ChunkSize);
+        State = new WorldStateStore(profile.ChunkSize, profile.RegionSizeInChunks);
     }
 
     public WorldProfile Profile { get; }
@@ -22,6 +22,12 @@ public sealed class VirtualWorld
     public long RemainingMineableBlocks => Math.Max(0L, InitialMineableBlocks - State.MinedVoxelCount);
 
     public int MaxCoordinate => Profile.MaxCoordinate;
+    public int MinChunkCoordinate => VoxelMath.FloorDiv(-MaxCoordinate, Profile.ChunkSize);
+    public int MaxChunkCoordinate => VoxelMath.FloorDiv(MaxCoordinate, Profile.ChunkSize);
+    public int MinRegionCoordinate => VoxelMath.FloorDiv(MinChunkCoordinate, Profile.RegionSizeInChunks);
+    public int MaxRegionCoordinate => VoxelMath.FloorDiv(MaxChunkCoordinate, Profile.RegionSizeInChunks);
+    public long RegionAxisCount => (long)MaxRegionCoordinate - MinRegionCoordinate + 1L;
+    public long TotalLogicalRegionCount => checked(checked(RegionAxisCount * RegionAxisCount) * RegionAxisCount);
 
     public BlockSample SampleVoxel(Vector3I coordinate)
     {
@@ -69,14 +75,29 @@ public sealed class VirtualWorld
         return State.MarkMined(coordinate);
     }
 
+    /// <summary>
+    /// Initializes the authoritative total without forcing large profiles to enumerate their volume.
+    /// Small worlds remain exact scans; large profiles use the authored logical target.
+    /// </summary>
+    public long InitializeMineableBlockCount()
+    {
+        if (Profile.TargetMineableBlocks > 0)
+        {
+            InitialMineableBlocks = Profile.TargetMineableBlocks;
+            return InitialMineableBlocks;
+        }
+
+        return CountMineableBlocksExact();
+    }
+
     public long CountMineableBlocksExact()
     {
         int max = MaxCoordinate;
-        if (max > 96)
+        if (max > Profile.StreamingThresholdMaxCoordinate)
         {
             throw new InvalidOperationException(
                 $"Exact full-volume counting is intentionally disabled for world '{Profile.Id}' with bound {max}. " +
-                "Large worlds must use authored/aggregate counters rather than scanning their address space.");
+                "Large worlds must use target_mineable_blocks and region aggregates rather than scanning their address space.");
         }
 
         long count = 0;
@@ -93,6 +114,57 @@ public sealed class VirtualWorld
 
         InitialMineableBlocks = count;
         return count;
+    }
+
+    public bool IsRegionInBounds(RegionCoord region)
+        => region.X >= MinRegionCoordinate && region.X <= MaxRegionCoordinate
+            && region.Y >= MinRegionCoordinate && region.Y <= MaxRegionCoordinate
+            && region.Z >= MinRegionCoordinate && region.Z <= MaxRegionCoordinate;
+
+    /// <summary>
+    /// Deterministically partitions the authored logical total over the region address space. The
+    /// quotient/remainder partition sums exactly to InitialMineableBlocks without allocating an entry
+    /// for every region, even for the million-scale validation profile.
+    /// </summary>
+    public long GetRegionQuota(RegionCoord region)
+    {
+        if (!IsRegionInBounds(region) || InitialMineableBlocks <= 0)
+        {
+            return 0L;
+        }
+
+        long axis = RegionAxisCount;
+        long x = (long)region.X - MinRegionCoordinate;
+        long y = (long)region.Y - MinRegionCoordinate;
+        long z = (long)region.Z - MinRegionCoordinate;
+        long index = checked(checked(x * axis + y) * axis + z);
+        long regionCount = TotalLogicalRegionCount;
+        long quotient = InitialMineableBlocks / regionCount;
+        long remainder = InitialMineableBlocks % regionCount;
+        return quotient + (index < remainder ? 1L : 0L);
+    }
+
+    public bool TryExhaustRegion(RegionCoord region, out long newlyMined)
+    {
+        newlyMined = 0L;
+        long quota = GetRegionQuota(region);
+        if (quota <= 0 || State.IsRegionExhausted(region))
+        {
+            return false;
+        }
+
+        newlyMined = State.MarkRegionExhausted(region, quota);
+        return newlyMined > 0;
+    }
+
+    public Aabb GetRegionVoxelBounds(RegionCoord region)
+    {
+        int regionVoxelSize = checked(Profile.ChunkSize * Profile.RegionSizeInChunks);
+        Vector3I minVoxel = new(
+            region.X * regionVoxelSize,
+            region.Y * regionVoxelSize,
+            region.Z * regionVoxelSize);
+        return new Aabb((Vector3)minVoxel, Vector3.One * regionVoxelSize);
     }
 
     public Aabb GetWorldBounds()
