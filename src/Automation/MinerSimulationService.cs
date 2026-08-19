@@ -16,15 +16,13 @@ public partial class MinerSimulationService : Node3D
 {
     // KayKit "Go Deeper" shovel. The source mesh is ~6.7 units along its handle and is modelled off
     // to one side of its origin, so it needs a scale and a recentring offset to stand on a block.
-    // This preserves the current locally-authored presentation while the tool-class visual registry
-    // is built out as additional axe/pickaxe assets become available.
     private const float ShovelScale = 0.22f;
     private static readonly Vector3 ShovelRecentre = new(2.30f, 0.0f, -0.55f);
-
     private static readonly PackedScene ShovelScene = GD.Load<PackedScene>("res://Assets/godeeper/shovel.gltf");
 
     private readonly List<MinerInstance> _miners = new();
     private readonly Dictionary<long, Node3D> _visuals = new();
+    private readonly Dictionary<long, Node3D> _rotors = new();
     private readonly Dictionary<long, ulong> _lastDebrisAtMs = new();
 
     private VirtualWorld _world = null!;
@@ -65,6 +63,14 @@ public partial class MinerSimulationService : Node3D
 
     public override void _Process(double delta)
     {
+        float dt = (float)delta;
+        foreach ((long id, Node3D rotor) in _rotors)
+        {
+            MinerInstance? miner = _miners.FirstOrDefault(candidate => candidate.InstanceId == id);
+            if (miner is null || miner.Exhausted) continue;
+            rotor.RotateY(dt * 9.5f);
+        }
+
         int budget = MaxMiningOperationsPerFrame;
         bool changed = false;
         double rateMultiplier = _skills.Derived.MinerRateMultiplier;
@@ -217,6 +223,7 @@ public partial class MinerSimulationService : Node3D
     {
         foreach (Node3D visual in _visuals.Values) visual.QueueFree();
         _visuals.Clear();
+        _rotors.Clear();
         _miners.Clear();
         _lastDebrisAtMs.Clear();
         _nextInstanceId = 1;
@@ -300,31 +307,146 @@ public partial class MinerSimulationService : Node3D
     private void BuildVisual(MinerInstance miner, Vector3I outward)
     {
         float spacing = _world.Profile.BlockSpacing;
+        MinerDefinition definition = _catalog.Get(miner.DefinitionId);
 
         var root = new Node3D
         {
             Name = $"Miner_{miner.InstanceId}",
-            Transform = new Transform3D(BasisForNormal(outward), DrillPosition(miner, outward, spacing)),
+            Transform = new Transform3D(BasisForNormal(outward), MinerPosition(miner, outward, spacing)),
         };
         AddChild(root);
 
-        // Root local +Y is the outward face normal and the shovel models handle-up, so it plants
-        // blade-first into the block it is working with no extra rotation beyond a slight lean.
+        if (definition.ToolClass.Equals("shovel", StringComparison.OrdinalIgnoreCase))
+        {
+            BuildShovelVisual(root, spacing);
+        }
+        else
+        {
+            BuildDrillVisual(root, miner.InstanceId, spacing);
+        }
+
+        _visuals[miner.InstanceId] = root;
+    }
+
+    private static void BuildShovelVisual(Node3D root, float spacing)
+    {
+        // Root local +Y is the outward face normal and the shovel model is handle-up, so it plants
+        // blade-first into the working block with a slight lean.
         float scale = ShovelScale * spacing;
         var model = ShovelScene.Instantiate<Node3D>();
         model.Transform = new Transform3D(
             new Basis(Vector3.Back, Mathf.DegToRad(14.0f)).Scaled(Vector3.One * scale),
             ShovelRecentre * scale);
         root.AddChild(model);
+    }
 
-        _visuals[miner.InstanceId] = root;
+    private void BuildDrillVisual(Node3D root, long instanceId, float spacing)
+    {
+        var housingMaterial = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.34f, 0.38f, 0.43f),
+            Roughness = 0.82f,
+            Metallic = 0.18f,
+        };
+        var steelMaterial = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.62f, 0.67f, 0.72f),
+            Roughness = 0.64f,
+            Metallic = 0.34f,
+        };
+        var accentMaterial = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.92f, 0.58f, 0.12f),
+            EmissionEnabled = true,
+            Emission = new Color(0.62f, 0.24f, 0.04f),
+            EmissionEnergyMultiplier = 0.55f,
+            Roughness = 0.7f,
+        };
+
+        var housing = new MeshInstance3D
+        {
+            Mesh = new CylinderMesh
+            {
+                TopRadius = spacing * 0.23f,
+                BottomRadius = spacing * 0.23f,
+                Height = spacing * 0.50f,
+                RadialSegments = 12,
+                Material = housingMaterial,
+            },
+            Position = Vector3.Up * spacing * 0.28f,
+        };
+        root.AddChild(housing);
+
+        var cap = new MeshInstance3D
+        {
+            Mesh = new CylinderMesh
+            {
+                TopRadius = spacing * 0.17f,
+                BottomRadius = spacing * 0.21f,
+                Height = spacing * 0.12f,
+                RadialSegments = 12,
+                Material = accentMaterial,
+            },
+            Position = Vector3.Up * spacing * 0.59f,
+        };
+        root.AddChild(cap);
+
+        var rotor = new Node3D { Name = "Rotor" };
+        root.AddChild(rotor);
+
+        rotor.AddChild(new MeshInstance3D
+        {
+            Mesh = new CylinderMesh
+            {
+                TopRadius = spacing * 0.075f,
+                BottomRadius = spacing * 0.075f,
+                Height = spacing * 0.48f,
+                RadialSegments = 10,
+                Material = steelMaterial,
+            },
+            Position = Vector3.Down * spacing * 0.17f,
+        });
+
+        rotor.AddChild(new MeshInstance3D
+        {
+            Mesh = new CylinderMesh
+            {
+                TopRadius = 0.0f,
+                BottomRadius = spacing * 0.18f,
+                Height = spacing * 0.38f,
+                RadialSegments = 12,
+                Material = steelMaterial,
+            },
+            Position = Vector3.Down * spacing * 0.58f,
+        });
+
+        for (int i = 0; i < 3; i++)
+        {
+            float angle = i * Mathf.Tau / 3.0f;
+            var fin = new MeshInstance3D
+            {
+                Mesh = new BoxMesh
+                {
+                    Size = new Vector3(spacing * 0.06f, spacing * 0.26f, spacing * 0.28f),
+                    Material = steelMaterial,
+                },
+                Position = new Vector3(
+                    MathF.Cos(angle) * spacing * 0.12f,
+                    -spacing * 0.40f,
+                    MathF.Sin(angle) * spacing * 0.12f),
+                Rotation = new Vector3(0, -angle, 0),
+            };
+            rotor.AddChild(fin);
+        }
+
+        _rotors[instanceId] = rotor;
     }
 
     private void UpdateVisual(MinerInstance miner)
     {
         if (!_visuals.TryGetValue(miner.InstanceId, out Node3D? root)) return;
         Vector3I outward = -miner.Direction;
-        root.Position = DrillPosition(miner, outward, _world.Profile.BlockSpacing);
+        root.Position = MinerPosition(miner, outward, _world.Profile.BlockSpacing);
         root.Scale = miner.Exhausted ? Vector3.One * 0.82f : Vector3.One;
     }
 
@@ -348,7 +470,7 @@ public partial class MinerSimulationService : Node3D
         burst.Initialize(position, outward, result.BlockId, spacing, seed);
     }
 
-    private static Vector3 DrillPosition(MinerInstance miner, Vector3I outward, float spacing)
+    private static Vector3 MinerPosition(MinerInstance miner, Vector3I outward, float spacing)
         => ((Vector3)miner.LastMinedVoxel + (Vector3)outward * 0.78f) * spacing;
 
     private static Basis BasisForNormal(Vector3I normal)
