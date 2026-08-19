@@ -23,6 +23,15 @@ public readonly record struct MiningResult(
     long Remaining,
     MiningSource Source);
 
+public readonly record struct BulkMiningResult(
+    bool Success,
+    RegionCoord Region,
+    long BlocksMined,
+    long Reward,
+    long TotalMined,
+    long Remaining,
+    MiningSource Source);
+
 public sealed class MiningService
 {
     private readonly VirtualWorld _world;
@@ -35,6 +44,7 @@ public sealed class MiningService
     }
 
     public event Action<MiningResult>? BlockMined;
+    public event Action<BulkMiningResult>? BulkMined;
     public event Action<long>? CurrencyChanged;
 
     public long TotalMined => _world.State.MinedVoxelCount;
@@ -63,6 +73,25 @@ public sealed class MiningService
 
         var result = new MiningResult(true, voxel, mined.BlockId, reward, TotalMined, Remaining, source);
         BlockMined?.Invoke(result);
+        CurrencyChanged?.Invoke(Currency);
+        return result;
+    }
+
+    /// <summary>
+    /// Hierarchical mining path for large worlds. One region aggregate replaces potentially millions
+    /// of per-block state/events while preserving exact 64-bit mined/remaining accounting.
+    /// </summary>
+    public BulkMiningResult TryExhaustRegion(RegionCoord region, MiningSource source)
+    {
+        if (!_world.TryExhaustRegion(region, out long blocksMined))
+        {
+            return new BulkMiningResult(false, region, 0L, 0L, TotalMined, Remaining, source);
+        }
+
+        long reward = checked(blocksMined * _world.Profile.AggregateRewardPerBlock);
+        Currency = checked(Currency + reward);
+        var result = new BulkMiningResult(true, region, blocksMined, reward, TotalMined, Remaining, source);
+        BulkMined?.Invoke(result);
         CurrencyChanged?.Invoke(Currency);
         return result;
     }
