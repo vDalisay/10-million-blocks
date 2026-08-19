@@ -8,6 +8,7 @@ public sealed class MinerInstance
     public string DefinitionId { get; init; } = string.Empty;
     public Vector3I Origin { get; init; }
     public Vector3I Direction { get; init; }
+    public Vector3I LastMinedVoxel { get; set; }
     public int CandidateIndex { get; set; }
     public long BlocksMined { get; set; }
     public double WorkAccumulator { get; set; }
