@@ -51,8 +51,8 @@ public partial class SkillTreeView : CanvasLayer
         {
             Text = "SKILL TREE",
             Position = new Vector2(32, 24),
-            ThemeOverrideFontSizes = { ["font_size"] = 24 },
         };
+        title.AddThemeFontSizeOverride("font_size", 24);
         _root.AddChild(title);
 
         _resources = new Label { Position = new Vector2(32, 58) };
@@ -130,7 +130,7 @@ public partial class SkillTreeView : CanvasLayer
         {
             var button = new Button
             {
-                Position = NodePosition(node),
+                Position = SkillGraphCanvas.NodePosition(node),
                 Size = new Vector2(174, 82),
                 TooltipText = node.Description,
             };
@@ -181,33 +181,38 @@ public partial class SkillTreeView : CanvasLayer
             button.Disabled = maxed || !prerequisites;
         }
 
-        _graph?.QueueRedraw();
+        _graph.QueueRedraw();
     }
+}
 
-    private static Vector2 NodePosition(SkillNodeDefinition node)
-        => new(24 + node.GridX * 200, 40 + node.GridY * 112);
+public partial class SkillGraphCanvas : Control
+{
+    private SkillTreeService _skills = null!;
 
-    private sealed partial class SkillGraphCanvas : Control
+    public void Initialize(SkillTreeService skills) => _skills = skills;
+
+    public override void _Draw()
     {
-        private SkillTreeService _skills = null!;
+        if (_skills is null) return;
 
-        public void Initialize(SkillTreeService skills) => _skills = skills;
-
-        public override void _Draw()
+        foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
-            if (_skills is null) return;
-
-            foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
+            Vector2 to = NodePosition(node) + new Vector2(87, 41);
+            foreach (string prerequisiteId in node.PrerequisiteNodeIds)
             {
-                Vector2 to = NodePosition(node) + new Vector2(87, 41);
-                foreach (string prerequisiteId in node.PrerequisiteNodeIds)
-                {
-                    SkillNodeDefinition prerequisite = _skills.Catalog.Get(prerequisiteId);
-                    Vector2 from = NodePosition(prerequisite) + new Vector2(87, 41);
-                    bool owned = _skills.GetRank(prerequisiteId) > 0;
-                    DrawLine(from, to, owned ? new Color(0.30f, 0.78f, 0.94f) : new Color(0.28f, 0.32f, 0.40f), 3.0f, true);
-                }
+                SkillNodeDefinition prerequisite = _skills.Catalog.Get(prerequisiteId);
+                Vector2 from = NodePosition(prerequisite) + new Vector2(87, 41);
+                bool owned = _skills.GetRank(prerequisiteId) > 0;
+                DrawLine(
+                    from,
+                    to,
+                    owned ? new Color(0.30f, 0.78f, 0.94f) : new Color(0.28f, 0.32f, 0.40f),
+                    3.0f,
+                    true);
             }
         }
     }
+
+    public static Vector2 NodePosition(SkillNodeDefinition node)
+        => new(24 + node.GridX * 200, 40 + node.GridY * 112);
 }
