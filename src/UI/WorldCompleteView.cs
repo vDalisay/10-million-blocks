@@ -7,10 +7,12 @@ namespace TenMillionBlocks.UI;
 public partial class WorldCompleteView : CanvasLayer
 {
     private Control _root = null!;
+    private PanelContainer _panel = null!;
     private Label _title = null!;
     private Label _stats = null!;
     private Label _next = null!;
     private Button _continue = null!;
+    private Tween? _transition;
 
     public event Action? ContinueRequested;
     public bool IsOpen => _root is not null && _root.Visible;
@@ -35,7 +37,7 @@ public partial class WorldCompleteView : CanvasLayer
         backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(backdrop);
 
-        var panel = new PanelContainer
+        _panel = new PanelContainer
         {
             AnchorLeft = 0.5f,
             AnchorTop = 0.5f,
@@ -45,15 +47,16 @@ public partial class WorldCompleteView : CanvasLayer
             OffsetTop = -190,
             OffsetRight = 270,
             OffsetBottom = 190,
+            PivotOffset = new Vector2(270, 190),
         };
-        _root.AddChild(panel);
+        _root.AddChild(_panel);
 
         var margin = new MarginContainer();
         margin.AddThemeConstantOverride("margin_left", 28);
         margin.AddThemeConstantOverride("margin_top", 26);
         margin.AddThemeConstantOverride("margin_right", 28);
         margin.AddThemeConstantOverride("margin_bottom", 24);
-        panel.AddChild(margin);
+        _panel.AddChild(margin);
 
         var column = new VBoxContainer();
         column.AddThemeConstantOverride("separation", 16);
@@ -82,7 +85,7 @@ public partial class WorldCompleteView : CanvasLayer
             Text = "Continue",
             CustomMinimumSize = new Vector2(0, 48),
         };
-        _continue.Pressed += () => ContinueRequested?.Invoke();
+        _continue.Pressed += OnContinuePressed;
         column.AddChild(_continue);
     }
 
@@ -111,8 +114,47 @@ public partial class WorldCompleteView : CanvasLayer
             _continue.Text = "Continue";
         }
 
+        _continue.Disabled = false;
+        _transition?.Kill();
         _root.Visible = true;
+        _root.Modulate = new Color(1, 1, 1, 0);
+        _panel.Scale = Vector2.One * 0.93f;
+
+        _transition = CreateTween();
+        _transition.SetParallel(true);
+        _transition.SetEase(Tween.EaseType.Out);
+        _transition.SetTrans(Tween.TransitionType.Cubic);
+        _transition.TweenProperty(_root, "modulate:a", 1.0f, 0.24f);
+        _transition.TweenProperty(_panel, "scale", Vector2.One, 0.28f);
     }
 
-    public void HideCompletion() => _root.Visible = false;
+    public void HideCompletion()
+    {
+        _transition?.Kill();
+        _transition = null;
+        if (_root is not null)
+        {
+            _root.Visible = false;
+            _root.Modulate = Colors.White;
+        }
+        if (_panel is not null)
+        {
+            _panel.Scale = Vector2.One;
+        }
+    }
+
+    private void OnContinuePressed()
+    {
+        if (_continue.Disabled) return;
+        _continue.Disabled = true;
+
+        _transition?.Kill();
+        _transition = CreateTween();
+        _transition.SetParallel(true);
+        _transition.SetEase(Tween.EaseType.In);
+        _transition.SetTrans(Tween.TransitionType.Quad);
+        _transition.TweenProperty(_root, "modulate:a", 0.0f, 0.16f);
+        _transition.TweenProperty(_panel, "scale", Vector2.One * 0.97f, 0.16f);
+        _transition.Chain().TweenCallback(Callable.From(() => ContinueRequested?.Invoke()));
+    }
 }
