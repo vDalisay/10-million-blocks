@@ -1,0 +1,26 @@
+; Engine configuration file.
+; Best edited using the Godot editor where possible.
+config_version=5
+
+[application]
+
+config/name="10 Million Blocks"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.6", "C#", "GL Compatibility")
+
+[display]
+
+[display/window]
+
+size/viewport_width=1280
+size/viewport_height=720
+size/window_width_override=1280
+size/window_height_override=720
+stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false
+environment/defaults/default_clear_color=Color(0.012, 0.018, 0.045, 1)
