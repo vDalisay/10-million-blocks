@@ -86,10 +86,11 @@ public sealed class ProceduralWorldSource
             return new BlockSample(true, edgeVariation > 0.74f ? _profile.SurfaceEdgeBlock : _profile.SurfaceBlock, true);
         }
 
+        // Keep grass decoration on the actual exterior only. Subsurface layers are soil,
+        // which removes the horizontal green striping that made the prototype look synthetic.
         if (depth <= 2.85f)
         {
-            float soilVariation = DeterministicNoise.Hash01(coordinate.X, coordinate.Y, coordinate.Z, _profile.Seed + 4049);
-            return new BlockSample(true, soilVariation > 0.80f ? _profile.SurfaceEdgeBlock : _profile.SoilBlock, true);
+            return new BlockSample(true, _profile.SoilBlock, true);
         }
 
         float oreNoise = DeterministicNoise.Fractal3D(
