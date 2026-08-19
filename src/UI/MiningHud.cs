@@ -17,6 +17,7 @@ public partial class MiningHud : CanvasLayer
 
     private PanelContainer _panel = null!;
     private Label _summary = null!;
+    private ProgressBar _progress = null!;
     private Label _automation = null!;
     private Label _feedback = null!;
     private Label _details = null!;
@@ -53,15 +54,15 @@ public partial class MiningHud : CanvasLayer
         root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(root);
 
-        // Keep the playfield clear. The old fixed middle-left information block covered a large part
-        // of the cube; this compact dock lives against the lower edge and expands only on request.
+        // Keep the playfield clear. This dock only contains at-a-glance incremental information;
+        // engineering/control detail is opt-in with H.
         _panel = new PanelContainer
         {
             AnchorTop = 1.0f,
             AnchorBottom = 1.0f,
             OffsetLeft = 16.0f,
-            OffsetTop = -82.0f,
-            OffsetRight = 610.0f,
+            OffsetTop = -94.0f,
+            OffsetRight = 640.0f,
             OffsetBottom = -16.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
@@ -79,6 +80,14 @@ public partial class MiningHud : CanvasLayer
         margin.AddChild(column);
 
         _summary = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _progress = new ProgressBar
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            MinValue = 0.0,
+            MaxValue = 100.0,
+            ShowPercentage = false,
+            CustomMinimumSize = new Vector2(0.0f, 7.0f),
+        };
         _automation = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
         _feedback = new Label { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
         _details = new Label
@@ -89,6 +98,7 @@ public partial class MiningHud : CanvasLayer
         };
 
         column.AddChild(_summary);
+        column.AddChild(_progress);
         column.AddChild(_automation);
         column.AddChild(_feedback);
         column.AddChild(_details);
@@ -128,7 +138,7 @@ public partial class MiningHud : CanvasLayer
 
         _detailsVisible = !_detailsVisible;
         _details.Visible = _detailsVisible;
-        _panel.OffsetTop = _detailsVisible ? -174.0f : -82.0f;
+        _panel.OffsetTop = _detailsVisible ? -196.0f : -94.0f;
         if (_detailsVisible) RefreshDetails();
         GetViewport().SetInputAsHandled();
     }
@@ -153,14 +163,20 @@ public partial class MiningHud : CanvasLayer
                 $"{_world.Profile.DisplayName}  |  {_mining.Remaining:N0} left  |  {_mining.Currency:N0} resources  |  {_skills.Derived.ManualBlocksPerClick}/click";
         }
 
+        if (_progress is not null)
+        {
+            long total = _mining.TotalMined + _mining.Remaining;
+            _progress.Value = total <= 0 ? 100.0 : _mining.TotalMined * 100.0 / total;
+        }
+
         if (_automation is not null)
         {
             string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill ready" : "Drill locked";
             string shovel = _skills.IsMinerUnlocked("shovel_miner")
-                ? $"Shovel ready (search {_skills.Derived.ShovelSearchRadius})"
+                ? $"Shovel ready x{_skills.Derived.ShovelRateMultiplier:0.##}"
                 : "Shovel locked";
             _automation.Text =
-                $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} base blocks/s  |  {drill}  |  {shovel}  |  [H] details";
+                $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} blocks/s  |  {drill}  |  {shovel}  |  [H] details";
         }
 
         if (_detailsVisible) RefreshDetails();
@@ -170,9 +186,12 @@ public partial class MiningHud : CanvasLayer
     {
         if (_details is null) return;
 
+        string slope = _skills.Derived.ShovelHeightTolerance > 0
+            ? $"+/-{_skills.Derived.ShovelHeightTolerance} height"
+            : "same height only";
         _details.Text =
             $"Controls: [K] Skill Tree   [M] Drill   [N] Powered Shovel\n" +
             $"Mined: {_mining.TotalMined:N0}   render chunks: {_view.VisibleChunkCount}   dirty: {_view.PendingChunkRebuilds}   modified: {_world.State.ModifiedChunkCount}\n" +
-            $"Shovel search radius: {_skills.Derived.ShovelSearchRadius} (Terrain Scout increases it to 5)";
+            $"Shovel: {_skills.Derived.ShovelRateMultiplier:0.##}x speed, {slope}, search radius {_skills.Derived.ShovelSearchRadius}";
     }
 }
