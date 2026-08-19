@@ -19,6 +19,7 @@ public partial class MiningHud : CanvasLayer
     private Label _currency = null!;
     private Label _manual = null!;
     private Label _automation = null!;
+    private Label _controls = null!;
     private Label _debug = null!;
     private Label _feedback = null!;
     private double _feedbackTime;
@@ -55,8 +56,8 @@ public partial class MiningHud : CanvasLayer
         {
             OffsetLeft = 16.0f,
             OffsetTop = 205.0f,
-            OffsetRight = 382.0f,
-            OffsetBottom = 414.0f,
+            OffsetRight = 430.0f,
+            OffsetBottom = 432.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         root.AddChild(panel);
@@ -77,17 +78,14 @@ public partial class MiningHud : CanvasLayer
         _currency = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
         _manual = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
         _automation = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _controls = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
         _feedback = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
         _debug = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
         column.AddChild(_blocks);
         column.AddChild(_currency);
         column.AddChild(_manual);
         column.AddChild(_automation);
-        column.AddChild(new Label
-        {
-            Text = "[K] Skill Tree   [M] Place Line Miner on hovered block",
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-        });
+        column.AddChild(_controls);
         column.AddChild(_feedback);
         column.AddChild(_debug);
 
@@ -141,8 +139,14 @@ public partial class MiningHud : CanvasLayer
 
         if (_automation is not null)
         {
-            string unlock = _skills.IsMinerUnlocked("line_miner") ? "unlocked" : "locked in Skill Tree";
-            _automation.Text = $"Automation: {_miners.Miners.Count} miner(s), {_miners.BlocksPerSecond:0.##} blocks/s  |  Line Miner {unlock}";
+            string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill unlocked" : "Drill locked";
+            string shovel = _skills.IsMinerUnlocked("shovel_miner") ? "Shovel unlocked" : "Shovel locked";
+            _automation.Text = $"Automation: {_miners.Miners.Count} miner(s), {_miners.BlocksPerSecond:0.##} base blocks/s  |  {drill}  |  {shovel}";
+        }
+
+        if (_controls is not null)
+        {
+            _controls.Text = "[K] Skill Tree   [M] Drill on hovered block   [N] Powered Shovel";
         }
     }
 }
