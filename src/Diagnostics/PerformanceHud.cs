@@ -32,10 +32,10 @@ public partial class PerformanceHud : CanvasLayer
             Visible = false,
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -420.0f,
+            OffsetLeft = -440.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 270.0f,
+            OffsetBottom = 296.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -88,6 +88,7 @@ public partial class PerformanceHud : CanvasLayer
             $"world: {_world.Profile.Id}  logical: {_world.Profile.LogicalWidth:N0} x {_world.Profile.LogicalHeight:N0} x {_world.Profile.LogicalDepth:N0}\n" +
             $"fps: {Engine.GetFramesPerSecond():0}  managed: {memoryMb:0.0} MB  GC: {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}\n" +
             $"renderer: {(_view.StreamingEnabled ? "streamed macro+detail" : "eager detail")}  camera: {_camera.CurrentDistance:0.0}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
+            $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  macro: {(_view.MacroVisible ? "visible" : "hidden")}\n" +
             $"chunks loaded: {_view.VisibleChunkCount}  load queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"chunk build ms last/avg: {_view.LastChunkBuildMilliseconds:0.00} / {_view.AverageChunkBuildMilliseconds:0.00}\n" +
             $"chunk builds: {_view.TotalChunkBuilds:N0}  build samples: {_view.TotalVoxelCandidatesScanned:N0}\n" +
