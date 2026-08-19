@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "content_version": 1,
+  "nodes": [
+    {
+      "id": "manual_2x",
+      "display_name": "Two-Handed Mining",
+      "description": "Mine one additional nearby block per click.",
+      "grid_x": 0,
+      "grid_y": 0,
+      "category": "manual",
+      "prerequisite_node_ids": [],
+      "cost": 20,
+      "max_rank": 1,
+      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
+    },
+    {
+      "id": "manual_3x",
+      "display_name": "Rapid Chipping",
+      "description": "Mine one more nearby block per click.",
+      "grid_x": 0,
+      "grid_y": 1,
+      "category": "manual",
+      "prerequisite_node_ids": ["manual_2x"],
+      "cost": 60,
+      "max_rank": 1,
+      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
+    },
+    {
+      "id": "automation_unlock",
+      "display_name": "Automation",
+      "description": "Unlock placement of the basic straight-line miner.",
+      "grid_x": 2,
+      "grid_y": 0,
+      "category": "automation",
+      "prerequisite_node_ids": [],
+      "cost": 30,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_miner", "string_value": "line_miner" }]
+    },
+    {
+      "id": "miner_speed_1",
+      "display_name": "Faster Motors",
+      "description": "Line miners work 50% faster.",
+      "grid_x": 2,
+      "grid_y": 1,
+      "category": "automation",
+      "prerequisite_node_ids": ["automation_unlock"],
+      "cost": 75,
+      "max_rank": 1,
+      "effects": [{ "type": "multiply_miner_rate", "value": 1.5 }]
+    },
+    {
+      "id": "wide_bore_unlock",
+      "display_name": "Wide Bore",
+      "description": "Unlock the wider line mining pattern and increase pattern width.",
+      "grid_x": 3,
+      "grid_y": 2,
+      "category": "patterns",
+      "prerequisite_node_ids": ["miner_speed_1"],
+      "cost": 140,
+      "max_rank": 1,
+      "effects": [
+        { "type": "unlock_pattern", "string_value": "wide_line" },
+        { "type": "set_miner_pattern_width", "value": 3.0 }
+      ]
+    },
+    {
+      "id": "disc_unlock",
+      "display_name": "Radial Excavation",
+      "description": "Unlock the disc mining pattern.",
+      "grid_x": 4,
+      "grid_y": 3,
+      "category": "patterns",
+      "prerequisite_node_ids": ["wide_bore_unlock"],
+      "cost": 240,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_pattern", "string_value": "disc" }]
+    },
+    {
+      "id": "resource_sensors",
+      "display_name": "Resource Sensors",
+      "description": "Foundation unlock for resource-targeting miner filters.",
+      "grid_x": 1,
+      "grid_y": 2,
+      "category": "resources",
+      "prerequisite_node_ids": ["automation_unlock"],
+      "cost": 110,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_resource_filter", "string_value": "ore" }]
+    }
+  ]
+}
