@@ -21,7 +21,7 @@ public partial class ReferenceVisualHarness : Node
         {
             OffsetLeft = 16.0f,
             OffsetTop = 16.0f,
-            OffsetRight = 292.0f,
+            OffsetRight = 306.0f,
             OffsetBottom = 174.0f,
         };
         canvas.AddChild(panel);
@@ -37,15 +37,9 @@ public partial class ReferenceVisualHarness : Node
         column.AddThemeConstantOverride("separation", 5);
         margin.AddChild(column);
 
-        column.AddChild(new Label
-        {
-            Text = "REFERENCE VISUAL HARNESS",
-        });
+        column.AddChild(new Label { Text = "REFERENCE VISUAL HARNESS" });
 
-        _status = new Label
-        {
-            Text = "Camera: Medium",
-        };
+        _status = new Label { Text = "Camera: Medium" };
         column.AddChild(_status);
 
         var presets = new HBoxContainer();
@@ -62,7 +56,7 @@ public partial class ReferenceVisualHarness : Node
 
         column.AddChild(new Label
         {
-            Text = "LMB drag: orbit   RMB/MMB drag: pan   Wheel: zoom",
+            Text = "LMB: mine / UI   RMB drag: orbit   MMB drag: pan   Wheel: zoom",
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         });
     }
