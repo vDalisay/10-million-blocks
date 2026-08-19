@@ -56,9 +56,11 @@ public sealed class SkillTreeCatalog
     {
         "add_manual_blocks_per_click",
         "multiply_miner_rate",
+        "multiply_shovel_rate",
         "unlock_miner",
         "unlock_pattern",
         "set_miner_pattern_width",
+        "set_shovel_height_tolerance",
         "set_shovel_search_radius",
         "unlock_resource_filter",
     };
