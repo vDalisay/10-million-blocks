@@ -90,10 +90,14 @@ public partial class WorldView : Node3D
                 continue;
             }
 
-            AddTransform(batches, sample.BlockId, new Transform3D(Basis.Identity, VoxelToWorld(voxel)));
+            bool grassSurface = sample.BlockId == _world.Profile.SurfaceBlock
+                || sample.BlockId == _world.Profile.SurfaceEdgeBlock;
+            Basis blockBasis = grassSurface
+                ? BasisForNormal(_world.Source.GetOutwardNormal(voxel))
+                : Basis.Identity;
+            AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
-            if ((sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
-                && _world.Source.TrySampleTree(voxel, out FeatureSample feature))
+            if (grassSurface && _world.Source.TrySampleTree(voxel, out FeatureSample feature))
             {
                 Vector3I outward = feature.OutwardNormal;
                 if (!_world.IsPresent(voxel + outward))
@@ -194,14 +198,16 @@ public partial class WorldView : Node3D
 
     private bool TryPopDirtyChunk(out ChunkCoord chunk)
     {
-        foreach (ChunkCoord candidate in _dirtyChunks)
+        if (_dirtyChunks.Count == 0)
         {
-            chunk = candidate;
-            _dirtyChunks.Remove(candidate);
-            return true;
+            chunk = default;
+            return false;
         }
 
-        chunk = default;
-        return false;
+        using HashSet<ChunkCoord>.Enumerator enumerator = _dirtyChunks.GetEnumerator();
+        enumerator.MoveNext();
+        chunk = enumerator.Current;
+        _dirtyChunks.Remove(chunk);
+        return true;
     }
 }
