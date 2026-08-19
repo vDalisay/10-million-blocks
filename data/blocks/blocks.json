@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "blocks": [
+    { "id": "grass", "display_name": "Grass", "asset_path": "res://Assets/gltf/grass.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil"] },
+    { "id": "dirt", "display_name": "Dirt", "asset_path": "res://Assets/gltf/dirt.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["soil"] },
+    { "id": "dirt_grass", "display_name": "Grass Edge", "asset_path": "res://Assets/gltf/dirt_with_grass.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil"] },
+    { "id": "stone", "display_name": "Stone", "asset_path": "res://Assets/gltf/stone.gltf", "hardness": 2.0, "base_value": 2, "render_class": "terrain", "tags": ["stone"] },
+    { "id": "stone_dark", "display_name": "Dark Stone", "asset_path": "res://Assets/gltf/stone_dark.gltf", "hardness": 2.5, "base_value": 3, "render_class": "terrain", "tags": ["stone"] },
+    { "id": "copper", "display_name": "Copper Ore", "asset_path": "res://Assets/gltf/stone_with_copper.gltf", "hardness": 2.5, "base_value": 5, "render_class": "terrain", "tags": ["stone", "ore", "copper"] },
+    { "id": "silver", "display_name": "Silver Ore", "asset_path": "res://Assets/gltf/stone_with_silver.gltf", "hardness": 3.0, "base_value": 8, "render_class": "terrain", "tags": ["stone", "ore", "silver"] },
+    { "id": "gold", "display_name": "Gold Ore", "asset_path": "res://Assets/gltf/stone_with_gold.gltf", "hardness": 3.5, "base_value": 12, "render_class": "terrain", "tags": ["stone", "ore", "gold"] },
+    { "id": "sand", "display_name": "Sand", "asset_path": "res://Assets/gltf/sand_A.gltf", "hardness": 0.8, "base_value": 1, "render_class": "terrain", "tags": ["surface", "sand"] },
+    { "id": "water", "display_name": "Water", "asset_path": "res://Assets/gltf/water.gltf", "hardness": 1.0, "base_value": 0, "render_class": "liquid", "tags": ["liquid", "water"] },
+    { "id": "wood", "display_name": "Wood", "asset_path": "res://Assets/gltf/wood.gltf", "hardness": 1.5, "base_value": 2, "render_class": "terrain", "tags": ["wood"] },
+    { "id": "brick", "display_name": "Brick", "asset_path": "res://Assets/gltf/bricks_A.gltf", "hardness": 2.0, "base_value": 2, "render_class": "special", "tags": ["constructed"] },
+    { "id": "tree", "display_name": "Tree", "asset_path": "res://Assets/gltf/tree.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] }
+  ]
+}
