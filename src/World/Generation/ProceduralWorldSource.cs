@@ -42,8 +42,75 @@ public sealed class ProceduralWorldSource
             return BlockSample.Empty;
         }
 
-        float radius = MaxAbs(coordinate);
         TerrainContext terrain = SampleTerrain(coordinate);
+        return SampleVoxelFromTerrain(coordinate, terrain);
+    }
+
+    /// <summary>
+    /// Fast path for the large-world renderer. Terrain noise is evaluated once for one tangential
+    /// surface column and the outermost logical block is classified from that same context. This is
+    /// intentionally a presentation sampler: the exact small-world voxel sampler remains unchanged.
+    /// It avoids the old 32^3 chunk scan plus six neighbour samples per voxel.
+    /// </summary>
+    public bool TrySampleOutermostSurfaceVoxel(
+        Vector3I outwardNormal,
+        int tangentU,
+        int tangentV,
+        out Vector3I voxel,
+        out BlockSample sample)
+    {
+        voxel = default;
+        sample = BlockSample.Empty;
+        if (!IsCardinal(outwardNormal))
+        {
+            return false;
+        }
+
+        // Terrain fields are functions of cube-surface direction. Build one stable reference point
+        // on that face, then use its resulting radial height to address the actual surface block.
+        int referenceRadius = Math.Max(1, (int)MathF.Round(_profile.BaseRadius));
+        referenceRadius = Math.Max(referenceRadius, Math.Max(Math.Abs(tangentU), Math.Abs(tangentV)));
+        Vector3I reference = FaceVoxel(outwardNormal, referenceRadius, tangentU, tangentV);
+        TerrainContext terrain = SampleTerrain(reference);
+        float outerRadius = terrain.HasWater
+            ? MathF.Max(terrain.GroundRadius, terrain.WaterRadius)
+            : terrain.GroundRadius;
+        int radial = Math.Max(0, Mathf.FloorToInt(outerRadius + 0.001f));
+
+        // At cube edges a tangent can become the dominant axis. That column belongs to an adjacent
+        // face and is deliberately left to that face's proxy/detail patch rather than duplicated.
+        if (Math.Abs(tangentU) > radial || Math.Abs(tangentV) > radial)
+        {
+            return false;
+        }
+
+        voxel = FaceVoxel(outwardNormal, radial, tangentU, tangentV);
+        sample = SampleVoxelFromTerrain(voxel, terrain);
+        if (sample.Present)
+        {
+            return true;
+        }
+
+        // Quantization can put the mathematical surface directly between two integer shells. A tiny
+        // bounded inward fallback handles that without turning this back into a depth scan.
+        for (int inward = 1; inward <= 2; inward++)
+        {
+            int candidateRadial = radial - inward;
+            if (candidateRadial < 0) break;
+            Vector3I candidate = FaceVoxel(outwardNormal, candidateRadial, tangentU, tangentV);
+            BlockSample candidateSample = SampleVoxelFromTerrain(candidate, terrain);
+            if (!candidateSample.Present) continue;
+            voxel = candidate;
+            sample = candidateSample;
+            return true;
+        }
+
+        return false;
+    }
+
+    private BlockSample SampleVoxelFromTerrain(Vector3I coordinate, TerrainContext terrain)
+    {
+        float radius = MaxAbs(coordinate);
         float outerRadius = terrain.HasWater
             ? MathF.Max(terrain.GroundRadius, terrain.WaterRadius)
             : terrain.GroundRadius;
@@ -344,6 +411,19 @@ public sealed class ProceduralWorldSource
             shoreFactor,
             forestField);
     }
+
+    private static Vector3I FaceVoxel(Vector3I normal, int radial, int u, int v)
+    {
+        if (normal == Vector3I.Right) return new Vector3I(radial, u, v);
+        if (normal == Vector3I.Left) return new Vector3I(-radial, u, v);
+        if (normal == Vector3I.Up) return new Vector3I(u, radial, v);
+        if (normal == Vector3I.Down) return new Vector3I(u, -radial, v);
+        if (normal == Vector3I.Back) return new Vector3I(u, v, radial);
+        return new Vector3I(u, v, -radial);
+    }
+
+    private static bool IsCardinal(Vector3I normal)
+        => Math.Abs(normal.X) + Math.Abs(normal.Y) + Math.Abs(normal.Z) == 1;
 
     private static float MaxAbs(Vector3I coordinate)
         => Math.Max(Math.Abs(coordinate.X), Math.Max(Math.Abs(coordinate.Y), Math.Abs(coordinate.Z)));
