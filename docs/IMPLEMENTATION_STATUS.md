@@ -6,265 +6,315 @@ Source plan: `docs/IMPLEMENTATION_PLAN.md`
 
 - Phase 0 — Plan and baseline: **complete**
 - Phase 1 — Project foundation + asset catalog: **complete and locally validated**
-- Phase 2 — Reference visual slice: **superseded by real generator; reference remains the art target**
-- Phase 3 — Virtual world data + deterministic generator: **implemented; major terrain-generation revision pending local visual validation**
-- Phase 4 — Scalable rendering + picking: **near/chunk path implemented and locally validated; medium/far streaming LOD remains**
-- Phase 5 — Manual mining gameplay loop: **complete and locally validated**
-- Phase 6 — Automation/miner framework: **implemented; drill presentation upgraded and pending local validation**
-- Phase 7 — Skill tree runtime: **implemented; schema upgraded for repeatable/rank-gated skills**
-- Phase 8 — Skill-tree editor: **implemented; interactive connection/routing upgrade pending local validation**
-- Phase 9 — World progression + completion overview: **implemented**
-- Phase 10 — Save/load + offline automation foundation: **implemented for current small-world architecture**
-- Phase 11 — 1000-scale streaming/LOD stress milestone: **next after this checkpoint**
+- Phase 2 — Reference visual slice: **superseded by the real generator; reference remains the art target**
+- Phase 3 — Virtual world data + deterministic generator: **implemented and locally iterated**
+- Phase 4 — Rendering + picking: **small-world near renderer validated; bounded large-world streaming/far proxy now implemented**
+- Phase 5 — Manual mining: **complete and locally validated**
+- Phase 6 — Automation framework: **implemented and locally iterated**
+- Phase 7 — Skill-tree runtime: **implemented**
+- Phase 8 — Skill-tree editor: **implemented**
+- Phase 9 — World completion/progression: **implemented**
+- Phase 10 — Save/load/offline foundation: **implemented; save schema now also supports aggregate exhausted regions**
+- Phase 11 — 1000-scale stress/optimization milestone: **architecture + instrumentation implemented; actual local performance measurement required**
+- Phase 12 — Game-feel/reference polish: **partial**
+- Phase 13 — final-scale logical architecture validation: **implemented as startup/self-test architecture; no attempt is made to render a million-wide world in block detail**
+- Phase 14 — tool-class automation/world-event proposal: **foundation started; surface pattern + block affinity schema/scheduler implemented**
 
-The current branch is now at a high-impact validation boundary. The latest changes touch terrain generation, render materials, camera input, automated-miner presentation, skill-tree schema/editor interaction, world transitions, and persistence. A local build/play pass is required before investing in the medium/far renderer and 1000-scale streaming work.
+The user's latest local changes were pulled into the branch before this work. In particular, the added KayKit forest variants, local terrain/presentation tuning, Godot UID files, and current shovel-based miner presentation were preserved rather than overwritten.
 
----
-
-## Terrain-generation revision
-
-The previous generator still looked too much like random blocks on a cube. The new pipeline is explicitly staged and informed by the architecture described in Mojang/Microsoft's Minecraft world-generation documentation. See `docs/TERRAIN_GENERATION_RESEARCH.md`.
-
-Implemented:
-
-- broad `continentalness`-style field for land/lowland organization
-- erosion field controlling retained relief
-- ridge field producing coherent mountain/cliff regions
-- secondary macro/weirdness variation
-- lower-amplitude detail field
-- configurable plateau quantization for broad stepped voxel terrain
-- separate humidity, temperature, basin and forest climate fields
-- hydrology as an actual generated layer instead of randomly recoloring grass as water
-- shared local radial water level
-- large low-region oceans plus independent inland-lake basins
-- water carves/occupies space above a generated lake or sea floor
-- shore rules place sand around water and continue sand below shallow water edges
-- separate shallow / normal / deep water visual tiers
-- shallow/deep water reuse the supplied water model with lightweight material tint variants
-- cliff rules expose stone in appropriate terrain regions
-- feature pass for trees using forest/humidity/temperature suitability rather than uniform random placement
-- tree density increased and supplied tree instances enlarged slightly for readability
-- `reference_natural` startup self-test now requires meaningful water, shallow water, deep water, beaches and a non-trivial tree population
-- `reference_lakes` added as a second, deliberately more water-forward authored test profile
-
-The startup ecology test is intended to prevent a later seed/tuning change from silently producing another world with no visible water or no trees.
-
-### Still art-direction tuning, not architecture
-
-- exact approved seeds
-- lake shapes and frequency
-- beach widths
-- biome proportions
-- plateau scale
-- tree density/placement
-- future ruins/paths/other landmarks
-- final water material appearance
-
-These are now profile/rule tuning tasks rather than a generator rewrite.
+The next checkpoint is no longer subjective design approval. It is a real performance/compatibility checkpoint: Phase 11 now has enough implementation that the remaining unknowns are actual Godot frame time, managed memory, chunk-build cost and rendering correctness on the user's machine.
 
 ---
 
-## Cloud revision
+## Phase 11 — bounded 1000-scale rendering
 
-Clouds remain coherent persistent voxel clumps orbiting slowly around the world, but orientation is now corrected as they travel:
+Large logical worlds now take a separate rendering path instead of calling the eager small-world chunk builder.
 
-- each clump moves around its own orbital pivot
-- the clump retains its internal block formation
-- no vertical wiggle/bobbing simulation
-- the carrier is oriented every frame so its local underside faces the cube-world center
-- its broad/flat face therefore hugs the atmosphere instead of remaining locked to the global horizontal plane
-- stars remain stationary
+### World profile controls
+
+`WorldProfile` now has explicit large-scale controls:
+
+- `targetMineableBlocks`
+- `aggregateRewardPerBlock`
+- `regionSizeInChunks`
+- `streamingThresholdMaxCoordinate`
+- `streamingChunkRadius`
+- `detailedSurfaceDepthChunks`
+- `macroResolution`
+
+Small authored worlds keep exact startup counting and the existing detailed renderer. Large worlds use an authored exact logical total and bounded rendering/state paths.
+
+### Stress profile
+
+`stress_1000` remains a 1000 × 1000 × 1000 logical address-space test but now has:
+
+- exact authored 64-bit target counter instead of a startup world scan
+- 32-voxel chunks
+- 8 × 8 × 8 chunk regions
+- bounded detailed streaming radius
+- one detailed surface-depth chunk
+- fixed-resolution whole-world macro representation
+
+Starting this profile therefore does **not** allocate every logical voxel, chunk, region, Node3D or collider.
+
+### Camera-driven detailed working set
+
+`WorldView` now has two modes:
+
+1. **eager detail** for the current small authored cubes;
+2. **streamed macro + detail** for large profiles.
+
+The streamed path:
+
+- determines the cube face currently facing the camera
+- derives a bounded surface chunk focus
+- keeps only the configured tangential chunk radius/depth resident
+- queues missing detailed chunks
+- unloads chunks that leave the working set
+- limits streamed chunk construction to one chunk per frame
+- retains the existing dirty-chunk path for mining changes
+- skips known exhausted regions without rebuilding their detailed voxels
+- exposes streaming/build metrics
+
+With the default stress settings the intended detailed working set is roughly `(2r+1)^2 * depth` chunks, rather than a function of the 1000-wide world volume.
+
+### Far representation
+
+`MacroWorldProxy` provides a bounded whole-world representation:
+
+- samples a fixed grid on all six cube faces
+- searches only a bounded distance inward for generated terrain
+- groups cells into grass, sand, shallow-water, water, deep-water and stone families
+- batches them through MultiMesh
+- is deliberately slightly inset beneath detailed blocks
+- its cost is `6 * macroResolution^2` samples/cells, independent of logical world width
+
+This is the first far representation. It is intentionally a coarse proxy, not final LOD art.
+
+### Picking optimization
+
+The logical voxel raycaster no longer starts DDA traversal at the camera and walks through potentially enormous empty space. It now:
+
+1. ray-intersects the world AABB;
+2. jumps to the AABB entry point;
+3. performs voxel DDA only inside the logical bounds.
+
+This matters once camera distance and world radius become hundreds or hundreds of thousands of logical cells.
 
 ---
 
-## Input revision
+## Phase 11 — hierarchical mining/state
 
-Requested input split is now explicit:
+Large-world progress can now be represented without one sparse entry per mined block.
 
-- **LMB:** mining and UI only
-- **RMB drag:** orbit
-- **MMB drag:** pan
-- **mouse wheel:** zoom
+### Region quotas
 
-The camera no longer consumes LMB at all. The reference harness copy has been updated to match.
+For profiles with `targetMineableBlocks`, `VirtualWorld` deterministically partitions the exact total across the region address space with quotient/remainder arithmetic.
+
+Properties:
+
+- no per-region table is allocated at world creation
+- any region's quota is available in O(1)
+- the quotas sum exactly to the authored 64-bit block total
+- individual mining is prevented from exceeding a region's logical quota
+- once sparse mining reaches a region quota, that region compacts to one exhausted marker
+
+### World state indexes
+
+`WorldStateStore` now tracks:
+
+- sparse mined local indices for partially modified chunks
+- O(1) sparse-mined count per modified region
+- modified chunks indexed per region
+- one aggregate marker for each fully exhausted region
+
+Exhausting a region removes its per-chunk sparse overrides and replaces them with one aggregate count. Region compaction is proportional to modified chunks in that region rather than every modified chunk in the world.
+
+### Authoritative bulk API
+
+`MiningService.TryExhaustRegion(...)` is the hierarchical mining API. It:
+
+- routes through the same authoritative world state
+- updates exact mined/remaining counters
+- grants aggregate resources
+- emits one `BulkMiningResult`
+- avoids one gameplay event for every logical block represented by the region
+
+This is currently exercised by the stress benchmark and is the path future extremely high-rate/offline tools can use.
+
+### Save/load
+
+World save data now stores both:
+
+- sparse modified chunks
+- exhausted region markers
+
+Untouched deterministic terrain remains absent from the save. An exhausted region can therefore represent millions of logical changes with one small record.
 
 ---
 
-## Automated drill presentation
+## Performance instrumentation
 
-The basic automated miner is no longer represented as a generic box/rod.
+`docs/PERFORMANCE_BUDGETS.md` contains the engineering budgets and measurement table.
 
-Implemented:
+Debug controls:
 
-- cylindrical motor housing
-- spinning central drill shaft
-- conical drill tip
-- three rotating cutting fins
-- status/accent light
-- drill body advances through the world to its most recently mined voxel
-- mining still goes through the same authoritative `MiningService`
-- block-aware debris burst at the active drill face
-- grass/dirt-grass produces mostly brown debris with occasional green turf fragments
-- dirt, sand, water, stone and ore families have their own representative debris colors
-- debris is presentation-only and capped/sampled so future high mining rates do not require one expensive particle system per logical block
+- **F8** — toggle from the normal authored world into the non-persistent `stress_1000` world and back
+- **F9** — performance HUD
+- **F7** — on a streaming world, run the 20-second automated stress benchmark
+- **F10** — existing completion/Continue preview on an authored world
 
-Miner state now has a serializable snapshot including position/progress/exhaustion state.
+The F9 HUD reports:
 
----
+- FPS
+- managed memory
+- GC collection counters
+- eager vs streamed renderer
+- camera distance
+- detailed chunks loaded / queued / dirty
+- last and average detailed chunk-build milliseconds
+- total chunk builds and voxel candidates examined
+- stream loads/unloads
+- macro proxy cell count/build time
+- sparse voxel count
+- modified chunks
+- exhausted regions
+- exact mined/remaining totals
 
-## Skill-tree schema/runtime revision
+The F7 benchmark combines:
 
-Skill-tree data is now schema version 2.
+- automated camera orbit to force streaming changes
+- 128 deterministic near-shell generator queries per frame
+- periodic region exhaustion through `MiningService`
+- FPS/memory/generator/chunk/streaming measurements
 
-New prerequisite model:
+It prints a report and writes:
 
 ```text
-Prerequisite
-  NodeId
-  RequiredRank
-  Route[]
-    GridX
-    GridY
+user://stress_benchmark_latest.txt
 ```
 
-This supports both requested behaviors:
-
-1. visual prerequisite lines can have persistent grid-routed bends without changing the identity of either node;
-2. a dependent node can require a specific rank of a repeatable source skill.
-
-Nodes now also have:
-
-```text
-PurchaseMode = once | repeatable
-MaxRank
-```
-
-Runtime validation rejects:
-
-- unknown purchase modes
-- one-time nodes with more than one rank
-- repeatable nodes with fewer than two ranks
-- missing prerequisites
-- duplicate prerequisites
-- required ranks outside the source node's valid rank range
-- circular prerequisite graphs
-- unknown effects
-
-`Faster Motors` is now the placeholder repeatable example with five ranks. `Wide Bore` demonstrates a rank-gated connection by requiring Faster Motors rank 3.
+Actual values in `docs/PERFORMANCE_BUDGETS.md` intentionally remain blank until measured in a local Godot run.
 
 ---
 
-## Skill-tree editor revision
+## Phase 13 — million-scale logical validation
 
-The editor now supports graph authoring rather than only node placement.
+A non-progression profile named `final_scale_1m` now exists for architecture validation.
 
-Launch:
+It has:
 
-```bat
-skill_tree_editor.bat
-```
+- logical dimensions of 1,000,000 on each configured address axis
+- exact authored gameplay target of **1,000,000,000,000 blocks**
+- 64-voxel chunks
+- 8 × 8 × 8 chunk regions
+- deterministic procedural querying
+- the same bounded renderer settings if it is ever loaded for diagnostics
 
-Implemented:
+Startup self-tests now prove, without traversing that world:
 
-- LMB node drag + grid snap
-- MMB canvas pan
-- wheel zoom
-- **Connect** mode: click prerequisite source node, then dependent target node
-- prerequisite line hit testing: lines themselves can be clicked/selected
-- selected line is highlighted
-- selected line exposes its required source rank in the line inspector
-- click an empty grid location while a line is selected to insert a snapped route bend
-- multiple bends create grid-based repathing
-- RMB a bend to remove that waypoint
-- Clear Route returns the edge to a direct connection
-- Delete Line removes the prerequisite edge
-- repeatable/one-time node type selector
-- editable max rank for repeatable nodes
-- duplicate/delete/rename continue to preserve or clean up graph references
-- Save + Validate uses the same runtime schema validator before replacing canonical game data
+- construction leaves sparse chunk/region state empty
+- the hierarchy can expose billions of addressable regions without allocating them
+- arbitrary far procedural coordinates are deterministic
+- a distant region quota can be calculated directly
+- that distant region can be exhausted through one aggregate operation
+- the exact remaining counter changes correctly
+- no sparse per-voxel state is created by the aggregate operation
+- quotient/remainder region accounting reconstructs the exact 1e12 target
 
-Effects remain raw structured JSON in this iteration so the effect system stays generic. Typed effect widgets remain a later editor polish task.
+This is the intended interpretation of Phase 13: prove the address-space and progress architecture, not create/render a trillion block instances.
 
 ---
 
-## Phase 9 — world progression and completion
+## Phase 12 — safe game-feel work completed so far
 
-Implemented:
+Manual mining now reuses the existing block-aware debris presentation:
 
-- `WorldProgressionService`
-- versioned `data/progression/world_progression.json`
-- provisional authored sequence:
-  1. Verdant Cube
-  2. Lakebound Cube
-- completion is detected from the exact authoritative remaining-block counter
-- completion is guarded so it opens once
-- manual mining and miner placement stop during completion
-- automated miner simulation pauses during the overview
-- overview displays total blocks, manual contribution, automation contribution and resources
-- next-world preview
-- Continue tears down the old session and builds the next configured profile while retaining global skills/resources
-- F10 in debug builds opens the completion flow without requiring thousands of manual blocks, solely for transition testing
+- manual clicks emit representative fragments
+- grass emits mostly brown dirt with occasional green turf
+- stone/ores/sand/water use their own representative colors
+- multi-block manual skills cap the presentation at three bursts per click so logical mining power does not linearly multiply particle work
 
-The progression sequence is test content, not final balancing.
+Further camera/UI/sound/reference polish is intentionally left until the new streaming path is measured rather than piling presentation work on top of an unprofiled renderer.
 
 ---
 
-## Phase 10 — persistence and offline foundation
+## Phase 14 foundation from the locally expanded plan
 
-Implemented:
+The plan now includes specialised tool-class automation. The underlying generic systems have been extended without forcing final balancing/content decisions.
 
-- versioned `user://savegame.json`
-- atomic-ish temp-file then replace write path
-- global currency persistence
-- skill ranks persisted by stable skill ID
-- progression index persistence
-- per-world sparse modified-chunk snapshots only
-- per-world manual/automated mining contribution counters
-- automated miner placement/progress snapshots
-- deterministic untouched terrain remains absent from save data
-- world state is restored before render chunks are rebuilt
-- 10-second dirty-state autosave cadence
-- saves on completed-world transition
-- current small-world offline miner catch-up
+### Miner definitions
 
-Offline catch-up is exact logical mining for the current test worlds and deliberately suppresses drill debris. It is capped at 50,000 operations and seven days because the million-scale version must use the region/chunk aggregate path planned for Phase 11 rather than replaying unbounded individual mining operations.
+`MinerDefinition` now supports:
+
+- `toolClass`
+- `tagRateMultipliers`
+- the existing optional allowed-tag list
+
+For example, a shovel can work at ordinary rate on generic terrain but have a 2.5× affinity for `soil` and 3× for `sand`.
+
+### Affinity scheduler
+
+Live and bounded offline miner scheduling now uses a work-credit model:
+
+- one normal block costs one accumulated work unit
+- a 2.5× affinity block costs 0.4 units
+- the unused 0.6 work is credited back immediately
+- affinity therefore composes with global miner-speed skill multipliers
+- the existing per-frame operation budget remains the hard presentation/CPU cap
+
+Allowed block tags are also honored if a future tool is restricted to a material family.
+
+### Surface mining pattern
+
+`surface_strip` is now a registered pure mining pattern. It walks tangentially across the local cube face in a snaking strip rather than boring inward.
+
+A provisional `shovel_miner` content definition demonstrates:
+
+- `surface_strip`
+- surface/soil/sand targeting
+- material affinity multipliers
+
+It is not yet wired into a final skill-tree unlock or placement control. That is deliberate: the current local shovel-based presentation is preserved, while final tool roster/UX can still be authored after the additional axe/pickaxe assets and balance decisions exist.
+
+### Not implemented from Phase 14 yet
+
+- persistent tree-feature clearing for the axe
+- axe/pickaxe final placeable content/visuals
+- deterministic multi-hit bomb blocks
+- region-aware blast dirtying/presentation
+- gem pocket assets/content placement rules
+
+Those are not needed to validate Phase 11/13 and should not be allowed to hide a streaming/performance regression.
 
 ---
 
 ## Required local checkpoint
 
-This is the point where local validation is now necessary before Phase 11 because several new behaviors depend on actual Godot rendering/input and subjective visual comparison.
+A local run is now required before pushing deeper into Phase 12/14, because the unresolved questions are measurements and actual render behavior rather than code structure.
 
-### Main game — `play_game.bat`
+### First: normal world regression
 
-Validate:
+Run:
 
-1. Project compiles and launches without startup validation errors.
-2. LMB only mines/clicks UI; dragging LMB no longer moves the camera.
-3. RMB drag orbits and MMB drag pans.
-4. Clouds remain clumped, orbit slowly, and keep their flat underside facing the world throughout the orbit.
-5. Verdant Cube visibly contains coherent water bodies and sand shoreline rather than isolated blue replacement blocks.
-6. Water shows readable shallow/normal/deep variation.
-7. Trees are visible again and occur in coherent land regions.
-8. Existing mining/highlighting still works.
-9. Automated miner is visibly drill-shaped, rotates, advances into its tunnel and emits block-colored debris.
-10. Close/relaunch after mining and/or placing a miner; sparse modifications, resources, skill ranks and miner state should restore.
-11. Leave the game closed briefly with an active miner and relaunch; a small amount of offline work should be applied.
-12. In a debug build, press **F10** to exercise the completion overview and Continue flow without mining the entire test world. Continue should load `Lakebound Cube`.
-13. Lakebound Cube should visually demonstrate that the same generator can produce a more water-forward second world.
+```bat
+play_game.bat
+```
 
-### Skill-tree editor — `skill_tree_editor.bat`
+Confirm the normal Verdant/Lakebound path still launches and that the user's local visual/input tweaks remain intact. A quick mining/orbit check is enough; the previously validated gameplay does not need a full retest.
 
-Validate:
+### Then: Phase 11 stress world
 
-1. Existing node drag/pan/zoom still works.
-2. Connect -> source node -> dependent node creates an edge.
-3. Clicking the line selects/highlights it.
-4. Clicking empty grid locations while the line is selected adds snapped route bends.
-5. RMB on a bend removes it.
-6. Required source rank can be edited on the selected line.
-7. Repeatable node type + max rank can be authored and saved.
-8. Invalid required rank/cycle/missing-node data is rejected by Save + Validate.
-9. A saved routed graph appears with the same routing and rank requirements in the runtime tree.
+1. Press **F8**. `stress_1000` should load without trying to build the entire world.
+2. Press **F9**. The HUD should say `streamed macro+detail`; detailed loaded chunks should remain a small bounded number rather than growing with the world size.
+3. Orbit with RMB for ~10 seconds. The detailed patch should follow the visible cube face while the coarse whole-world proxy remains present.
+4. Press **F7** and leave the benchmark running for its full ~20 seconds.
+5. If there are no errors, send either:
+   - the terminal output beginning with `Stress benchmark complete`, or
+   - the contents of `user://stress_benchmark_latest.txt`.
+6. A screenshot of the stress world with the **F9 HUD visible** is also useful because proxy/detail overlap and streaming holes are visual issues that metrics cannot reveal.
+7. Press **F8** again. It should return to the authored progression world without treating stress progress as player save progress.
 
-If this checkpoint is sound, implementation can proceed into Phase 11: actual camera-driven chunk streaming, medium/far terrain representation, 1000-scale stress profiling and the region-aggregate automation path.
+If entering F8 freezes/crashes or build errors occur, the error/log is the checkpoint result; no further manual investigation is expected.
+
+Once this passes, Phase 11 has real measurements and the implementation can continue with measured LOD/cache tuning, followed by deeper Phase 12 polish and the remaining Phase 14 tool/event systems.
