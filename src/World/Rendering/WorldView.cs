@@ -27,6 +27,8 @@ public partial class WorldView : Node3D
     private OrbitCameraController? _camera;
     private MacroWorldProxy? _macroProxy;
     private ChunkCoord? _lastStreamingFocus;
+    private int _lastStreamingDetailRadius = -1;
+    private int _lastStreamingDepth = -1;
     private double _streamRefreshTimer;
     private double _chunkBuildTotalMilliseconds;
 
@@ -36,6 +38,8 @@ public partial class WorldView : Node3D
     public bool StreamingEnabled => _world is not null && _world.Profile.UsesStreamingRenderer;
     public int MacroInstanceCount => _macroProxy?.InstanceCount ?? 0;
     public double MacroBuildMilliseconds => _macroProxy?.BuildMilliseconds ?? 0.0;
+    public bool MacroVisible => _macroProxy?.Visible ?? false;
+    public int CurrentStreamingDetailRadius => Math.Max(0, _lastStreamingDetailRadius);
     public long TotalChunkBuilds { get; private set; }
     public long TotalVoxelCandidatesScanned { get; private set; }
     public long StreamedChunkLoads { get; private set; }
@@ -55,6 +59,7 @@ public partial class WorldView : Node3D
             AddChild(_macroProxy);
             _macroProxy.Build(world);
             RefreshStreamingSet(force: true);
+            UpdateMacroVisibility();
         }
         else
         {
@@ -73,8 +78,11 @@ public partial class WorldView : Node3D
                 RefreshStreamingSet(force: false);
             }
 
+            UpdateMacroVisibility();
+
             // Never hitch pointer-controlled camera movement to catch up detail. The macro shell is
-            // always present, so detail construction can safely wait until the drag is released.
+            // always present while manipulating, so detail construction can safely wait until the
+            // drag is released.
             if (_camera?.IsManipulating == true)
             {
                 return;
@@ -94,6 +102,7 @@ public partial class WorldView : Node3D
                 builds++;
                 if (StreamingEnabled && ElapsedMilliseconds(buildFrameStarted) >= frameBuildBudgetMs)
                 {
+                    UpdateMacroVisibility();
                     return;
                 }
             }
@@ -115,6 +124,11 @@ public partial class WorldView : Node3D
             {
                 break;
             }
+        }
+
+        if (StreamingEnabled)
+        {
+            UpdateMacroVisibility();
         }
     }
 
@@ -168,7 +182,7 @@ public partial class WorldView : Node3D
         float maxAbs = MathF.Max(MathF.Abs(direction.X), MathF.Max(MathF.Abs(direction.Y), MathF.Abs(direction.Z)));
 
         // Start at the outside of the full possible relief band instead of BaseRadius. Inward depth
-        // chunks then cover valleys/water without requiring one giant 32-voxel chunk.
+        // chunks then cover valleys/water without requiring one giant voxel chunk.
         float radius = MathF.Max(1.0f, _world.MaxCoordinate - 1.0f);
         Vector3 surfacePoint = direction * (radius / MathF.Max(0.0001f, maxAbs));
         var focusVoxel = new Vector3I(
@@ -177,24 +191,21 @@ public partial class WorldView : Node3D
             (int)MathF.Round(surfacePoint.Z));
         ChunkCoord focus = ChunkCoord.FromVoxel(focusVoxel, _world.Profile.ChunkSize);
 
-        if (!force && _lastStreamingFocus == focus)
+        int radiusChunks = DesiredDetailRadius();
+        int depthChunks = DesiredDetailDepth();
+        if (!force
+            && _lastStreamingFocus == focus
+            && _lastStreamingDetailRadius == radiusChunks
+            && _lastStreamingDepth == depthChunks)
         {
             return;
         }
+
         _lastStreamingFocus = focus;
+        _lastStreamingDetailRadius = radiusChunks;
+        _lastStreamingDepth = depthChunks;
 
         _desiredChunks.Clear();
-        int radiusChunks = Math.Max(0, _world.Profile.StreamingChunkRadius);
-        int reliefBand = (int)MathF.Ceiling(
-            _world.Profile.TerrainAmplitude * 2.0f
-            + _world.Profile.DetailAmplitude * 2.0f
-            + MathF.Abs(_world.Profile.SeaLevelOffset)
-            + 6.0f);
-        int automaticDepth = Math.Max(1,
-            (int)MathF.Ceiling(reliefBand / (float)_world.Profile.ChunkSize));
-        int depthChunks = Math.Max(_world.Profile.DetailedSurfaceDepthChunks, automaticDepth);
-        depthChunks = Math.Min(depthChunks, 8);
-
         Vector3I faceNormal = DominantNormal(direction);
         ChunkCoord normalStep = new(faceNormal.X, faceNormal.Y, faceNormal.Z);
         (ChunkCoord tangentA, ChunkCoord tangentB) = TangentChunkAxes(faceNormal);
@@ -229,6 +240,11 @@ public partial class WorldView : Node3D
             StreamedChunkUnloads++;
         }
 
+        // Camera movement can change focus several times before the previous queue is consumed. The
+        // old implementation let those stale entries accumulate, producing thousands of pointless
+        // dequeue/check operations during the benchmark. Rebuild the tiny desired queue directly.
+        _loadQueue.Clear();
+        _queuedLoads.Clear();
         foreach (ChunkCoord desired in _desiredChunks)
         {
             if (!_chunkRoots.ContainsKey(desired) && _queuedLoads.Add(desired))
@@ -236,6 +252,48 @@ public partial class WorldView : Node3D
                 _loadQueue.Enqueue(desired);
             }
         }
+    }
+
+    private int DesiredDetailRadius()
+    {
+        int radius = Math.Max(0, _world.Profile.StreamingChunkRadius);
+        float focus = _camera?.SurfaceFocusBlend ?? 0.0f;
+
+        // Far views rely on the cheap macro shell. Once the camera transitions onto the surface we
+        // expand the real block patch so a close inspection fills the viewport with supplied meshes
+        // instead of one enormous macro cell.
+        if (focus >= 0.82f) radius += 2;
+        else if (focus >= 0.35f) radius += 1;
+        return Math.Min(radius, 4);
+    }
+
+    private int DesiredDetailDepth()
+    {
+        int reliefBand = (int)MathF.Ceiling(
+            _world.Profile.TerrainAmplitude * 2.0f
+            + _world.Profile.DetailAmplitude * 2.0f
+            + MathF.Abs(_world.Profile.SeaLevelOffset)
+            + 6.0f);
+        int automaticDepth = Math.Max(1,
+            (int)MathF.Ceiling(reliefBand / (float)_world.Profile.ChunkSize));
+        int depthChunks = Math.Max(_world.Profile.DetailedSurfaceDepthChunks, automaticDepth);
+        return Math.Min(depthChunks, 8);
+    }
+
+    private void UpdateMacroVisibility()
+    {
+        if (_macroProxy is null || _camera is null)
+        {
+            return;
+        }
+
+        bool closeInspection = _camera.SurfaceFocusBlend >= 0.90f;
+        bool detailSettled = _loadQueue.Count == 0 && _chunkRoots.Count > 0;
+
+        // The macro proxy is useful while moving and at medium/far range. At close range it is exactly
+        // what made one coarse green tile fill the screen, so once real detail has caught up, remove it
+        // entirely from the close inspection view. It reappears instantly when the user starts moving.
+        _macroProxy.Visible = !closeInspection || !detailSettled || _camera.IsManipulating;
     }
 
     private bool ChunkInWorldBounds(ChunkCoord chunk)
@@ -275,7 +333,9 @@ public partial class WorldView : Node3D
         Vector3I center = min + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
         Vector3I normal = _world.Source.GetOutwardNormal(center);
         var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
+        var treeBatches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         long sampledColumns = 0L;
+        bool includeCloseFeatures = (_camera?.SurfaceFocusBlend ?? 0.0f) >= 0.55f;
 
         int aMin;
         int bMin;
@@ -331,9 +391,16 @@ public partial class WorldView : Node3D
                 ? BasisForNormal(actualNormal)
                 : Basis.Identity;
             AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
+
+            if (includeCloseFeatures
+                && (sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
+                && _world.Source.TrySampleTree(voxel, out FeatureSample feature))
+            {
+                AddTransform(treeBatches, PickTree(voxel), TreeTransform(voxel, feature.OutwardNormal));
+            }
         }
 
-        if (batches.Count == 0)
+        if (batches.Count == 0 && treeBatches.Count == 0)
         {
             FinishChunkBuild(started, sampledColumns);
             return;
@@ -344,6 +411,10 @@ public partial class WorldView : Node3D
         foreach ((string blockId, List<Transform3D> transforms) in batches)
         {
             AddBatch(chunkRoot, blockId, transforms, true);
+        }
+        foreach ((string variant, List<Transform3D> transforms) in treeBatches)
+        {
+            AddBatch(chunkRoot, variant, transforms, true);
         }
 
         _chunkRoots[chunk] = chunkRoot;
