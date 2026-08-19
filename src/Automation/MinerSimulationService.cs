@@ -12,6 +12,13 @@ namespace TenMillionBlocks.Automation;
 
 public partial class MinerSimulationService : Node3D
 {
+    // KayKit "Go Deeper" shovel. The source mesh is ~6.7 units along its handle and is modelled off
+    // to one side of its origin, so it needs a scale and a recentring offset to stand on a block.
+    private const float ShovelScale = 0.22f;
+    private static readonly Vector3 ShovelRecentre = new(2.30f, 0.0f, -0.55f);
+
+    private static readonly PackedScene ShovelScene = GD.Load<PackedScene>("res://Assets/godeeper/shovel.gltf");
+
     private readonly List<MinerInstance> _miners = new();
     private readonly Dictionary<long, Node3D> _visuals = new();
     private readonly Dictionary<long, ulong> _lastDebrisAtMs = new();
@@ -53,7 +60,6 @@ public partial class MinerSimulationService : Node3D
     public override void _Process(double delta)
     {
         float dt = (float)delta;
-        AnimateDrills(dt);
 
         int budget = MaxMiningOperationsPerFrame;
         bool changed = false;
@@ -265,112 +271,22 @@ public partial class MinerSimulationService : Node3D
     private void BuildVisual(MinerInstance miner, Vector3I outward)
     {
         float spacing = _world.Profile.BlockSpacing;
-        Vector3 position = DrillPosition(miner, outward, spacing);
 
         var root = new Node3D
         {
             Name = $"Miner_{miner.InstanceId}",
-            Transform = new Transform3D(BasisForNormal(outward), position),
+            Transform = new Transform3D(BasisForNormal(outward), DrillPosition(miner, outward, spacing)),
         };
         AddChild(root);
 
-        var bodyMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.16f, 0.55f, 0.68f),
-            Metallic = 0.45f,
-            Roughness = 0.38f,
-        };
-        var bitMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.72f, 0.77f, 0.82f),
-            Metallic = 0.82f,
-            Roughness = 0.24f,
-        };
-        var accentMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.16f, 0.86f, 0.96f),
-            EmissionEnabled = true,
-            Emission = new Color(0.025f, 0.18f, 0.22f),
-            Roughness = 0.42f,
-        };
-
-        root.AddChild(new MeshInstance3D
-        {
-            Name = "MotorHousing",
-            Position = new Vector3(0.0f, spacing * 0.18f, 0.0f),
-            Mesh = new CylinderMesh
-            {
-                TopRadius = spacing * 0.25f,
-                BottomRadius = spacing * 0.25f,
-                Height = spacing * 0.34f,
-                RadialSegments = 10,
-                Material = bodyMaterial,
-            },
-        });
-
-        var drillBit = new Node3D
-        {
-            Name = "DrillBit",
-            Position = new Vector3(0.0f, -spacing * 0.18f, 0.0f),
-        };
-        root.AddChild(drillBit);
-
-        drillBit.AddChild(new MeshInstance3D
-        {
-            Name = "Shaft",
-            Mesh = new CylinderMesh
-            {
-                TopRadius = spacing * 0.11f,
-                BottomRadius = spacing * 0.11f,
-                Height = spacing * 0.34f,
-                RadialSegments = 8,
-                Material = bitMaterial,
-            },
-        });
-
-        drillBit.AddChild(new MeshInstance3D
-        {
-            Name = "Cone",
-            Position = new Vector3(0.0f, -spacing * 0.31f, 0.0f),
-            Mesh = new CylinderMesh
-            {
-                TopRadius = 0.0f,
-                BottomRadius = spacing * 0.23f,
-                Height = spacing * 0.46f,
-                RadialSegments = 8,
-                Material = bitMaterial,
-            },
-        });
-
-        for (int fin = 0; fin < 3; fin++)
-        {
-            float angle = fin * Mathf.Tau / 3.0f;
-            drillBit.AddChild(new MeshInstance3D
-            {
-                Name = $"CuttingFin_{fin}",
-                Position = new Vector3(
-                    MathF.Cos(angle) * spacing * 0.12f,
-                    -spacing * 0.16f,
-                    MathF.Sin(angle) * spacing * 0.12f),
-                Rotation = new Vector3(0.0f, -angle, Mathf.DegToRad(28.0f)),
-                Mesh = new BoxMesh
-                {
-                    Size = new Vector3(spacing * 0.06f, spacing * 0.38f, spacing * 0.14f),
-                    Material = bitMaterial,
-                },
-            });
-        }
-
-        root.AddChild(new MeshInstance3D
-        {
-            Name = "StatusLight",
-            Position = new Vector3(0.0f, spacing * 0.40f, 0.0f),
-            Mesh = new BoxMesh
-            {
-                Size = Vector3.One * spacing * 0.11f,
-                Material = accentMaterial,
-            },
-        });
+        // Root local +Y is the outward face normal and the shovel models handle-up, so it plants
+        // blade-first into the block it is working with no extra rotation beyond a slight lean.
+        float scale = ShovelScale * spacing;
+        var model = ShovelScene.Instantiate<Node3D>();
+        model.Transform = new Transform3D(
+            new Basis(Vector3.Back, Mathf.DegToRad(14.0f)).Scaled(Vector3.One * scale),
+            ShovelRecentre * scale);
+        root.AddChild(model);
 
         _visuals[miner.InstanceId] = root;
     }
@@ -381,15 +297,6 @@ public partial class MinerSimulationService : Node3D
         Vector3I outward = -miner.Direction;
         root.Position = DrillPosition(miner, outward, _world.Profile.BlockSpacing);
         root.Scale = miner.Exhausted ? Vector3.One * 0.82f : Vector3.One;
-    }
-
-    private void AnimateDrills(float delta)
-    {
-        foreach (Node3D root in _visuals.Values)
-        {
-            Node3D? bit = root.GetNodeOrNull<Node3D>("DrillBit");
-            if (bit is not null) bit.RotateY(delta * 9.0f);
-        }
     }
 
     private void EmitDebris(MinerInstance miner, MiningResult result)
