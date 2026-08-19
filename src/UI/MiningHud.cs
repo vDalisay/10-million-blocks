@@ -15,14 +15,14 @@ public partial class MiningHud : CanvasLayer
     private SkillTreeService _skills = null!;
     private MinerSimulationService _miners = null!;
 
-    private Label _blocks = null!;
-    private Label _currency = null!;
-    private Label _manual = null!;
+    private PanelContainer _panel = null!;
+    private Label _summary = null!;
     private Label _automation = null!;
-    private Label _controls = null!;
-    private Label _debug = null!;
     private Label _feedback = null!;
+    private Label _details = null!;
+    private bool _detailsVisible;
     private double _feedbackTime;
+    private double _detailRefreshTimer;
 
     public void Initialize(
         VirtualWorld world,
@@ -44,6 +44,7 @@ public partial class MiningHud : CanvasLayer
 
     public override void _Ready()
     {
+        Layer = 20;
         var root = new Control
         {
             Name = "MiningHudRoot",
@@ -52,42 +53,45 @@ public partial class MiningHud : CanvasLayer
         root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(root);
 
-        var panel = new PanelContainer
+        // Keep the playfield clear. The old fixed middle-left information block covered a large part
+        // of the cube; this compact dock lives against the lower edge and expands only on request.
+        _panel = new PanelContainer
         {
+            AnchorTop = 1.0f,
+            AnchorBottom = 1.0f,
             OffsetLeft = 16.0f,
-            OffsetTop = 205.0f,
-            OffsetRight = 430.0f,
-            OffsetBottom = 432.0f,
+            OffsetTop = -82.0f,
+            OffsetRight = 610.0f,
+            OffsetBottom = -16.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        root.AddChild(panel);
+        root.AddChild(_panel);
 
         var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         margin.AddThemeConstantOverride("margin_left", 10);
-        margin.AddThemeConstantOverride("margin_top", 8);
+        margin.AddThemeConstantOverride("margin_top", 7);
         margin.AddThemeConstantOverride("margin_right", 10);
-        margin.AddThemeConstantOverride("margin_bottom", 8);
-        panel.AddChild(margin);
+        margin.AddThemeConstantOverride("margin_bottom", 7);
+        _panel.AddChild(margin);
 
         var column = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-        column.AddThemeConstantOverride("separation", 4);
+        column.AddThemeConstantOverride("separation", 2);
         margin.AddChild(column);
 
-        column.AddChild(new Label { Text = _world.Profile.DisplayName, MouseFilter = Control.MouseFilterEnum.Ignore });
-        _blocks = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        _currency = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        _manual = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _summary = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
         _automation = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        _controls = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        _feedback = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        _debug = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        column.AddChild(_blocks);
-        column.AddChild(_currency);
-        column.AddChild(_manual);
+        _feedback = new Label { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
+        _details = new Label
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Visible = false,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+        };
+
+        column.AddChild(_summary);
         column.AddChild(_automation);
-        column.AddChild(_controls);
         column.AddChild(_feedback);
-        column.AddChild(_debug);
+        column.AddChild(_details);
 
         Refresh();
     }
@@ -100,13 +104,33 @@ public partial class MiningHud : CanvasLayer
             if (_feedbackTime <= 0.0 && _feedback is not null)
             {
                 _feedback.Text = string.Empty;
+                _feedback.Visible = false;
             }
         }
 
-        if (_debug is not null)
+        if (_detailsVisible)
         {
-            _debug.Text = $"render chunks: {_view.VisibleChunkCount}  dirty: {_view.PendingChunkRebuilds}  modified: {_world.State.ModifiedChunkCount}";
+            _detailRefreshTimer += delta;
+            if (_detailRefreshTimer >= 0.25)
+            {
+                _detailRefreshTimer = 0.0;
+                RefreshDetails();
+            }
         }
+    }
+
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo || key.Keycode != Key.H)
+        {
+            return;
+        }
+
+        _detailsVisible = !_detailsVisible;
+        _details.Visible = _detailsVisible;
+        _panel.OffsetTop = _detailsVisible ? -174.0f : -82.0f;
+        if (_detailsVisible) RefreshDetails();
+        GetViewport().SetInputAsHandled();
     }
 
     private void OnBlockMined(MiningResult result)
@@ -116,37 +140,39 @@ public partial class MiningHud : CanvasLayer
         {
             string source = result.Source == MiningSource.Automated ? "Auto" : "Mined";
             _feedback.Text = $"{source}: {result.BlockId}  +{result.Reward}";
+            _feedback.Visible = true;
             _feedbackTime = 0.7;
         }
     }
 
     private void Refresh()
     {
-        if (_blocks is not null)
+        if (_summary is not null)
         {
-            _blocks.Text = $"Blocks: {_mining.TotalMined:N0} mined  |  {_mining.Remaining:N0} remaining";
-        }
-
-        if (_currency is not null)
-        {
-            _currency.Text = $"Resources: {_mining.Currency:N0}";
-        }
-
-        if (_manual is not null)
-        {
-            _manual.Text = $"Manual mining: {_skills.Derived.ManualBlocksPerClick} block(s) / click";
+            _summary.Text =
+                $"{_world.Profile.DisplayName}  |  {_mining.Remaining:N0} left  |  {_mining.Currency:N0} resources  |  {_skills.Derived.ManualBlocksPerClick}/click";
         }
 
         if (_automation is not null)
         {
-            string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill unlocked" : "Drill locked";
-            string shovel = _skills.IsMinerUnlocked("shovel_miner") ? "Shovel unlocked" : "Shovel locked";
-            _automation.Text = $"Automation: {_miners.Miners.Count} miner(s), {_miners.BlocksPerSecond:0.##} base blocks/s  |  {drill}  |  {shovel}";
+            string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill ready" : "Drill locked";
+            string shovel = _skills.IsMinerUnlocked("shovel_miner")
+                ? $"Shovel ready (search {_skills.Derived.ShovelSearchRadius})"
+                : "Shovel locked";
+            _automation.Text =
+                $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} base blocks/s  |  {drill}  |  {shovel}  |  [H] details";
         }
 
-        if (_controls is not null)
-        {
-            _controls.Text = "[K] Skill Tree   [M] Drill on hovered block   [N] Powered Shovel";
-        }
+        if (_detailsVisible) RefreshDetails();
+    }
+
+    private void RefreshDetails()
+    {
+        if (_details is null) return;
+
+        _details.Text =
+            $"Controls: [K] Skill Tree   [M] Drill   [N] Powered Shovel\n" +
+            $"Mined: {_mining.TotalMined:N0}   render chunks: {_view.VisibleChunkCount}   dirty: {_view.PendingChunkRebuilds}   modified: {_world.State.ModifiedChunkCount}\n" +
+            $"Shovel search radius: {_skills.Derived.ShovelSearchRadius} (Terrain Scout increases it to 5)";
     }
 }
