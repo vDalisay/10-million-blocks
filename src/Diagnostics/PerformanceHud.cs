@@ -87,10 +87,10 @@ public partial class PerformanceHud : CanvasLayer
             "PERFORMANCE [F9]\n" +
             $"world: {_world.Profile.Id}  logical: {_world.Profile.LogicalWidth:N0} x {_world.Profile.LogicalHeight:N0} x {_world.Profile.LogicalDepth:N0}\n" +
             $"fps: {Engine.GetFramesPerSecond():0}  managed: {memoryMb:0.0} MB  GC: {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}\n" +
-            $"renderer: {(_view.StreamingEnabled ? "streamed macro+detail" : "eager detail")}  camera: {_camera.CurrentDistance:0.0}\n" +
+            $"renderer: {(_view.StreamingEnabled ? "streamed macro+detail" : "eager detail")}  camera: {_camera.CurrentDistance:0.0}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
             $"chunks loaded: {_view.VisibleChunkCount}  load queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"chunk build ms last/avg: {_view.LastChunkBuildMilliseconds:0.00} / {_view.AverageChunkBuildMilliseconds:0.00}\n" +
-            $"chunk builds: {_view.TotalChunkBuilds:N0}  voxel candidates: {_view.TotalVoxelCandidatesScanned:N0}\n" +
+            $"chunk builds: {_view.TotalChunkBuilds:N0}  build samples: {_view.TotalVoxelCandidatesScanned:N0}\n" +
             $"stream load/unload: {_view.StreamedChunkLoads:N0}/{_view.StreamedChunkUnloads:N0}  macro cells: {_view.MacroInstanceCount:N0} ({_view.MacroBuildMilliseconds:0.0} ms)\n" +
             $"state sparse voxels: {_world.State.SparseVoxelOverrideCount:N0}  modified chunks: {_world.State.ModifiedChunkCount:N0}  exhausted regions: {_world.State.ExhaustedRegionCount:N0}\n" +
             $"mined/remaining: {_world.State.MinedVoxelCount:N0} / {_world.RemainingMineableBlocks:N0}";
