@@ -41,6 +41,7 @@ public partial class OrbitCameraController : Node3D
     public Camera3D Camera => _camera;
     public float CurrentDistance => _distance;
     public float PresetScale => _presetScale;
+    public bool IsManipulating => _orbitHeld || _panHeld;
 
     public override void _Ready()
     {
