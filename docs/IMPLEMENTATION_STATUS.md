@@ -6,46 +6,30 @@ Source plan: `docs/IMPLEMENTATION_PLAN.md`
 
 - Phase 0 — Plan and baseline: **complete**
 - Phase 1 — Project foundation + asset catalog: **complete and locally validated**
-- Phase 2 — Reference visual slice: **functionally validated; visual shortcomings fed into the real generator**
-- Phase 3 — Virtual world data + deterministic generator: **implemented**
-- Phase 4 — Scalable rendering + picking: **near-world/chunk path implemented; later mesh/LOD tiers remain**
-- Phase 5 — Manual mining gameplay loop: **implemented, awaiting local gameplay/visual validation**
-- Phase 6 — Automation/miner framework: **next after this checkpoint**
+- Phase 2 — Reference visual slice: **functionally validated; visual shortcomings are now generator tuning work**
+- Phase 3 — Virtual world data + deterministic generator: **implemented and locally validated**
+- Phase 4 — Scalable rendering + picking: **near-world/chunk path implemented and locally validated; later mesh/LOD tiers remain**
+- Phase 5 — Manual mining gameplay loop: **complete and locally validated**
+- Phase 6 — Automation/miner framework: **implemented, awaiting local interaction validation**
+- Phase 7 — Skill tree runtime: **implemented, awaiting local interaction validation**
+- Phase 8 — Skill-tree editor: **implemented, awaiting editor-ergonomics validation**
+- Phase 9 — World progression + completion overview: **next after this checkpoint**
 
-The first reference slice proved the imported assets/camera pipeline but was visibly too artificial compared with the supplied cube-world reference. The current branch now replaces that temporary hand-built planet with the actual deterministic virtual-world system and folds the visual feedback into generation rather than polishing the disposable prototype.
+The user confirmed the Phase 5 build has no runtime errors and that mining works. The current procedural terrain is an improvement but is not considered final art direction; visible water frequency/placement and multiple themed world profiles remain future tuning/content work.
 
-## Phase 1 — validated foundation
+## Latest reference-feedback change — cloud motion
 
-Implemented and locally booted successfully:
+The previous cloud implementation technically moved but looked like independent blocks/layers wiggling in place. It has been replaced with coherent voxel cloud **clumps**:
 
-- Godot 4.6.1 C# project
-- configured `Main.tscn` and `GameRoot`
-- versioned JSON block catalog
-- `ContentDatabase` schema validation
-- `BlockAssetRegistry` resource validation/preloading
-- canonical glTF runtime source path
-- representative grass/dirt/stone/water/ore/wood/brick/tree registrations
-- Windows build/play helpers
-- manual GitHub Actions compile workflow
+- each cloud is built as one persistent flattened multi-block formation
+- each clump has its own orbital pivot around the world
+- orbital planes have restrained fixed inclination rather than vertical bobbing
+- clumps keep their internal shape while travelling
+- orbital periods are intentionally slow (roughly 1.5–3 minutes per revolution)
+- a small minority travel the opposite direction to avoid a perfectly mechanical ring
+- stars remain stationary
 
-## Reference-feedback changes
-
-The user specifically identified two problems in the first visual slice: static clouds and terrain that looked much less natural/earth-like than the reference.
-
-Addressed in the current implementation:
-
-- clouds now live in multiple depth/radius layers and continuously orbit at different speeds
-- cloud layers also have restrained vertical drift/bobbing so the sky no longer looks frozen
-- the temporary striped shell generator is no longer used by `GameRoot`
-- exterior shape now comes from low-frequency + detail deterministic 3D fractal fields sampled continuously over the cube surface
-- terrain height is quantized into broad terraces so it reads as coherent landforms rather than random per-block dents
-- surface material decisions use large moisture/basin/cliff fields, producing contiguous grassy regions, shore bands, water regions, and occasional rocky cliffs
-- grass decoration exists on the actual exterior only; buried layers are dirt/stone, removing the repeated horizontal green stripes from the prototype
-- grass-facing block meshes are rotated to the local cube-face outward direction instead of assuming world-up
-- tree placement uses grove masks and local cube-face gravity, so vegetation can occur coherently on side/bottom faces rather than only on the global top
-- deep block selection uses coherent stone/ore noise rather than independent random speckling
-
-This is still procedural content under active tuning; final seed selection and art-direction cleanup remain later polish work.
+This is the motion model to validate at the current checkpoint.
 
 ## Phase 3 — virtual world + deterministic generation
 
@@ -64,57 +48,153 @@ Implemented:
 - deterministic tree/grove sampling
 - sparse `WorldStateStore` containing only mined deviations
 - `VirtualWorld` combining generated untouched state with sparse modifications
-- exact small-world mineable count without using floating-point counters
+- exact small-world mineable count without floating-point counters
 - `stress_1000` profile that can sample arbitrary coordinates without allocating its address space
 - startup self-tests covering negative chunk boundaries, determinism, sparse modifications, and 1000-address-space probes
 
+### Known visual tuning debt
+
+- the current approved test seed does not expose enough obvious water from common camera angles
+- biome proportions, lake placement, terrain silhouettes, tree density, and authored seed selection are content-tuning tasks
+- several distinct themed world profiles still need to be authored after the systems stabilize
+
 ## Phase 4 — rendering and picking foundation
-
-Implemented now:
-
-- per-chunk supplied-mesh MultiMesh batches instead of a Node3D/collider per block
-- only exposed logical blocks are put into the visible chunk batches
-- local-face orientation for grass and decorative trees
-- dirty-chunk queue with a fixed rebuild budget per frame
-- removal invalidates only the touched chunk plus directly affected neighboring chunk boundaries
-- no per-block physics bodies
-- custom screen-ray -> voxel DDA picking against logical world queries
-- one reusable translucent selection highlight
-
-Still intentionally deferred within Phase 4 until the near representation is profiled:
-
-- greedy `ArrayMesh` medium-distance terrain path
-- far macro proxy/LOD path
-- camera-driven chunk streaming for worlds too large to render all surface chunks at once
-
-Those are architectural extensions of the current chunk/query model and do not require replacing the logical generator or mining system.
-
-## Phase 5 — playable manual mining slice
 
 Implemented:
 
-- `MiningService` is the authority that changes logical mined state
-- base interaction removes exactly one exposed block per successful click
-- manual click and camera drag are separated with a movement threshold
-- hovered block is highlighted through logical DDA picking
-- mined blocks disappear via dirty chunk rebuilds
-- newly exposed interior blocks become targetable
-- rewards remain on a 64-bit economy/counter path
-- exact total-mined and remaining-block counters
-- minimal HUD with block/resource counts and chunk diagnostics
+- per-chunk supplied-mesh MultiMesh batches instead of a Node3D/collider per block
+- only exposed logical blocks are put into visible chunk batches
+- local-face orientation for grass and decorative trees
+- dirty-chunk queue with fixed rebuild budget per frame
+- removal invalidates only the touched chunk plus neighboring boundaries
+- no per-block physics bodies
+- custom screen-ray -> voxel DDA picking against logical queries
+- one reusable selection highlight
+
+Still deferred within Phase 4 until the near representation is profiled against larger worlds:
+
+- greedy `ArrayMesh` medium-distance terrain path
+- far macro proxy/LOD path
+- camera-driven chunk streaming for worlds too large to display all surface chunks simultaneously
+
+## Phase 5 — manual mining
+
+Locally validated:
+
+- authoritative `MiningService`
+- exposed block hover/picking
+- one-block-per-click base behavior
+- LMB click versus drag arbitration
+- dirty chunk rebuild after removal
+- deeper blocks become mineable after exposure
+- exact 64-bit mined/remaining/resource counters
+- HUD diagnostics
+
+Phase 7 now extends manual mining to multiple neighboring blocks per click when the relevant skill is purchased.
+
+## Phase 6 — automation/miner framework
+
+Implemented:
+
+- versioned `data/miners/miners.json`
+- validated `MinerCatalog` and reusable miner definitions
+- `MinerInstance` state with stable instance ID, origin, direction, progress, work accumulator, and mined counter
+- `MiningPatternRegistry`
+- reusable `line`, `wide_line`, and `disc` strategy implementations
+- straight-line miner placement on a hovered exposed surface voxel
+- miner automatically derives inward direction from the cube face it was placed on
+- automated mining goes through the same `MiningService`/reward/counter path as manual mining
+- automated miners can continue through the solid interior instead of requiring every target to already be externally exposed
+- fixed per-frame operation budget
+- dirty rendering is coalesced through the existing chunk rebuild queue
+- compact miner body/direction visual
+- HUD automation rate and placed-miner count
+- `[M]` placement input after the Line Miner is unlocked
+
+The wider/disc strategies are present as extensible runtime strategies, but their final placement UX and balancing are deliberately deferred until the skill/editor loop is approved.
+
+## Phase 7 — data-driven skill tree runtime
+
+Implemented:
+
+- versioned `data/skills/skill_tree.json`
+- stable skill IDs and content version
+- node positions stored as grid presentation data
+- prerequisite graph validation
+- duplicate/missing ID validation
+- circular prerequisite rejection
+- generic effect registry rather than node-specific gameplay conditionals
+- rank and cost handling
+- `SkillTreeService` purchase API
+- derived stats rebuilt from purchased skills
+- effects currently exercised by gameplay:
+  - additional manual blocks per click
+  - line miner unlock
+  - miner speed multiplier
+- foundation effects represented for:
+  - alternate mining-pattern unlocks
+  - mining pattern width
+  - resource-filter capability
+- full-screen runtime skill-tree overlay on `[K]`
+- prerequisite connections and node state display
+- purchasing directly spends mined resources
+- opening the tree blocks manual world input
+
+The placeholder tree is intentionally cheap enough to test during a short local session and is not game balance.
+
+## Phase 8 — standalone skill-tree authoring tool
+
+Launch with:
+
+```bat
+skill_tree_editor.bat
+```
+
+Implemented:
+
+- separate Godot tool scene; the shipping game only consumes exported JSON
+- pan/zoom grid canvas
+- draggable skill cards
+- snap-to-grid on release
+- prerequisite connection rendering
+- node inspector
+- stable ID, display name, category, description and cost editing
+- comma-separated prerequisite editing
+- raw structured effect-list editing for full effect flexibility
+- create node
+- duplicate node
+- delete node (also removes dangling prerequisite references)
+- JSON reload/import from the canonical game data
+- Save + Validate back to the canonical `data/skills/skill_tree.json`
+- validation uses the same runtime `SkillTreeCatalog` parser/validator before replacing game data
+- output is versioned JSON read directly by the main game on its next launch
+
+The first editor version deliberately exposes effects as JSON in the inspector rather than hard-coding an editor widget for every effect type. Once the graph ergonomics are approved, typed effect rows/dropdowns can be layered on without changing the file format.
 
 ## Local validation requested at this checkpoint
 
-Run `play_game.bat` and verify:
+### Main game
 
-1. the new world is visibly less striped/random and has coherent grassy, rocky, shoreline/water regions on multiple cube faces
-2. clouds visibly move over time
-3. trees/grass do not all assume global-up when orbiting to a side/bottom face
-4. hover highlighting follows the correct visible block while orbiting
-5. a simple LMB click removes exactly one highlighted block
-6. an LMB drag orbits without accidentally mining
-7. mining a surface block reveals and allows mining the block underneath it
-8. counters update exactly once per mined block
-9. frame rate remains reasonable while mining repeatedly
+Run `play_game.bat`.
 
-A Medium screenshot plus any launch/build/runtime errors is sufficient. If this checkpoint works, continue into Phase 6 automation/miners and then Phase 7 skill-tree runtime without revisiting the disposable reference builder.
+1. Clouds should now look like persistent clumps that **slowly travel around the planet**, not blocks wiggling in place.
+2. Press `K`; the skill tree should open and prevent accidental mining through the overlay.
+3. Mine at least 30 resources and buy **Automation**.
+4. Close the tree, hover an exposed block and press `M`.
+5. A small miner should appear outside that surface and mine a straight tunnel inward over time.
+6. Its mining must update the same block/resource counters as manual mining.
+7. Buy **Two-Handed Mining** and confirm a normal click now removes two connected/exposed blocks rather than one.
+8. If enough resources are available, buy **Faster Motors** and confirm the displayed automation rate increases.
+
+### Skill-tree tool
+
+Run `skill_tree_editor.bat`.
+
+1. Pan with MMB and zoom with the wheel.
+2. Drag a node; it should snap to a grid cell when released.
+3. Select nodes and verify the inspector reflects their data.
+4. Add/duplicate/delete should update the canvas without editing source code.
+5. `Save + Validate` should reject invalid prerequisite/effect/cycle data rather than silently writing it.
+6. A valid saved layout should be reflected by the runtime skill tree the next time `play_game.bat` launches.
+
+This checkpoint is intentionally required before Phase 9 because the **miner interaction and skill-editor ergonomics are player/author-facing behavior that cannot be meaningfully approved from code alone**.
