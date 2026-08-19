@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "miners": [
+    {
+      "id": "line_miner",
+      "display_name": "Line Miner",
+      "base_rate": 1.0,
+      "pattern_id": "line",
+      "range": 64,
+      "power": 1.0,
+      "allowed_block_tags": [],
+      "description": "Mines straight inward from the surface it is placed on."
+    },
+    {
+      "id": "wide_bore_miner",
+      "display_name": "Wide Bore Miner",
+      "base_rate": 2.0,
+      "pattern_id": "wide_line",
+      "range": 48,
+      "power": 1.0,
+      "allowed_block_tags": [],
+      "description": "Placeholder content for a later unlocked wider tunnel pattern."
+    },
+    {
+      "id": "disc_miner",
+      "display_name": "Disc Miner",
+      "base_rate": 3.0,
+      "pattern_id": "disc",
+      "range": 18,
+      "power": 1.0,
+      "allowed_block_tags": [],
+      "description": "Placeholder content for a later radial mining pattern."
+    }
+  ]
+}
