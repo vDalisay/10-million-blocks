@@ -34,6 +34,7 @@ public partial class MinerSimulationService : Node3D
     private long _nextInstanceId = 1;
     private int _lastShovelSearchRadius = 1;
     private int _lastShovelHeightTolerance;
+    private string _lastDrillPatternId = "line";
 
     public event Action? Changed;
     public event Action<MinerInstance>? MinerPlaced;
@@ -65,6 +66,7 @@ public partial class MinerSimulationService : Node3D
         _skills = skills;
         _lastShovelSearchRadius = Math.Max(1, skills.Derived.ShovelSearchRadius);
         _lastShovelHeightTolerance = Math.Max(0, skills.Derived.ShovelHeightTolerance);
+        _lastDrillPatternId = skills.Derived.DrillPatternId;
         skills.Changed += OnSkillsChanged;
     }
 
@@ -118,10 +120,11 @@ public partial class MinerSimulationService : Node3D
         if (!_world.IsPresent(surfaceVoxel) || !_world.IsExposed(surfaceVoxel)) return null;
 
         MinerDefinition definition = _catalog.Get(definitionId);
-        if (!_patterns.Contains(definition.PatternId))
+        string patternId = EffectivePatternId(definition);
+        if (!_patterns.Contains(patternId))
         {
             throw new InvalidOperationException(
-                $"Miner '{definition.Id}' references unknown pattern '{definition.PatternId}'.");
+                $"Miner '{definition.Id}' references unknown effective pattern '{patternId}'.");
         }
 
         Vector3I outward = _world.Source.GetOutwardNormal(surfaceVoxel);
@@ -251,8 +254,9 @@ public partial class MinerSimulationService : Node3D
             return AdvanceShovel(miner, definition, emitPresentation);
         }
 
-        IMiningPattern pattern = _patterns.Get(definition.PatternId);
-        int width = definition.PatternId == "line" ? 1 : Math.Max(1, _skills.Derived.MinerPatternWidth);
+        string patternId = EffectivePatternId(definition);
+        IMiningPattern pattern = _patterns.Get(patternId);
+        int width = patternId == "line" ? 1 : Math.Max(1, _skills.Derived.MinerPatternWidth);
 
         int safety = Math.Max(16, definition.Range * Math.Max(1, width * width));
         while (safety-- > 0)
@@ -457,24 +461,44 @@ public partial class MinerSimulationService : Node3D
         int heightTolerance = Math.Max(0, _skills.Derived.ShovelHeightTolerance);
         bool intelligenceIncreased = searchRadius > _lastShovelSearchRadius
             || heightTolerance > _lastShovelHeightTolerance;
+        bool drillPatternChanged = !string.Equals(
+            _skills.Derived.DrillPatternId,
+            _lastDrillPatternId,
+            StringComparison.Ordinal);
 
-        bool revived = false;
-        if (intelligenceIncreased)
+        bool changed = false;
+        foreach (MinerInstance miner in _miners)
         {
-            foreach (MinerInstance miner in _miners)
+            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+            if (IsShovel(definition))
             {
-                MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-                if (!miner.Exhausted || !IsShovel(definition)) continue;
+                if (intelligenceIncreased && miner.Exhausted)
+                {
+                    miner.Exhausted = false;
+                    miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
+                    UpdateVisual(miner);
+                    changed = true;
+                }
+                continue;
+            }
+
+            // Pattern upgrades apply to existing drills as well as newly placed ones. Restart pattern
+            // enumeration from the drill origin; already-mined coordinates are skipped naturally, so
+            // a Wide Bore/Disc upgrade fills around the old tunnel instead of jumping ahead arbitrarily.
+            if (drillPatternChanged && IsPrimaryDrill(definition))
+            {
+                miner.CandidateIndex = 0;
                 miner.Exhausted = false;
                 miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
                 UpdateVisual(miner);
-                revived = true;
+                changed = true;
             }
         }
 
         _lastShovelSearchRadius = searchRadius;
         _lastShovelHeightTolerance = heightTolerance;
-        if (revived) Changed?.Invoke();
+        _lastDrillPatternId = _skills.Derived.DrillPatternId;
+        if (changed) Changed?.Invoke();
     }
 
     private double EffectiveRateMultiplier(MinerDefinition definition)
@@ -485,6 +509,13 @@ public partial class MinerSimulationService : Node3D
             ? _skills.Derived.ShovelRateMultiplier
             : _skills.Derived.MinerRateMultiplier;
     }
+
+    private string EffectivePatternId(MinerDefinition definition)
+        => IsPrimaryDrill(definition) ? _skills.Derived.DrillPatternId : definition.PatternId;
+
+    private static bool IsPrimaryDrill(MinerDefinition definition)
+        => definition.Id.Equals("line_miner", StringComparison.Ordinal)
+            && definition.ToolClass.Equals("drill", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsShovel(MinerDefinition definition)
         => definition.ToolClass.Equals("shovel", StringComparison.OrdinalIgnoreCase);
