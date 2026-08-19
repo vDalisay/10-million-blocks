@@ -4,32 +4,54 @@
     {
       "id": "line_miner",
       "display_name": "Line Miner",
+      "tool_class": "drill",
       "base_rate": 1.0,
       "pattern_id": "line",
       "range": 64,
       "power": 1.0,
       "allowed_block_tags": [],
+      "tag_rate_multipliers": {},
       "description": "Mines straight inward from the surface it is placed on."
     },
     {
       "id": "wide_bore_miner",
       "display_name": "Wide Bore Miner",
+      "tool_class": "drill",
       "base_rate": 2.0,
       "pattern_id": "wide_line",
       "range": 48,
       "power": 1.0,
       "allowed_block_tags": [],
+      "tag_rate_multipliers": {},
       "description": "Placeholder content for a later unlocked wider tunnel pattern."
     },
     {
       "id": "disc_miner",
       "display_name": "Disc Miner",
+      "tool_class": "drill",
       "base_rate": 3.0,
       "pattern_id": "disc",
       "range": 18,
       "power": 1.0,
       "allowed_block_tags": [],
+      "tag_rate_multipliers": {},
       "description": "Placeholder content for a later radial mining pattern."
+    },
+    {
+      "id": "shovel_miner",
+      "display_name": "Powered Shovel",
+      "tool_class": "shovel",
+      "base_rate": 1.0,
+      "pattern_id": "surface_strip",
+      "range": 36,
+      "power": 1.0,
+      "allowed_block_tags": ["surface", "soil", "sand"],
+      "tag_rate_multipliers": {
+        "surface": 1.75,
+        "soil": 2.5,
+        "sand": 3.0
+      },
+      "description": "Sweeps tangentially across a cube face and works fastest through dirt and sand."
     }
   ]
 }
