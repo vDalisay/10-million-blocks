@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - agent/one-million-squared-plan
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
