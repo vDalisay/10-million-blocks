@@ -10,7 +10,7 @@ public readonly record struct MiningResult(
     bool Success,
     Vector3I Voxel,
     string BlockId,
-    int Reward,
+    long Reward,
     long TotalMined,
     long Remaining);
 
@@ -37,16 +37,16 @@ public sealed class MiningService
         BlockSample before = _world.SampleVoxel(voxel);
         if (!before.Present || !before.Mineable || !_world.IsExposed(voxel))
         {
-            return new MiningResult(false, voxel, string.Empty, 0, TotalMined, Remaining);
+            return new MiningResult(false, voxel, string.Empty, 0L, TotalMined, Remaining);
         }
 
         if (!_world.TryMine(voxel, out BlockSample mined))
         {
-            return new MiningResult(false, voxel, string.Empty, 0, TotalMined, Remaining);
+            return new MiningResult(false, voxel, string.Empty, 0L, TotalMined, Remaining);
         }
 
         BlockDefinition definition = _content.GetBlock(mined.BlockId);
-        int reward = definition.BaseValue;
+        long reward = definition.BaseValue;
         Currency += reward;
 
         var result = new MiningResult(true, voxel, mined.BlockId, reward, TotalMined, Remaining);
