@@ -7,63 +7,76 @@ namespace TenMillionBlocks.Presentation;
 public partial class CloudField : Node3D
 {
     private const int StarCount = 180;
-    private readonly List<(Node3D Layer, float Speed, float BobPhase)> _cloudLayers = new();
-    private double _elapsed;
+    private const int CloudCount = 16;
+
+    private readonly List<(Node3D Pivot, float AngularSpeed)> _orbiters = new();
 
     public override void _Ready()
     {
-        AddCloudLayer("CloudLayerNear", 73021, 14.0f, 21.0f, 26, 0.030f, -0.08f);
-        AddCloudLayer("CloudLayerMid", 73031, 20.0f, 29.0f, 28, -0.020f, 0.04f);
-        AddCloudLayer("CloudLayerFar", 73051, 28.0f, 38.0f, 22, 0.012f, -0.02f);
+        BuildOrbitingClouds();
         AddChild(BuildStars());
     }
 
     public override void _Process(double delta)
     {
-        _elapsed += delta;
-        foreach ((Node3D layer, float speed, float phase) in _cloudLayers)
+        float dt = (float)delta;
+        foreach ((Node3D pivot, float angularSpeed) in _orbiters)
         {
-            Vector3 rotation = layer.Rotation;
-            rotation.Y += speed * (float)delta;
-            rotation.Z = MathF.Sin((float)_elapsed * 0.11f + phase) * 0.025f;
-            layer.Rotation = rotation;
-
-            Vector3 position = layer.Position;
-            position.Y = MathF.Sin((float)_elapsed * 0.18f + phase) * 0.45f;
-            layer.Position = position;
+            Vector3 rotation = pivot.Rotation;
+            rotation.Y = Mathf.Wrap(rotation.Y + angularSpeed * dt, -Mathf.Pi, Mathf.Pi);
+            pivot.Rotation = rotation;
         }
     }
 
-    private void AddCloudLayer(
-        string name,
-        int seed,
-        float minRadius,
-        float maxRadius,
-        int cubeCount,
-        float angularSpeed,
-        float tilt)
+    private void BuildOrbitingClouds()
     {
-        var layer = new Node3D
+        var random = new Random(73021);
+
+        for (int cloudIndex = 0; cloudIndex < CloudCount; cloudIndex++)
         {
-            Name = name,
-            Rotation = new Vector3(tilt, 0.0f, 0.0f),
-        };
-        layer.AddChild(BuildCloudBatch(seed, minRadius, maxRadius, cubeCount));
-        AddChild(layer);
-        _cloudLayers.Add((layer, angularSpeed, seed * 0.001f));
+            float normalized = cloudIndex / (float)CloudCount;
+            float radius = 20.0f + (float)random.NextDouble() * 14.0f;
+            float height = -9.0f + (float)random.NextDouble() * 18.0f;
+            float inclination = Mathf.DegToRad(-16.0f + (float)random.NextDouble() * 32.0f);
+            float bank = Mathf.DegToRad(-8.0f + (float)random.NextDouble() * 16.0f);
+            float phase = normalized * Mathf.Tau + ((float)random.NextDouble() - 0.5f) * 0.48f;
+
+            var pivot = new Node3D
+            {
+                Name = $"CloudOrbit_{cloudIndex:00}",
+                Rotation = new Vector3(inclination, phase, bank),
+            };
+            AddChild(pivot);
+
+            var carrier = new Node3D
+            {
+                Name = "Carrier",
+                Position = new Vector3(radius, height, 0.0f),
+            };
+            pivot.AddChild(carrier);
+
+            int pieces = random.Next(4, 9);
+            carrier.AddChild(BuildClump(random, pieces));
+
+            // A complete revolution takes roughly 95-190 seconds. Nearby clouds are a little faster,
+            // but every clump keeps its shape instead of independently wiggling in place.
+            float direction = cloudIndex % 5 == 0 ? -1.0f : 1.0f;
+            float angularSpeed = direction * (0.033f + (34.0f - radius) * 0.0012f);
+            _orbiters.Add((pivot, angularSpeed));
+        }
     }
 
-    private static MultiMeshInstance3D BuildCloudBatch(int seed, float minRadius, float maxRadius, int cubeCount)
+    private static MultiMeshInstance3D BuildClump(Random random, int pieces)
     {
         var material = new StandardMaterial3D
         {
-            AlbedoColor = new Color(0.92f, 0.96f, 1.0f, 1.0f),
-            Roughness = 0.88f,
+            AlbedoColor = new Color(0.93f, 0.965f, 1.0f, 1.0f),
+            Roughness = 0.92f,
         };
 
         var mesh = new BoxMesh
         {
-            Size = new Vector3(1.9f, 0.72f, 1.35f),
+            Size = Vector3.One,
             Material = material,
         };
 
@@ -71,39 +84,37 @@ public partial class CloudField : Node3D
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
             Mesh = mesh,
-            InstanceCount = cubeCount,
-            VisibleInstanceCount = cubeCount,
+            InstanceCount = pieces,
+            VisibleInstanceCount = pieces,
         };
 
-        var random = new Random(seed);
-        int clusterCount = Math.Max(1, cubeCount / 4);
-        for (int i = 0; i < cubeCount; i++)
+        // Build one coherent flattened voxel cloud around local origin. Pieces overlap enough to read
+        // as one cloud at a distance, matching the reference instead of a ring of unrelated cubes.
+        for (int i = 0; i < pieces; i++)
         {
-            int cluster = i % clusterCount;
-            float baseAngle = (cluster / (float)clusterCount) * Mathf.Tau;
-            baseAngle += ((float)random.NextDouble() - 0.5f) * 0.24f;
-            float radius = minRadius + (float)random.NextDouble() * (maxRadius - minRadius);
-            float height = ((float)random.NextDouble() - 0.5f) * 19.0f;
-
-            Vector3 center = new(
-                MathF.Cos(baseAngle) * radius,
-                height,
-                MathF.Sin(baseAngle) * radius);
-
-            float localIndex = i / (float)clusterCount;
+            float lane = i - (pieces - 1) * 0.5f;
             Vector3 local = new(
-                (localIndex - 1.45f) * 1.45f,
-                ((float)random.NextDouble() - 0.5f) * 0.55f,
-                ((float)random.NextDouble() - 0.5f) * 1.1f);
+                lane * (0.72f + (float)random.NextDouble() * 0.30f),
+                ((float)random.NextDouble() - 0.5f) * 0.75f,
+                ((float)random.NextDouble() - 0.5f) * 1.65f);
 
-            float scale = 0.72f + (float)random.NextDouble() * 0.58f;
-            Basis basis = Basis.Identity.Scaled(new Vector3(scale * 1.35f, scale * 0.72f, scale));
-            multiMesh.SetInstanceTransform(i, new Transform3D(basis, center + local));
+            if (i > 1 && i < pieces - 1 && random.NextDouble() > 0.55)
+            {
+                local.Y += 0.55f;
+            }
+
+            float size = 1.25f + (float)random.NextDouble() * 0.85f;
+            Vector3 scale = new(
+                size * (1.15f + (float)random.NextDouble() * 0.35f),
+                size * (0.38f + (float)random.NextDouble() * 0.16f),
+                size * (0.72f + (float)random.NextDouble() * 0.28f));
+
+            multiMesh.SetInstanceTransform(i, new Transform3D(Basis.Identity.Scaled(scale), local));
         }
 
         return new MultiMeshInstance3D
         {
-            Name = "MovingBlockClouds",
+            Name = "VoxelCloudClump",
             Multimesh = multiMesh,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
