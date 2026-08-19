@@ -32,6 +32,7 @@ public partial class MinerSimulationService : Node3D
     private MiningPatternRegistry _patterns = null!;
     private SkillTreeService _skills = null!;
     private long _nextInstanceId = 1;
+    private int _lastShovelSearchRadius = 1;
 
     public event Action? Changed;
     public event Action<MinerInstance>? MinerPlaced;
@@ -59,6 +60,8 @@ public partial class MinerSimulationService : Node3D
         _catalog = catalog;
         _patterns = patterns;
         _skills = skills;
+        _lastShovelSearchRadius = Math.Max(1, skills.Derived.ShovelSearchRadius);
+        skills.Changed += OnSkillsChanged;
     }
 
     public override void _Process(double delta)
@@ -118,6 +121,15 @@ public partial class MinerSimulationService : Node3D
                 $"Miner '{definition.Id}' references unknown pattern '{definition.PatternId}'.");
         }
 
+        if (IsShovel(definition))
+        {
+            BlockSample placementSample = _world.SampleVoxel(surfaceVoxel);
+            if (!placementSample.Present || !MatchesAllowedTags(definition, _mining.GetBlockDefinition(placementSample.BlockId)))
+            {
+                return null;
+            }
+        }
+
         Vector3I outward = _world.Source.GetOutwardNormal(surfaceVoxel);
         var instance = new MinerInstance
         {
@@ -163,6 +175,7 @@ public partial class MinerSimulationService : Node3D
         foreach (MinerSnapshot snapshot in snapshots)
         {
             if (!_catalog.Miners.ContainsKey(snapshot.DefinitionId)) continue;
+            MinerDefinition definition = _catalog.Get(snapshot.DefinitionId);
 
             var miner = new MinerInstance
             {
@@ -174,7 +187,9 @@ public partial class MinerSimulationService : Node3D
                 CandidateIndex = Math.Max(0, snapshot.CandidateIndex),
                 BlocksMined = Math.Max(0L, snapshot.BlocksMined),
                 WorkAccumulator = Math.Max(0.0, snapshot.WorkAccumulator),
-                Exhausted = snapshot.Exhausted,
+                // A newly purchased Terrain Scout upgrade should also be able to revive a shovel that
+                // was saved while stuck with the old adjacent-only search.
+                Exhausted = snapshot.Exhausted && !(IsShovel(definition) && _skills.Derived.ShovelSearchRadius > 1),
             };
 
             if (miner.Direction == Vector3I.Zero) continue;
@@ -231,6 +246,11 @@ public partial class MinerSimulationService : Node3D
 
     private bool Advance(MinerInstance miner, MinerDefinition definition, bool emitPresentation)
     {
+        if (IsShovel(definition))
+        {
+            return AdvanceShovel(miner, definition, emitPresentation);
+        }
+
         IMiningPattern pattern = _patterns.Get(definition.PatternId);
         int width = definition.PatternId == "line" ? 1 : Math.Max(1, _skills.Derived.MinerPatternWidth);
 
@@ -257,17 +277,178 @@ public partial class MinerSimulationService : Node3D
             MiningResult result = _mining.TryMine(candidate.Value, MiningSource.Automated, requireExposed: false);
             if (!result.Success) continue;
 
-            miner.BlocksMined++;
-            miner.LastMinedVoxel = candidate.Value;
-            ApplyAffinityCredit(miner, definition, block);
-            _view.MarkDirtyAround(candidate.Value);
-            if (emitPresentation) EmitDebris(miner, result);
-            UpdateVisual(miner);
+            CompleteMine(miner, definition, block, result, emitPresentation);
             return true;
         }
 
         return false;
     }
+
+    private bool AdvanceShovel(MinerInstance miner, MinerDefinition definition, bool emitPresentation)
+    {
+        Vector3I? candidate;
+        if (miner.BlocksMined == 0)
+        {
+            candidate = miner.Origin;
+        }
+        else
+        {
+            candidate = FindShovelSurfaceCandidate(miner, definition, Math.Max(1, _skills.Derived.ShovelSearchRadius));
+        }
+
+        if (candidate is null)
+        {
+            miner.Exhausted = true;
+            UpdateVisual(miner);
+            return false;
+        }
+
+        miner.CandidateIndex++;
+        BlockSample sample = _world.SampleVoxel(candidate.Value);
+        if (!sample.Present)
+        {
+            // The chosen tile may have disappeared earlier in the same frame because another miner
+            // reached it first. Retry on the next work unit instead of killing the shovel.
+            return false;
+        }
+
+        BlockDefinition block = _mining.GetBlockDefinition(sample.BlockId);
+        if (!MatchesAllowedTags(definition, block) || !_world.IsExposed(candidate.Value))
+        {
+            return false;
+        }
+
+        MiningResult result = _mining.TryMine(candidate.Value, MiningSource.Automated, requireExposed: true);
+        if (!result.Success)
+        {
+            return false;
+        }
+
+        CompleteMine(miner, definition, block, result, emitPresentation);
+        return true;
+    }
+
+    private Vector3I? FindShovelSurfaceCandidate(MinerInstance miner, MinerDefinition definition, int maxRadius)
+    {
+        Vector3I start = miner.LastMinedVoxel;
+        Vector3I outward = -LineMiningPattern.Cardinal(miner.Direction);
+        maxRadius = Math.Clamp(maxRadius, 1, 8);
+
+        // Search expanding Chebyshev shells. Radius 1 means genuinely neighbouring surface tiles,
+        // including a one-block height change. The Terrain Scout skill extends the same deterministic
+        // search to radius 5 only after the shovel would otherwise be stuck.
+        for (int radius = 1; radius <= maxRadius; radius++)
+        {
+            Vector3I? best = null;
+            float bestScore = float.PositiveInfinity;
+            float bestTie = float.PositiveInfinity;
+
+            for (int z = -radius; z <= radius; z++)
+            for (int y = -radius; y <= radius; y++)
+            for (int x = -radius; x <= radius; x++)
+            {
+                if (Math.Max(Math.Abs(x), Math.Max(Math.Abs(y), Math.Abs(z))) != radius)
+                {
+                    continue;
+                }
+
+                var offset = new Vector3I(x, y, z);
+                int radialOffset = offset.Dot(outward);
+                Vector3I tangentOffset = offset - outward * radialOffset;
+
+                // Never advance straight inward through the hole the shovel just created. There must
+                // be tangential motion to a different surface column; radial movement is allowed only
+                // so the crawler can follow one-block cliffs/relief.
+                if (tangentOffset == Vector3I.Zero)
+                {
+                    continue;
+                }
+
+                Vector3I candidate = start + offset;
+                if (_world.Source.GetOutwardNormal(candidate) != outward)
+                {
+                    continue;
+                }
+
+                BlockSample sample = _world.SampleVoxel(candidate);
+                if (!sample.Present || !_world.IsExposed(candidate))
+                {
+                    continue;
+                }
+
+                BlockDefinition block = _mining.GetBlockDefinition(sample.BlockId);
+                if (!MatchesAllowedTags(definition, block))
+                {
+                    continue;
+                }
+
+                float tangentDistance = tangentOffset.LengthSquared();
+                float radialPenalty = Math.Abs(radialOffset) * 0.35f;
+                float score = tangentDistance + radialPenalty;
+                float tie = DeterministicNoise.Hash01(
+                    candidate.X,
+                    candidate.Y,
+                    candidate.Z,
+                    unchecked(_world.Profile.Seed + (int)(miner.InstanceId * 7919L)));
+
+                if (score < bestScore - 0.0001f || (MathF.Abs(score - bestScore) <= 0.0001f && tie < bestTie))
+                {
+                    best = candidate;
+                    bestScore = score;
+                    bestTie = tie;
+                }
+            }
+
+            if (best is not null)
+            {
+                return best;
+            }
+        }
+
+        return null;
+    }
+
+    private void CompleteMine(
+        MinerInstance miner,
+        MinerDefinition definition,
+        BlockDefinition block,
+        MiningResult result,
+        bool emitPresentation)
+    {
+        miner.BlocksMined++;
+        miner.LastMinedVoxel = result.Voxel;
+        ApplyAffinityCredit(miner, definition, block);
+        _view.MarkDirtyAround(result.Voxel);
+        if (emitPresentation) EmitDebris(miner, result);
+        UpdateVisual(miner);
+    }
+
+    private void OnSkillsChanged()
+    {
+        int searchRadius = Math.Max(1, _skills.Derived.ShovelSearchRadius);
+        if (searchRadius <= _lastShovelSearchRadius)
+        {
+            _lastShovelSearchRadius = searchRadius;
+            return;
+        }
+
+        bool revived = false;
+        foreach (MinerInstance miner in _miners)
+        {
+            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+            if (!miner.Exhausted || !IsShovel(definition)) continue;
+            miner.Exhausted = false;
+            miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
+            UpdateVisual(miner);
+            revived = true;
+        }
+
+        _lastShovelSearchRadius = searchRadius;
+        if (revived) Changed?.Invoke();
+    }
+
+    private static bool IsShovel(MinerDefinition definition)
+        => definition.ToolClass.Equals("shovel", StringComparison.OrdinalIgnoreCase);
 
     private static bool MatchesAllowedTags(MinerDefinition definition, BlockDefinition block)
     {
@@ -316,7 +497,7 @@ public partial class MinerSimulationService : Node3D
         };
         AddChild(root);
 
-        if (definition.ToolClass.Equals("shovel", StringComparison.OrdinalIgnoreCase))
+        if (IsShovel(definition))
         {
             BuildShovelVisual(root, spacing);
         }
