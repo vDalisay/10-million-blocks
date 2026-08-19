@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 5,
+  "content_version": 6,
   "nodes": [
     {
       "id": "manual_2x",
@@ -61,7 +61,7 @@
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Requires Faster Motors rank 3. Unlock the wider line mining pattern and increase pattern width.",
+      "description": "Requires Faster Motors rank 3. Upgrade the placed drill from a single-file tunnel to a 3-wide bore.",
       "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
@@ -77,13 +77,14 @@
       "max_rank": 1,
       "effects": [
         { "type": "unlock_pattern", "string_value": "wide_line" },
+        { "type": "set_drill_pattern", "string_value": "wide_line" },
         { "type": "set_miner_pattern_width", "value": 3.0 }
       ]
     },
     {
       "id": "disc_unlock",
       "display_name": "Radial Excavation",
-      "description": "Unlock the disc mining pattern.",
+      "description": "Upgrade the placed drill to excavate a wider disc-shaped face as it works.",
       "grid_x": 4,
       "grid_y": 4,
       "category": "patterns",
@@ -93,7 +94,11 @@
       ],
       "cost": 240,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_pattern", "string_value": "disc" }]
+      "effects": [
+        { "type": "unlock_pattern", "string_value": "disc" },
+        { "type": "set_drill_pattern", "string_value": "disc" },
+        { "type": "set_miner_pattern_width", "value": 5.0 }
+      ]
     },
     {
       "id": "resource_sensors",
