@@ -14,51 +14,43 @@ public partial class ReferenceVisualHarness : Node
 
     public override void _Ready()
     {
-        var canvas = new CanvasLayer { Name = "ReferenceVisualHarnessCanvas" };
+        var canvas = new CanvasLayer { Name = "ReferenceVisualHarnessCanvas", Layer = 20 };
         AddChild(canvas);
 
         var panel = new PanelContainer
         {
             OffsetLeft = 16.0f,
             OffsetTop = 16.0f,
-            OffsetRight = 306.0f,
-            OffsetBottom = 174.0f,
+            OffsetRight = 442.0f,
+            OffsetBottom = 64.0f,
         };
         canvas.AddChild(panel);
 
         var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 10);
-        margin.AddThemeConstantOverride("margin_top", 8);
-        margin.AddThemeConstantOverride("margin_right", 10);
-        margin.AddThemeConstantOverride("margin_bottom", 8);
+        margin.AddThemeConstantOverride("margin_left", 8);
+        margin.AddThemeConstantOverride("margin_top", 6);
+        margin.AddThemeConstantOverride("margin_right", 8);
+        margin.AddThemeConstantOverride("margin_bottom", 6);
         panel.AddChild(margin);
 
-        var column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 5);
-        margin.AddChild(column);
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 4);
+        margin.AddChild(row);
 
-        column.AddChild(new Label { Text = "REFERENCE VISUAL HARNESS" });
-
-        _status = new Label { Text = "Camera: Medium" };
-        column.AddChild(_status);
-
-        var presets = new HBoxContainer();
-        presets.AddThemeConstantOverride("separation", 4);
-        column.AddChild(presets);
-
-        AddPresetButton(presets, "Far [1]", OrbitCameraController.FarPreset);
-        AddPresetButton(presets, "Medium [2]", OrbitCameraController.MediumPreset);
-        AddPresetButton(presets, "Near [3]", OrbitCameraController.NearPreset);
-
-        var recenter = new Button { Text = "Recenter [F]" };
-        recenter.Pressed += () => _camera.Recenter();
-        column.AddChild(recenter);
-
-        column.AddChild(new Label
+        _status = new Label
         {
-            Text = "LMB: mine / UI   RMB drag: orbit   MMB drag: pan   Wheel: zoom",
-            AutowrapMode = TextServer.AutowrapMode.WordSmart,
-        });
+            Text = "Camera: Medium",
+            CustomMinimumSize = new Vector2(108.0f, 0.0f),
+        };
+        row.AddChild(_status);
+
+        AddPresetButton(row, "Far [1]", OrbitCameraController.FarPreset);
+        AddPresetButton(row, "Med [2]", OrbitCameraController.MediumPreset);
+        AddPresetButton(row, "Near [3]", OrbitCameraController.NearPreset);
+
+        var recenter = new Button { Text = "Center [F]" };
+        recenter.Pressed += () => _camera.Recenter();
+        row.AddChild(recenter);
     }
 
     public override void _Process(double delta)
