@@ -8,17 +8,17 @@ Source plan: `docs/IMPLEMENTATION_PLAN.md`
 - Phase 1 — Project foundation + asset catalog: **complete and locally validated**
 - Phase 2 — Reference visual slice: **superseded by the real generator; reference remains the art target**
 - Phase 3 — Virtual world data + deterministic generator: **implemented and locally iterated**
-- Phase 4 — Rendering + picking: **small-world path validated; large-world streaming performance validated, LOD appearance in active polish**
+- Phase 4 — Rendering + picking: **small-world path validated; large-world streaming performance validated, close-navigation fix awaiting local validation**
 - Phase 5 — Manual mining: **complete and locally validated**
 - Phase 6 — Automation framework: **implemented and locally iterated**
-- Phase 7 — Skill-tree runtime: **implemented**
+- Phase 7 — Skill-tree runtime: **implemented; shovel-specific derived search stat added**
 - Phase 8 — Skill-tree editor: **implemented**
 - Phase 9 — World completion/progression: **implemented; transition polish added**
 - Phase 10 — Save/load/offline foundation: **implemented; aggregate exhausted regions supported**
-- Phase 11 — 1000-scale stress/optimization: **CPU/frame-time target passed; close/far LOD UX awaiting visual validation**
-- Phase 12 — Game-feel/reference polish: **in progress; mining, skill-tree and completion feedback improved**
+- Phase 11 — 1000-scale stress/optimization: **CPU/frame-time target passed; pathological final visual proxy intentionally deferred**
+- Phase 12 — Game-feel/reference polish: **in progress; HUD obstruction reduced and camera controls refined**
 - Phase 13 — final-scale validation: **reframed to the clarified one-million-block total target**
-- Phase 14 — tool-class automation/world events: **generic foundation implemented; powered shovel now playable; asset-dependent tool/event work remains**
+- Phase 14 — tool-class automation/world events: **generic foundation implemented; powered shovel crawler + search upgrade implemented; asset-dependent work remains**
 
 The user's locally added forest assets, terrain/presentation tuning, UID files, shovel asset and plan
 additions remain preserved on this branch.
@@ -37,6 +37,10 @@ Current diagnostic meanings:
   more plausible 128 x 128 x 128 logical dimensions.
 - Neither profile commits the game to a final visual/world dimension. Final progression-world scale is
   still an art/content decision.
+
+The current request explicitly allows the final one-million-world visual composition to be revisited
+later. Work below therefore fixes navigation correctness without treating the stress macro proxy as
+finished art.
 
 ---
 
@@ -64,8 +68,8 @@ exhausted_regions=9
 managed_memory_mb=5.3
 ```
 
-The Phase 11 performance problem is therefore considered solved at the current detail workload. The
-remaining large-world issue is presentation/LOD quality rather than raw synchronous chunk cost.
+The performance issue is considered solved at the current detail workload. Remaining giant-world work
+is presentation/LOD/navigation quality, not synchronous chunk throughput.
 
 ### Stream churn cleanup
 
@@ -79,82 +83,94 @@ focus transition instead of accumulating obsolete work.
 
 ## Large-world camera and LOD revision
 
-The 1000-wide stress profile revealed why simply scaling the normal centre-orbit camera does not work:
-zooming closer than the world radius puts the camera inside the terrain, while staying outside makes
-individual blocks visually tiny.
+### What failed in the first surface-focus attempt
 
-### Surface-focus camera
+The initial surface-focus camera used the world's axis half-extent as though the cube were a sphere.
+That is geometrically unsafe: viewed along a diagonal, the cube surface is farther from its centre than
+that axis extent. As a result:
 
-`OrbitCameraController` now treats large worlds differently:
+- pressing **3** could place the camera inside the stress cube;
+- a single wheel notch could jump from an outside overview to an unusable/interior view;
+- the nominal MinDistance clamp was not a real collision barrier because it only clamped the control
+  distance, not the camera's final position relative to the cube.
 
-- far/medium views continue to orbit the world centre;
-- as the user zooms toward the surface, the orbit pivot smoothly moves toward the currently viewed face;
-- at close range, camera distance becomes a **surface stand-off** instead of centre distance;
-- the camera can therefore inspect blocks from a few block widths away without entering the cube;
-- wheel zoom is deliberately finer through the centre-to-surface transition;
-- MMB panning becomes finer in surface inspection mode;
-- the large-world Near preset enters a surface inspection distance rather than scaling the ordinary
-  centre-orbit Near distance.
+### Hard camera barrier now implemented
 
-The normal Verdant/Lakebound camera behavior remains on the existing small-world path.
+`OrbitCameraController` now treats penetration prevention as an invariant rather than a tuning value:
 
-### Detail working set follows zoom level
+- it calculates the actual cube support distance along the current camera ray;
+- during the centre-to-surface pivot blend it computes the final camera ray from the panned pivot;
+- an expanded axis-aligned cube is used as a hard safety boundary;
+- if the requested camera position would remain inside that boundary, the local camera stand-off is
+  increased to the exact ray exit distance before rendering the frame;
+- this applies at every orbit angle and while panning, including cube diagonals/corners;
+- F9 now exposes the resulting face clearance so a penetration regression is observable.
 
-Large-world streamed detail is now LOD-aware:
+The large-world **Near [3]** preset now requests an actual close inspection stand-off of roughly five
+world units rather than a scaled centre-orbit distance. The hard barrier remains authoritative if that
+request would be unsafe.
 
-- far view: base detailed radius around the active surface focus;
-- transition: radius expands by one chunk;
-- close inspection: radius expands by two chunks, bounded by a hard cap;
-- depth is still calculated from the authored relief band so valleys/water do not disappear;
-- close detail restores deterministic supplied tree models;
-- chunk building remains suspended while RMB/MMB is actively held.
+### Adaptive wheel zoom
 
-### Macro proxy behavior
+Large-world mouse-wheel zoom no longer uses one multiplicative factor across the full range.
 
-The coarse macro shell is now treated strictly as a far/movement LOD:
+- far away, a notch may still move by several world units so crossing empty space is not tedious;
+- through the centre-to-surface transition, the additive step is reduced;
+- once in close inspection, the step scales with the current stand-off and eventually falls to
+  fractions of one block per notch;
+- zoom-in and zoom-out use the same distance-adaptive delta;
+- ordinary Verdant/Lakebound retain the original small-world multiplicative zoom behavior.
 
-- `stress_1000` macro resolution increased from 24 to 48 cells per face after performance validation;
-- `final_target_1m` uses a 40-cell-per-face diagnostic macro resolution;
-- while zooming/orbiting the proxy remains immediately available;
-- once surface focus is close, the detailed queue is settled and real block chunks are present, the
-  coarse macro shell is hidden so a single giant green macro tile cannot fill the close view;
-- F9 exposes surface-focus blend, detail radius and macro visible/hidden state.
+This directly addresses the requested rule: **the closer the camera is to the cube, the more gradual
+one wheel tick becomes**, while the independent barrier prevents entering the cube regardless of wheel
+input.
 
-This makes the pathological stress world useful for inspecting the LOD transition. It does **not** mean
-its far proxy is intended as final art.
+### Detail working set and macro behavior
+
+The previous LOD work remains in place:
+
+- close inspection expands the bounded streamed-detail radius;
+- depth follows the authored relief band;
+- supplied tree models return in sufficiently close detailed land patches;
+- detailed chunk construction remains suspended during RMB/MMB drag;
+- the macro shell is hidden when close detail has settled and returns while moving/catching up;
+- the stress macro proxy remains diagnostic/far art and can be redesigned later without changing the
+  validated streaming architecture.
 
 ---
 
-## Phase 12 game-feel work
+## Phase 12 game-feel / UI work
 
-### Manual mining
+### Manual mining and progression feedback already present
 
-- block-aware debris remains capped for multi-block clicks;
-- hover highlight now has a subtle breathing pulse;
-- successful manual mining adds a short hit pulse to the highlight;
-- LMB remains mining/UI only, RMB orbit and MMB pan.
+- block-aware debris is capped for multi-block clicks;
+- hover highlight has a subtle breathing pulse;
+- successful manual mining adds a short hit pulse;
+- skill-tree purchases provide state feedback and pulse successful nodes;
+- completion overlay and Continue use short fade/scale transitions.
 
-### Runtime skill tree
+### Obstructive left HUD replaced
 
-- open/close has a short fade;
-- purchases provide success/failure feedback;
-- purchased nodes pulse briefly;
-- owned/maxed, prereq-locked and unaffordable states are visually differentiated;
-- routed prerequisite lines remain data-driven and now sit on a faint grid matching the editor model.
+The old fixed middle-left information panel covered a large part of the world view. `MiningHud` is now a
+compact lower-left dock:
 
-### Completion overview
+- first line: world, blocks remaining, resources and manual mining power;
+- second line: miner count/rate, drill state, shovel state and current shovel search radius;
+- detailed controls/render diagnostics are hidden by default;
+- **H** expands/collapses those details;
+- transient mining feedback appears only briefly.
 
-- completion overlay fades/scales in;
-- Continue fades/scales out before changing world;
-- Continue disables immediately to prevent double activation.
+The separate reference-camera harness was also reduced to one narrow top-left control row rather than a
+large title/instruction panel. F9 remains opt-in on the right for engineering diagnostics.
 
-These are lightweight feedback additions; sound and broader UI art direction remain later polish.
+Broader final HUD art direction remains Phase 12 polish; the immediate obstruction is removed without
+committing to a final visual skin.
 
 ---
 
 ## Phase 14 — specialised automation progress
 
-The generic tool architecture already supports:
+The generic tool architecture supports:
 
 - `toolClass`
 - optional allowed block tags
@@ -162,81 +178,96 @@ The generic tool architecture already supports:
 - affinity-aware work credits in live and bounded offline simulation
 - swappable pure mining patterns including inward line, wide bore, disc and tangential `surface_strip`
 
-### Drill presentation restored
+### Drill presentation
 
-Drill-class miners now use their own procedural drill presentation instead of sharing the locally added
-shovel model:
+Drill-class miners use their own procedural presentation:
 
-- cylindrical motor housing
-- shaft + pointed bit
-- rotating three-fin cutting head
-- material-aware debris at the working face
-- visual advances to the most recently mined block
+- cylindrical motor housing;
+- shaft + pointed bit;
+- rotating three-fin cutting head;
+- material-aware debris at the working face;
+- visual advances to the most recently mined block.
 
 The supplied KayKit shovel remains reserved for the shovel tool class.
 
-### Powered Shovel is now playable
+### Powered Shovel crawler revision
 
-The previously provisional shovel is wired into runtime progression:
+The first shovel implementation enumerated one fixed tangential strip from its origin. That happened to
+work on the top face but could mine the first block and stall on a side face because generated relief no
+longer lined up with that fixed plane.
 
-- new skill-tree node `Powered Shovel`
-- requires `Resource Sensors`
-- unlocks `shovel_miner` and the `surface_strip` pattern
-- **N** places an unlocked Powered Shovel on the hovered surface block
-- it follows the surface rather than boring inward
-- allowed tags keep it focused on surface/soil/sand
-- dirt/sand/surface affinity multipliers make it materially faster on its intended block families
-- HUD shows drill/shovel lock state and both placement controls
+Shovel-class miners now use a topology-aware surface crawler:
+
+- placement is accepted only on an exposed block matching the shovel's allowed surface/soil/sand tags;
+- after mining its current tile, it searches outward in expanding Chebyshev shells around the last tile;
+- the base search radius is **1**, so it only chooses a genuinely neighboring valid surface column;
+- a candidate must remain exposed, match shovel material tags and stay on the same cube face;
+- the candidate must include tangential movement, preventing the shovel from simply following the newly
+  exposed block straight inward like a drill;
+- one-block relief changes are allowed, so the shovel can crawl over ordinary generated unevenness;
+- equally suitable neighbors use deterministic seeded tie-breaking so save/offline replay is stable;
+- if no valid neighbor exists, the shovel stops/exhausts as requested.
+
+The pure `surface_strip` pattern remains in the registry for data compatibility/future broad surface
+automations, but the Powered Shovel's actual traversal is now dynamic because surface topology cannot be
+represented correctly by one static plane.
+
+### New Terrain Scout upgrade
+
+A new skill-tree node **Terrain Scout** follows Powered Shovel:
+
+- base shovel search radius: 1;
+- upgraded shovel search radius: 5;
+- the wider search is only relevant after nearer shells contain no candidate, so normal connected-surface
+  movement remains local;
+- an already exhausted shovel is automatically reactivated when the search-radius upgrade is purchased;
+- saved exhausted shovels can likewise retry when loading a save that already owns the upgrade.
+
+This implements the proposed "jump to another sand block up to roughly five tiles away when stuck"
+behavior without making the base shovel teleport across gaps.
 
 ### Asset-dependent Phase 14 work still deferred
 
 The current branch does not contain dedicated axe, pickaxe or gem models. Rather than silently baking
 placeholder visuals into final content, these remain pending assets/content direction:
 
-- persistent tree-feature clearing and axe automation
-- pickaxe final model/content and stone/ore-specific automation
-- deterministic multi-hit bomb blocks and blast presentation
-- gem block models and rare procedural pockets
+- persistent tree-feature clearing and axe automation;
+- pickaxe final model/content and stone/ore-specific automation;
+- deterministic multi-hit bomb blocks and blast presentation;
+- gem block models and rare procedural pockets.
 
-The underlying tool/tag/pattern/state architecture is intended to support them without another miner
-framework rewrite.
+The tool/tag/pattern/state architecture remains ready for these without another miner framework rewrite.
 
 ---
 
 ## Next local checkpoint
 
-The performance numbers no longer require another benchmark before ordinary development continues. The
-next required local check is now genuinely visual/input-specific because it changes how a giant world is
-navigated and switches between two render representations.
+At this point the remaining uncertainty is genuinely local/visual/input-specific. Another design pass in
+code without seeing the camera and crawler would risk tuning around assumptions again.
 
-### Quick normal-world regression
+### Large-world camera check
 
-Run `play_game.bat` and confirm Verdant still launches, RMB orbit/MMB pan work and one LMB mining click
-still behaves normally.
+1. Run `play_game.bat`, press **F8**, then **F9**.
+2. Use individual wheel notches while approaching the cube. The notch distance should visibly become
+   smaller as the view gets close.
+3. Press **3** from any orbit angle, including a diagonal/corner view. It must stay outside the cube.
+4. Continue scrolling inward. F9 `clearance` must never collapse through the surface; at close range
+   individual wheel notches should be fractions/small multiples of a block rather than giant jumps.
+5. RMB orbit and MMB pan while close. The safety rule should remain true.
 
-### Large-world inspection check
+### Powered Shovel check
 
-1. Press **F8**, then **F9**.
-2. At far range the denser macro shell should still show the whole stress world.
-3. Scroll inward slowly. The camera should approach the viewed **surface** rather than eventually pass
-   through the cube.
-4. Press **3** as a shortcut to the large-world Near inspection distance.
-5. F9 should show `surface focus` approaching 1.00 and detail radius increasing as the view gets closer.
-6. After the detail queue settles, F9 should report the macro as `hidden`; the visible close patch should
-   consist of actual supplied block meshes rather than one giant flat green macro tile.
-7. Some trees should return in sufficiently close detailed land patches.
-8. RMB drag should remain smooth; macro may temporarily reappear while moving and detail should catch up
-   after release.
+1. Place one shovel on a top surface and one on a side surface.
+2. Both should crawl from their first mined tile into neighboring valid dirt/sand/surface tiles.
+3. They should not turn inward and behave like drills.
+4. Let a shovel reach a disconnected/stuck patch: it should stop when search radius is 1.
+5. Buy **Terrain Scout**. An exhausted shovel should wake up and, if a valid patch exists within five
+   tiles, jump to it and continue.
 
-### New progression/tool check
+### UI check
 
-On the ordinary world, unlock the Powered Shovel path in the skill tree. Verify:
+The old large middle-left information rectangle should be gone. The lower-left HUD should remain compact
+until **H** is pressed, and the camera controls should occupy only one small row at the top-left.
 
-- **M** places the drill and it visibly looks/rotates like a drill;
-- **N** places the Powered Shovel and uses the supplied shovel model;
-- the shovel travels tangentially across suitable surface terrain rather than following the drill inward;
-- the skill tree and completion overview transitions do not throw UI errors.
-
-This is the next point where a local result is actually needed. If it passes, implementation can continue
-into deeper Phase 12 polish and the asset-independent parts of Phase 14 without revisiting the streaming
-architecture.
+If these three checks pass, development can continue without another camera/shovel architecture change;
+the next work is deeper Phase 12 polish plus whichever Phase 14 assets/content become available.
