@@ -39,6 +39,7 @@ public partial class WorldView : Node3D
     public int MacroInstanceCount => _macroProxy?.InstanceCount ?? 0;
     public double MacroBuildMilliseconds => _macroProxy?.BuildMilliseconds ?? 0.0;
     public bool MacroVisible => _macroProxy?.Visible ?? false;
+    public float MacroOpacity => _macroProxy?.ContextOpacity ?? 0.0f;
     public int CurrentStreamingDetailRadius => Math.Max(0, _lastStreamingDetailRadius);
     public long TotalChunkBuilds { get; private set; }
     public long TotalVoxelCandidatesScanned { get; private set; }
@@ -181,8 +182,6 @@ public partial class WorldView : Node3D
             : new Vector3(0.4f, 0.4f, 1.0f).Normalized();
         float maxAbs = MathF.Max(MathF.Abs(direction.X), MathF.Max(MathF.Abs(direction.Y), MathF.Abs(direction.Z)));
 
-        // Start at the outside of the full possible relief band instead of BaseRadius. Inward depth
-        // chunks then cover valleys/water without requiring one giant voxel chunk.
         float radius = MathF.Max(1.0f, _world.MaxCoordinate - 1.0f);
         Vector3 surfacePoint = direction * (radius / MathF.Max(0.0001f, maxAbs));
         var focusVoxel = new Vector3I(
@@ -240,9 +239,6 @@ public partial class WorldView : Node3D
             StreamedChunkUnloads++;
         }
 
-        // Camera movement can change focus several times before the previous queue is consumed. The
-        // old implementation let those stale entries accumulate, producing thousands of pointless
-        // dequeue/check operations during the benchmark. Rebuild the tiny desired queue directly.
         _loadQueue.Clear();
         _queuedLoads.Clear();
         foreach (ChunkCoord desired in _desiredChunks)
@@ -259,9 +255,6 @@ public partial class WorldView : Node3D
         int radius = Math.Max(0, _world.Profile.StreamingChunkRadius);
         float focus = _camera?.SurfaceFocusBlend ?? 0.0f;
 
-        // Far views rely on the cheap macro shell. Once the camera transitions onto the surface we
-        // expand the real block patch so a close inspection fills the viewport with supplied meshes
-        // instead of one enormous macro cell.
         if (focus >= 0.82f) radius += 2;
         else if (focus >= 0.35f) radius += 1;
         return Math.Min(radius, 4);
@@ -287,13 +280,28 @@ public partial class WorldView : Node3D
             return;
         }
 
-        bool closeInspection = _camera.SurfaceFocusBlend >= 0.90f;
+        float focus = _camera.SurfaceFocusBlend;
         bool detailSettled = _loadQueue.Count == 0 && _chunkRoots.Count > 0;
 
-        // The macro proxy is useful while moving and at medium/far range. At close range it is exactly
-        // what made one coarse green tile fill the screen, so once real detail has caught up, remove it
-        // entirely from the close inspection view. It reappears instantly when the user starts moving.
-        _macroProxy.Visible = !closeInspection || !detailSettled || _camera.IsManipulating;
+        // Do not delete the visual context when entering close inspection. The detailed patch should
+        // feel like a magnified piece of the same world, not a replacement scene where the rest of the
+        // planet vanishes. Fade the inset macro shell into a low-opacity contextual ghost instead.
+        // While dragging/catching up, keep it more legible because detail construction is suspended.
+        float targetOpacity = 1.0f;
+        if (focus > 0.55f)
+        {
+            float close = Mathf.Clamp((focus - 0.55f) / 0.45f, 0.0f, 1.0f);
+            float floor = detailSettled ? 0.16f : 0.42f;
+            targetOpacity = Mathf.Lerp(1.0f, floor, close);
+        }
+
+        if (_camera.IsManipulating && focus > 0.70f)
+        {
+            targetOpacity = MathF.Max(targetOpacity, 0.42f);
+        }
+
+        _macroProxy.Visible = true;
+        _macroProxy.SetContextOpacity(targetOpacity);
     }
 
     private bool ChunkInWorldBounds(ChunkCoord chunk)
