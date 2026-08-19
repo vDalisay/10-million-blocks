@@ -16,8 +16,26 @@ public static class VoxelRaycaster
         Vector3 rayDirection = camera.ProjectRayNormal(screenPosition).Normalized();
         float spacing = world.Profile.BlockSpacing;
 
+        // Jump directly to the logical world's AABB before entering voxel DDA. This turns far-camera
+        // picking from O(camera distance / block size) into O(terrain thickness) and is essential for
+        // the 1000 and million-scale profiles.
+        if (!TryIntersectAabb(rayOrigin, rayDirection, world.GetWorldBounds(), out float enter, out float exit))
+        {
+            voxel = default;
+            return false;
+        }
+
+        float startWorldDistance = MathF.Max(0.0f, enter - spacing * 0.02f);
+        float endWorldDistance = MathF.Min(maxWorldDistance, exit + spacing * 0.02f);
+        if (endWorldDistance < startWorldDistance)
+        {
+            voxel = default;
+            return false;
+        }
+
+        Vector3 start = rayOrigin + rayDirection * startWorldDistance;
         // Shift by half a cell so integer voxel coordinates represent cell centers.
-        Vector3 gridOrigin = rayOrigin / spacing + Vector3.One * 0.5f;
+        Vector3 gridOrigin = start / spacing + Vector3.One * 0.5f;
         Vector3 direction = rayDirection;
         Vector3I cell = new(
             Mathf.FloorToInt(gridOrigin.X),
@@ -39,7 +57,7 @@ public static class VoxelRaycaster
         float tMaxX = SafeAxisT(nextX - gridOrigin.X, direction.X);
         float tMaxY = SafeAxisT(nextY - gridOrigin.Y, direction.Y);
         float tMaxZ = SafeAxisT(nextZ - gridOrigin.Z, direction.Z);
-        float maxGridDistance = maxWorldDistance / spacing;
+        float maxGridDistance = (endWorldDistance - startWorldDistance) / spacing;
         float travelled = 0.0f;
 
         while (travelled <= maxGridDistance)
@@ -72,6 +90,41 @@ public static class VoxelRaycaster
 
         voxel = default;
         return false;
+    }
+
+    private static bool TryIntersectAabb(Vector3 origin, Vector3 direction, Aabb bounds, out float enter, out float exit)
+    {
+        enter = 0.0f;
+        exit = float.PositiveInfinity;
+        Vector3 min = bounds.Position;
+        Vector3 max = bounds.End;
+
+        if (!IntersectAxis(origin.X, direction.X, min.X, max.X, ref enter, ref exit)
+            || !IntersectAxis(origin.Y, direction.Y, min.Y, max.Y, ref enter, ref exit)
+            || !IntersectAxis(origin.Z, direction.Z, min.Z, max.Z, ref enter, ref exit))
+        {
+            enter = 0.0f;
+            exit = 0.0f;
+            return false;
+        }
+
+        return exit >= MathF.Max(0.0f, enter);
+    }
+
+    private static bool IntersectAxis(float origin, float direction, float min, float max, ref float enter, ref float exit)
+    {
+        if (MathF.Abs(direction) < 0.000001f)
+        {
+            return origin >= min && origin <= max;
+        }
+
+        float inverse = 1.0f / direction;
+        float t0 = (min - origin) * inverse;
+        float t1 = (max - origin) * inverse;
+        if (t0 > t1) (t0, t1) = (t1, t0);
+        enter = MathF.Max(enter, t0);
+        exit = MathF.Min(exit, t1);
+        return enter <= exit;
     }
 
     private static float SafeReciprocalAbs(float value)
