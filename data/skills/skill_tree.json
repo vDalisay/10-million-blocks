@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "content_version": 1,
+  "schema_version": 2,
+  "content_version": 2,
   "nodes": [
     {
       "id": "manual_2x",
@@ -9,7 +9,8 @@
       "grid_x": 0,
       "grid_y": 0,
       "category": "manual",
-      "prerequisite_node_ids": [],
+      "purchase_mode": "once",
+      "prerequisites": [],
       "cost": 20,
       "max_rank": 1,
       "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
@@ -19,9 +20,12 @@
       "display_name": "Rapid Chipping",
       "description": "Mine one more nearby block per click.",
       "grid_x": 0,
-      "grid_y": 1,
+      "grid_y": 2,
       "category": "manual",
-      "prerequisite_node_ids": ["manual_2x"],
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "manual_2x", "required_rank": 1, "route": [{ "grid_x": 0, "grid_y": 1 }] }
+      ],
       "cost": 60,
       "max_rank": 1,
       "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
@@ -29,11 +33,12 @@
     {
       "id": "automation_unlock",
       "display_name": "Automation",
-      "description": "Unlock placement of the basic straight-line miner.",
+      "description": "Unlock placement of the basic straight-line drill miner.",
       "grid_x": 2,
       "grid_y": 0,
       "category": "automation",
-      "prerequisite_node_ids": [],
+      "purchase_mode": "once",
+      "prerequisites": [],
       "cost": 30,
       "max_rank": 1,
       "effects": [{ "type": "unlock_miner", "string_value": "line_miner" }]
@@ -41,23 +46,33 @@
     {
       "id": "miner_speed_1",
       "display_name": "Faster Motors",
-      "description": "Line miners work 50% faster.",
+      "description": "Repeatable motor upgrade. Each rank makes miners 15% faster.",
       "grid_x": 2,
-      "grid_y": 1,
+      "grid_y": 2,
       "category": "automation",
-      "prerequisite_node_ids": ["automation_unlock"],
-      "cost": 75,
-      "max_rank": 1,
-      "effects": [{ "type": "multiply_miner_rate", "value": 1.5 }]
+      "purchase_mode": "repeatable",
+      "prerequisites": [
+        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 2, "grid_y": 1 }] }
+      ],
+      "cost": 50,
+      "max_rank": 5,
+      "effects": [{ "type": "multiply_miner_rate", "value": 1.15 }]
     },
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Unlock the wider line mining pattern and increase pattern width.",
-      "grid_x": 3,
+      "description": "Requires Faster Motors rank 3. Unlock the wider line mining pattern and increase pattern width.",
+      "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
-      "prerequisite_node_ids": ["miner_speed_1"],
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "miner_speed_1",
+          "required_rank": 3,
+          "route": [{ "grid_x": 3, "grid_y": 2 }]
+        }
+      ],
       "cost": 140,
       "max_rank": 1,
       "effects": [
@@ -70,9 +85,12 @@
       "display_name": "Radial Excavation",
       "description": "Unlock the disc mining pattern.",
       "grid_x": 4,
-      "grid_y": 3,
+      "grid_y": 4,
       "category": "patterns",
-      "prerequisite_node_ids": ["wide_bore_unlock"],
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "wide_bore_unlock", "required_rank": 1, "route": [{ "grid_x": 4, "grid_y": 3 }] }
+      ],
       "cost": 240,
       "max_rank": 1,
       "effects": [{ "type": "unlock_pattern", "string_value": "disc" }]
@@ -82,9 +100,16 @@
       "display_name": "Resource Sensors",
       "description": "Foundation unlock for resource-targeting miner filters.",
       "grid_x": 1,
-      "grid_y": 2,
+      "grid_y": 3,
       "category": "resources",
-      "prerequisite_node_ids": ["automation_unlock"],
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1,
+          "route": [{ "grid_x": 1, "grid_y": 1 }, { "grid_x": 1, "grid_y": 2 }]
+        }
+      ],
       "cost": 110,
       "max_rank": 1,
       "effects": [{ "type": "unlock_resource_filter", "string_value": "ore" }]
