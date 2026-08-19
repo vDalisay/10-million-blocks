@@ -10,7 +10,9 @@
     { "id": "silver", "display_name": "Silver Ore", "asset_path": "res://Assets/gltf/stone_with_silver.gltf", "hardness": 3.0, "base_value": 8, "render_class": "terrain", "tags": ["stone", "ore", "silver"] },
     { "id": "gold", "display_name": "Gold Ore", "asset_path": "res://Assets/gltf/stone_with_gold.gltf", "hardness": 3.5, "base_value": 12, "render_class": "terrain", "tags": ["stone", "ore", "gold"] },
     { "id": "sand", "display_name": "Sand", "asset_path": "res://Assets/gltf/sand_A.gltf", "hardness": 0.8, "base_value": 1, "render_class": "terrain", "tags": ["surface", "sand"] },
+    { "id": "water_shallow", "display_name": "Shallow Water", "asset_path": "res://Assets/gltf/water.gltf", "hardness": 1.0, "base_value": 0, "render_class": "liquid", "tags": ["liquid", "water", "shallow"], "render_tint": [1.18, 1.28, 1.34, 1.0] },
     { "id": "water", "display_name": "Water", "asset_path": "res://Assets/gltf/water.gltf", "hardness": 1.0, "base_value": 0, "render_class": "liquid", "tags": ["liquid", "water"] },
+    { "id": "water_deep", "display_name": "Deep Water", "asset_path": "res://Assets/gltf/water.gltf", "hardness": 1.0, "base_value": 0, "render_class": "liquid", "tags": ["liquid", "water", "deep"], "render_tint": [0.54, 0.72, 0.92, 1.0] },
     { "id": "wood", "display_name": "Wood", "asset_path": "res://Assets/gltf/wood.gltf", "hardness": 1.5, "base_value": 2, "render_class": "terrain", "tags": ["wood"] },
     { "id": "brick", "display_name": "Brick", "asset_path": "res://Assets/gltf/bricks_A.gltf", "hardness": 2.0, "base_value": 2, "render_class": "special", "tags": ["constructed"] },
     { "id": "tree", "display_name": "Tree", "asset_path": "res://Assets/gltf/tree.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] }
