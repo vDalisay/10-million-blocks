@@ -33,6 +33,7 @@ public partial class MinerSimulationService : Node3D
     private SkillTreeService _skills = null!;
     private long _nextInstanceId = 1;
     private int _lastShovelSearchRadius = 1;
+    private int _lastShovelHeightTolerance;
 
     public event Action? Changed;
     public event Action<MinerInstance>? MinerPlaced;
@@ -40,11 +41,13 @@ public partial class MinerSimulationService : Node3D
     public IReadOnlyList<MinerInstance> Miners => _miners;
     public int MaxMiningOperationsPerFrame { get; set; } = 96;
 
-    // This is the nominal un-affinitized rate. A shovel/pickaxe/axe can exceed it while working on
-    // blocks carrying matching tags; the scheduler applies that bonus without spawning more nodes.
     public double BlocksPerSecond => _miners
         .Where(miner => !miner.Exhausted)
-        .Sum(miner => _catalog.Get(miner.DefinitionId).BaseRate * _skills.Derived.MinerRateMultiplier);
+        .Sum(miner =>
+        {
+            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+            return definition.BaseRate * EffectiveRateMultiplier(definition);
+        });
 
     public void Initialize(
         VirtualWorld world,
@@ -61,6 +64,7 @@ public partial class MinerSimulationService : Node3D
         _patterns = patterns;
         _skills = skills;
         _lastShovelSearchRadius = Math.Max(1, skills.Derived.ShovelSearchRadius);
+        _lastShovelHeightTolerance = Math.Max(0, skills.Derived.ShovelHeightTolerance);
         skills.Changed += OnSkillsChanged;
     }
 
@@ -76,14 +80,13 @@ public partial class MinerSimulationService : Node3D
 
         int budget = MaxMiningOperationsPerFrame;
         bool changed = false;
-        double rateMultiplier = _skills.Derived.MinerRateMultiplier;
 
         foreach (MinerInstance miner in _miners)
         {
             if (budget <= 0 || miner.Exhausted) continue;
 
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            miner.WorkAccumulator += definition.BaseRate * rateMultiplier * delta;
+            miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * delta;
 
             // Consume work dynamically rather than precomputing a request count. Block affinity can
             // refund a fraction of one work unit after a successful mine, allowing the extra work to
@@ -121,13 +124,13 @@ public partial class MinerSimulationService : Node3D
                 $"Miner '{definition.Id}' references unknown pattern '{definition.PatternId}'.");
         }
 
+        Vector3I outward = _world.Source.GetOutwardNormal(surfaceVoxel);
         if (IsShovel(definition)
-            && !TryGetValidShovelBlock(definition, surfaceVoxel, _world.Source.GetOutwardNormal(surfaceVoxel), out _))
+            && !TryGetValidShovelBlock(definition, surfaceVoxel, outward, out _))
         {
             return null;
         }
 
-        Vector3I outward = _world.Source.GetOutwardNormal(surfaceVoxel);
         var instance = new MinerInstance
         {
             InstanceId = _nextInstanceId++,
@@ -174,6 +177,8 @@ public partial class MinerSimulationService : Node3D
             if (!_catalog.Miners.ContainsKey(snapshot.DefinitionId)) continue;
             MinerDefinition definition = _catalog.Get(snapshot.DefinitionId);
 
+            bool smarterShovel = IsShovel(definition)
+                && (_skills.Derived.ShovelSearchRadius > 1 || _skills.Derived.ShovelHeightTolerance > 0);
             var miner = new MinerInstance
             {
                 InstanceId = Math.Max(1, snapshot.InstanceId),
@@ -184,9 +189,8 @@ public partial class MinerSimulationService : Node3D
                 CandidateIndex = Math.Max(0, snapshot.CandidateIndex),
                 BlocksMined = Math.Max(0L, snapshot.BlocksMined),
                 WorkAccumulator = Math.Max(0.0, snapshot.WorkAccumulator),
-                // A newly purchased Terrain Scout upgrade should also be able to revive a shovel that
-                // was saved while stuck with the old adjacent-only search.
-                Exhausted = snapshot.Exhausted && !(IsShovel(definition) && _skills.Derived.ShovelSearchRadius > 1),
+                // Intelligence upgrades can make a previously stuck shovel viable after loading.
+                Exhausted = snapshot.Exhausted && !smarterShovel,
             };
 
             if (miner.Direction == Vector3I.Zero) continue;
@@ -204,19 +208,18 @@ public partial class MinerSimulationService : Node3D
     {
         if (elapsedSeconds <= 0.0 || operationCap <= 0 || _miners.Count == 0) return 0L;
 
-        // Small worlds replay exact logical work but still use the same affinity scheduler as live
-        // mining. Large worlds use region aggregation elsewhere and never replay unbounded ticks.
+        // Small worlds replay exact logical work. Large worlds use region aggregation elsewhere and
+        // never replay unbounded ticks.
         double seconds = Math.Min(elapsedSeconds, 7.0 * 24.0 * 60.0 * 60.0);
         long operationsLeft = operationCap;
         long minedBefore = _mining.TotalMined;
-        double rateMultiplier = _skills.Derived.MinerRateMultiplier;
 
         foreach (MinerInstance miner in _miners)
         {
             if (operationsLeft <= 0 || miner.Exhausted) break;
 
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            miner.WorkAccumulator += definition.BaseRate * rateMultiplier * seconds;
+            miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * seconds;
 
             while (operationsLeft > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
             {
@@ -283,13 +286,11 @@ public partial class MinerSimulationService : Node3D
 
     private bool AdvanceShovel(MinerInstance miner, MinerDefinition definition, bool emitPresentation)
     {
-        int searchRadius = Math.Max(1, _skills.Derived.ShovelSearchRadius);
         Vector3I outward = -LineMiningPattern.Cardinal(miner.Direction);
         Vector3I? candidate = null;
 
-        // Prefer the placement tile for the first bite. If another miner/player removed it before the
-        // shovel's first work unit, immediately fall back to the same neighbor search instead of
-        // retrying a permanently missing origin forever.
+        // The base shovel is intentionally dumb. It starts by digging the sand tile it was placed on,
+        // then understands only four cardinal neighboring sand tiles at the same surface height.
         if (miner.BlocksMined == 0
             && TryGetValidShovelBlock(definition, miner.Origin, outward, out _))
         {
@@ -297,7 +298,11 @@ public partial class MinerSimulationService : Node3D
         }
         else
         {
-            candidate = FindShovelSurfaceCandidate(miner, definition, searchRadius);
+            candidate = FindShovelSurfaceCandidate(
+                miner,
+                definition,
+                Math.Max(1, _skills.Derived.ShovelSearchRadius),
+                Math.Max(0, _skills.Derived.ShovelHeightTolerance));
         }
 
         if (candidate is null)
@@ -325,62 +330,72 @@ public partial class MinerSimulationService : Node3D
         return true;
     }
 
-    private Vector3I? FindShovelSurfaceCandidate(MinerInstance miner, MinerDefinition definition, int maxRadius)
+    private Vector3I? FindShovelSurfaceCandidate(
+        MinerInstance miner,
+        MinerDefinition definition,
+        int maxRadius,
+        int heightTolerance)
     {
         Vector3I start = miner.LastMinedVoxel;
         Vector3I outward = -LineMiningPattern.Cardinal(miner.Direction);
+        (Vector3I tangentA, Vector3I tangentB) = LineMiningPattern.PerpendicularAxes(outward);
         maxRadius = Math.Clamp(maxRadius, 1, 8);
+        heightTolerance = Math.Clamp(heightTolerance, 0, 3);
 
-        // Search expanding Chebyshev shells. Radius 1 means genuinely neighboring surface tiles,
-        // including a one-block height change. The Terrain Scout skill extends the same deterministic
-        // search to radius 5 only after the shovel would otherwise be stuck.
+        // Radius 1 is the primitive behavior: cardinal neighbor only. Terrain Scout extends the
+        // tangential radius only after all nearer candidates fail. Slope Sensor independently permits
+        // a radial offset of +/-1, i.e. the next sand tile can be one block above/below the current
+        // local surface height. Without it radialOffset is exactly zero.
         for (int radius = 1; radius <= maxRadius; radius++)
         {
             Vector3I? best = null;
             float bestScore = float.PositiveInfinity;
             float bestTie = float.PositiveInfinity;
 
-            for (int z = -radius; z <= radius; z++)
-            for (int y = -radius; y <= radius; y++)
-            for (int x = -radius; x <= radius; x++)
+            for (int a = -radius; a <= radius; a++)
+            for (int b = -radius; b <= radius; b++)
             {
-                if (Math.Max(Math.Abs(x), Math.Max(Math.Abs(y), Math.Abs(z))) != radius)
+                if (a == 0 && b == 0) continue;
+
+                int tangentialChebyshev = Math.Max(Math.Abs(a), Math.Abs(b));
+                if (tangentialChebyshev != radius) continue;
+
+                // The base radius-1 search is deliberately four-neighbor, not diagonal. Wider Terrain
+                // Scout searches may bridge to any tile in the current shell once the local patch ends.
+                if (radius == 1 && Math.Abs(a) + Math.Abs(b) != 1) continue;
+
+                for (int height = 0; height <= heightTolerance; height++)
                 {
-                    continue;
-                }
+                    int attempts = height == 0 ? 1 : 2;
+                    for (int heightSign = 0; heightSign < attempts; heightSign++)
+                    {
+                        int radialOffset = height == 0 ? 0 : (heightSign == 0 ? height : -height);
+                        Vector3I candidate = start
+                            + tangentA * a
+                            + tangentB * b
+                            + outward * radialOffset;
 
-                var offset = new Vector3I(x, y, z);
-                int radialOffset = offset.X * outward.X + offset.Y * outward.Y + offset.Z * outward.Z;
-                Vector3I tangentOffset = offset - outward * radialOffset;
+                        if (!TryGetValidShovelBlock(definition, candidate, outward, out _))
+                        {
+                            continue;
+                        }
 
-                // Never advance straight inward through the hole the shovel just created. There must
-                // be tangential motion to a different surface column; radial movement is allowed only
-                // so the crawler can follow cliffs/relief within its current search radius.
-                if (tangentOffset == Vector3I.Zero)
-                {
-                    continue;
-                }
+                        float tangentDistance = a * a + b * b;
+                        float score = tangentDistance + Math.Abs(radialOffset) * 0.35f;
+                        float tie = DeterministicNoise.Hash01(
+                            candidate.X,
+                            candidate.Y,
+                            candidate.Z,
+                            unchecked(_world.Profile.Seed + (int)(miner.InstanceId * 7919L)));
 
-                Vector3I candidate = start + offset;
-                if (!TryGetValidShovelBlock(definition, candidate, outward, out _))
-                {
-                    continue;
-                }
-
-                float tangentDistance = tangentOffset.LengthSquared();
-                float radialPenalty = Math.Abs(radialOffset) * 0.35f;
-                float score = tangentDistance + radialPenalty;
-                float tie = DeterministicNoise.Hash01(
-                    candidate.X,
-                    candidate.Y,
-                    candidate.Z,
-                    unchecked(_world.Profile.Seed + (int)(miner.InstanceId * 7919L)));
-
-                if (score < bestScore - 0.0001f || (MathF.Abs(score - bestScore) <= 0.0001f && tie < bestTie))
-                {
-                    best = candidate;
-                    bestScore = score;
-                    bestTie = tie;
+                        if (score < bestScore - 0.0001f
+                            || (MathF.Abs(score - bestScore) <= 0.0001f && tie < bestTie))
+                        {
+                            best = candidate;
+                            bestScore = score;
+                            bestTie = tie;
+                        }
+                    }
                 }
             }
 
@@ -439,25 +454,36 @@ public partial class MinerSimulationService : Node3D
     private void OnSkillsChanged()
     {
         int searchRadius = Math.Max(1, _skills.Derived.ShovelSearchRadius);
-        if (searchRadius <= _lastShovelSearchRadius)
-        {
-            _lastShovelSearchRadius = searchRadius;
-            return;
-        }
+        int heightTolerance = Math.Max(0, _skills.Derived.ShovelHeightTolerance);
+        bool intelligenceIncreased = searchRadius > _lastShovelSearchRadius
+            || heightTolerance > _lastShovelHeightTolerance;
 
         bool revived = false;
-        foreach (MinerInstance miner in _miners)
+        if (intelligenceIncreased)
         {
-            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            if (!miner.Exhausted || !IsShovel(definition)) continue;
-            miner.Exhausted = false;
-            miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
-            UpdateVisual(miner);
-            revived = true;
+            foreach (MinerInstance miner in _miners)
+            {
+                MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+                if (!miner.Exhausted || !IsShovel(definition)) continue;
+                miner.Exhausted = false;
+                miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
+                UpdateVisual(miner);
+                revived = true;
+            }
         }
 
         _lastShovelSearchRadius = searchRadius;
+        _lastShovelHeightTolerance = heightTolerance;
         if (revived) Changed?.Invoke();
+    }
+
+    private double EffectiveRateMultiplier(MinerDefinition definition)
+    {
+        // General Faster Motors deliberately does not make the primitive shovel faster. The shovel has
+        // its own upgrade branch so its initial one-block-per-second behavior is predictable.
+        return IsShovel(definition)
+            ? _skills.Derived.ShovelRateMultiplier
+            : _skills.Derived.MinerRateMultiplier;
     }
 
     private static bool IsShovel(MinerDefinition definition)
@@ -478,8 +504,6 @@ public partial class MinerSimulationService : Node3D
         double affinity = definition.RateMultiplierForTags(block.Tags);
         if (affinity <= 1.0) return;
 
-        // A normal block costs one accumulated work unit. At 2.5x affinity it costs 0.4 units, so
-        // refund 0.6. This makes specialisation compose cleanly with the global skill speed multiplier.
         miner.WorkAccumulator += 1.0 - 1.0 / affinity;
     }
 
@@ -524,8 +548,6 @@ public partial class MinerSimulationService : Node3D
 
     private static void BuildShovelVisual(Node3D root, float spacing)
     {
-        // Root local +Y is the outward face normal and the shovel model is handle-up, so it plants
-        // blade-first into the working block with a slight lean.
         float scale = ShovelScale * spacing;
         var model = ShovelScene.Instantiate<Node3D>();
         model.Transform = new Transform3D(
