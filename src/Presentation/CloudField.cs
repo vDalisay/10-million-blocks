@@ -10,14 +10,20 @@ public partial class CloudField : Node3D
     private const int CloudCount = 16;
 
     private readonly List<CloudOrbiter> _orbiters = new();
-
-    // Clouds must never clip the cube. The cube's own distance metric is the Chebyshev norm, so a
-    // single standoff radius in that metric keeps them clear of faces, edges and corners alike.
     private float _minStandoff = 30.0f;
+    private MultiMeshInstance3D? _stars;
 
     public void SetWorldExtent(float halfExtent)
     {
         _minStandoff = halfExtent + 4.0f;
+
+        // The star field used to have a fixed 82..117 radius. Once the real-block one-million world
+        // became physically much larger, some stars could end up inside the cube. Re-seed the same
+        // deterministic field outside the active world's extent instead.
+        if (_stars?.Multimesh is MultiMesh starMesh)
+        {
+            PopulateStars(starMesh, StarMinimumRadius(halfExtent));
+        }
     }
 
     private sealed class CloudOrbiter
@@ -26,12 +32,14 @@ public partial class CloudField : Node3D
         public Node3D Carrier { get; init; } = null!;
         public Vector3 LocalOffset { get; init; }
         public float AngularSpeed { get; init; }
+        public float StandoffOffset { get; init; }
     }
 
     public override void _Ready()
     {
         BuildOrbitingClouds();
-        AddChild(BuildStars());
+        _stars = BuildStars(StarMinimumRadius(MathF.Max(0.0f, _minStandoff - 4.0f)));
+        AddChild(_stars);
         OrientCloudsTowardWorld();
     }
 
@@ -80,13 +88,16 @@ public partial class CloudField : Node3D
             carrier.AddChild(BuildClump(random, pieces));
 
             float direction = cloudIndex % 5 == 0 ? -1.0f : 1.0f;
-            float angularSpeed = direction * (0.033f + (34.0f - radius) * 0.0012f);
+            float angularSpeed = direction * (0.026f + (34.0f - radius) * 0.0009f);
             _orbiters.Add(new CloudOrbiter
             {
                 Pivot = pivot,
                 Carrier = carrier,
                 LocalOffset = localOffset,
                 AngularSpeed = angularSpeed,
+                // Preserve multiple orbital layers instead of clamping every cloud to exactly the
+                // same giant-world shell radius.
+                StandoffOffset = (float)random.NextDouble() * 16.0f,
             });
         }
     }
@@ -96,22 +107,21 @@ public partial class CloudField : Node3D
         foreach (CloudOrbiter orbiter in _orbiters)
         {
             Vector3 orbitalPosition = orbiter.Pivot.ToGlobal(orbiter.LocalOffset);
-
             float chebyshev = MathF.Max(
                 MathF.Abs(orbitalPosition.X),
                 MathF.Max(MathF.Abs(orbitalPosition.Y), MathF.Abs(orbitalPosition.Z)));
-            if (chebyshev > 0.0001f && chebyshev < _minStandoff)
+            float desiredStandoff = _minStandoff + orbiter.StandoffOffset;
+            if (chebyshev > 0.0001f && chebyshev < desiredStandoff)
             {
-                orbitalPosition *= _minStandoff / chebyshev;
+                orbitalPosition *= desiredStandoff / chebyshev;
             }
 
             orbiter.Carrier.GlobalPosition = orbitalPosition;
 
+            // Local +Y points away from the cube, therefore the clump's -Y/underside faces the world.
+            // This keeps the layered underside readable instead of presenting the cloud top inward.
             Vector3 outward = orbitalPosition.Normalized();
-            if (outward.LengthSquared() < 0.0001f)
-            {
-                continue;
-            }
+            if (outward.LengthSquared() < 0.0001f) continue;
 
             Vector3 reference = MathF.Abs(outward.Dot(Vector3.Up)) > 0.92f ? Vector3.Right : Vector3.Up;
             Vector3 xAxis = reference.Cross(outward).Normalized();
@@ -142,6 +152,9 @@ public partial class CloudField : Node3D
             VisibleInstanceCount = pieces,
         };
 
+        // Build one horizontally connected voxel clump rather than independent white rectangles.
+        // Each piece overlaps its neighbour slightly; occasional raised cells create the stepped cloud
+        // tops visible in the reference without turning the whole clump into a rigid slab.
         for (int i = 0; i < pieces; i++)
         {
             float lane = i - (pieces - 1) * 0.5f;
@@ -172,7 +185,7 @@ public partial class CloudField : Node3D
         };
     }
 
-    private static MultiMeshInstance3D BuildStars()
+    private static MultiMeshInstance3D BuildStars(float minimumRadius)
     {
         var material = new StandardMaterial3D
         {
@@ -194,19 +207,7 @@ public partial class CloudField : Node3D
             InstanceCount = StarCount,
             VisibleInstanceCount = StarCount,
         };
-
-        var random = new Random(8128);
-        for (int i = 0; i < StarCount; i++)
-        {
-            float yaw = (float)random.NextDouble() * Mathf.Tau;
-            float pitch = ((float)random.NextDouble() - 0.5f) * Mathf.Pi;
-            float radius = 82.0f + (float)random.NextDouble() * 35.0f;
-            Vector3 direction = new(
-                MathF.Cos(pitch) * MathF.Cos(yaw),
-                MathF.Sin(pitch),
-                MathF.Cos(pitch) * MathF.Sin(yaw));
-            multiMesh.SetInstanceTransform(i, new Transform3D(Basis.Identity, direction * radius));
-        }
+        PopulateStars(multiMesh, minimumRadius);
 
         return new MultiMeshInstance3D
         {
@@ -215,4 +216,23 @@ public partial class CloudField : Node3D
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
     }
+
+    private static void PopulateStars(MultiMesh multiMesh, float minimumRadius)
+    {
+        var random = new Random(8128);
+        for (int i = 0; i < StarCount; i++)
+        {
+            float yaw = (float)random.NextDouble() * Mathf.Tau;
+            float pitch = ((float)random.NextDouble() - 0.5f) * Mathf.Pi;
+            float radius = minimumRadius + (float)random.NextDouble() * MathF.Max(35.0f, minimumRadius * 0.35f);
+            Vector3 direction = new(
+                MathF.Cos(pitch) * MathF.Cos(yaw),
+                MathF.Sin(pitch),
+                MathF.Cos(pitch) * MathF.Sin(yaw));
+            multiMesh.SetInstanceTransform(i, new Transform3D(Basis.Identity, direction * radius));
+        }
+    }
+
+    private static float StarMinimumRadius(float halfExtent)
+        => MathF.Max(82.0f, halfExtent * 1.55f + 18.0f);
 }
