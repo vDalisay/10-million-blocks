@@ -6,13 +6,22 @@ using TenMillionBlocks.World.Generation;
 
 namespace TenMillionBlocks.Mining;
 
+public enum MiningSource
+{
+    Manual,
+    Automated,
+    Offline,
+    Debug,
+}
+
 public readonly record struct MiningResult(
     bool Success,
     Vector3I Voxel,
     string BlockId,
     long Reward,
     long TotalMined,
-    long Remaining);
+    long Remaining,
+    MiningSource Source);
 
 public sealed class MiningService
 {
@@ -26,31 +35,63 @@ public sealed class MiningService
     }
 
     public event Action<MiningResult>? BlockMined;
+    public event Action<long>? CurrencyChanged;
 
     public long TotalMined => _world.State.MinedVoxelCount;
     public long Remaining => _world.RemainingMineableBlocks;
     public long Currency { get; private set; }
-    public int ManualBlocksPerClick { get; private set; } = 1;
 
     public MiningResult TryMine(Vector3I voxel)
+        => TryMine(voxel, MiningSource.Manual, requireExposed: true);
+
+    public MiningResult TryMine(Vector3I voxel, MiningSource source, bool requireExposed)
     {
         BlockSample before = _world.SampleVoxel(voxel);
-        if (!before.Present || !before.Mineable || !_world.IsExposed(voxel))
+        if (!before.Present || !before.Mineable || (requireExposed && !_world.IsExposed(voxel)))
         {
-            return new MiningResult(false, voxel, string.Empty, 0L, TotalMined, Remaining);
+            return new MiningResult(false, voxel, string.Empty, 0L, TotalMined, Remaining, source);
         }
 
-        if (!_world.TryMine(voxel, out BlockSample mined))
+        if (!_world.TryMine(voxel, requireExposed, out BlockSample mined))
         {
-            return new MiningResult(false, voxel, string.Empty, 0L, TotalMined, Remaining);
+            return new MiningResult(false, voxel, string.Empty, 0L, TotalMined, Remaining, source);
         }
 
         BlockDefinition definition = _content.GetBlock(mined.BlockId);
         long reward = definition.BaseValue;
-        Currency += reward;
+        Currency = checked(Currency + reward);
 
-        var result = new MiningResult(true, voxel, mined.BlockId, reward, TotalMined, Remaining);
+        var result = new MiningResult(true, voxel, mined.BlockId, reward, TotalMined, Remaining, source);
         BlockMined?.Invoke(result);
+        CurrencyChanged?.Invoke(Currency);
         return result;
+    }
+
+    public bool TrySpend(long amount)
+    {
+        if (amount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount));
+        }
+
+        if (Currency < amount)
+        {
+            return false;
+        }
+
+        Currency -= amount;
+        CurrencyChanged?.Invoke(Currency);
+        return true;
+    }
+
+    public void GrantCurrency(long amount)
+    {
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        Currency = checked(Currency + amount);
+        CurrencyChanged?.Invoke(Currency);
     }
 }
