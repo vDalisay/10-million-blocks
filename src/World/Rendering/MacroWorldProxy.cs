@@ -12,9 +12,12 @@ namespace TenMillionBlocks.World.Rendering;
 /// </summary>
 public partial class MacroWorldProxy : Node3D
 {
+    private readonly List<StandardMaterial3D> _materials = new();
+
     public int InstanceCount { get; private set; }
     public int Resolution { get; private set; }
     public double BuildMilliseconds { get; private set; }
+    public float ContextOpacity { get; private set; } = 1.0f;
 
     public void Build(VirtualWorld world)
     {
@@ -57,11 +60,10 @@ public partial class MacroWorldProxy : Node3D
 
                 Basis orientation = BasisForNormal(normal);
 
-                // The old proxy used 94% cell width and very thin boxes. That deliberately left a
-                // visible gap around every cell and terrain-height changes exposed the empty space
-                // behind them, producing the Rubik's-cube ridges/missing faces seen in stress_1000.
                 // Slight tangential overlap plus a deep inward skirt makes the six macro faces read
-                // as one continuous solid shell. The outer face remains inset below detailed blocks.
+                // as one continuous solid shell. The shell is inset below detailed blocks, which lets
+                // it remain visible as translucent context during close inspection without replacing
+                // the real block meshes in front of it.
                 float thickness = MathF.Max(spacing * 2.0f, worldCell * 0.62f);
                 float detailInset = spacing * 0.72f;
                 Vector3 position = (Vector3)foundVoxel * spacing
@@ -87,18 +89,51 @@ public partial class MacroWorldProxy : Node3D
             InstanceCount += transforms.Count;
         }
 
+        ApplyOpacityToMaterials();
         BuildMilliseconds = (Time.GetTicksUsec() - started) / 1000.0;
+    }
+
+    public void SetContextOpacity(float opacity)
+    {
+        opacity = Mathf.Clamp(opacity, 0.08f, 1.0f);
+        if (MathF.Abs(opacity - ContextOpacity) < 0.015f)
+        {
+            return;
+        }
+
+        ContextOpacity = opacity;
+        ApplyOpacityToMaterials();
+    }
+
+    private void ApplyOpacityToMaterials()
+    {
+        bool translucent = ContextOpacity < 0.995f;
+        foreach (StandardMaterial3D material in _materials)
+        {
+            Color color = material.AlbedoColor;
+            color.A = ContextOpacity;
+            material.AlbedoColor = color;
+            material.Transparency = translucent
+                ? BaseMaterial3D.TransparencyEnum.Alpha
+                : BaseMaterial3D.TransparencyEnum.Disabled;
+        }
     }
 
     private void AddBatch(string family, List<Transform3D> transforms)
     {
+        Color color = FamilyColor(family);
+        color.A = ContextOpacity;
         var material = new StandardMaterial3D
         {
-            AlbedoColor = FamilyColor(family),
+            AlbedoColor = color,
             Roughness = 1.0f,
             Metallic = 0.0f,
             SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled,
+            Transparency = ContextOpacity < 0.995f
+                ? BaseMaterial3D.TransparencyEnum.Alpha
+                : BaseMaterial3D.TransparencyEnum.Disabled,
         };
+        _materials.Add(material);
 
         var mesh = new BoxMesh
         {
