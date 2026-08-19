@@ -80,6 +80,19 @@ public sealed class WorldStateStore
         return true;
     }
 
+    public long GetSparseMinedCountInRegion(RegionCoord region)
+    {
+        long count = 0L;
+        foreach ((ChunkCoord chunk, HashSet<int> mined) in _minedByChunk)
+        {
+            if (RegionCoord.FromChunk(chunk, _regionSizeInChunks) == region)
+            {
+                count = checked(count + mined.Count);
+            }
+        }
+        return count;
+    }
+
     /// <summary>
     /// Replaces all sparse per-voxel deviations inside a region with one aggregate exhausted marker.
     /// regionMineableCount is the exact logical quota assigned by VirtualWorld, not a scanned count.
