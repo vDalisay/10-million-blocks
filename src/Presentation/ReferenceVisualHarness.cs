@@ -23,6 +23,7 @@ public partial class ReferenceVisualHarness : Node
             OffsetTop = 16.0f,
             OffsetRight = 442.0f,
             OffsetBottom = 64.0f,
+            TooltipText = "LMB mine / UI   RMB drag orbit   MMB drag pan   Wheel zoom   [H] HUD details",
         };
         canvas.AddChild(panel);
 
