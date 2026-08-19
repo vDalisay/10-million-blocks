@@ -87,9 +87,9 @@ public sealed class DiscMiningPattern : IMiningPattern
 }
 
 /// <summary>
-/// Tangential strip used by surface tools such as the planned shovel. It intentionally describes
-/// address order only; the miner/world query decides whether a coordinate is still terrain. This
-/// keeps pattern generation pure while allowing later surface-following policy to be layered on top.
+/// Pure tangential address pattern retained for data-driven surface tools and future broad-strip
+/// automations. The Powered Shovel now layers a topology-aware crawler policy on top of its tool class:
+/// it chooses exposed neighboring terrain dynamically so it can follow relief on every cube face.
 /// </summary>
 public sealed class SurfaceStripMiningPattern : IMiningPattern
 {
@@ -103,7 +103,6 @@ public sealed class SurfaceStripMiningPattern : IMiningPattern
 
         for (int step = 0; step < range; step++)
         {
-            // Alternate row direction so a future visual path can traverse the strip continuously.
             if ((step & 1) == 0)
             {
                 for (int offset = -radius; offset <= radius; offset++)
