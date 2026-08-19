@@ -73,14 +73,17 @@ public sealed class DiscMiningPattern : IMiningPattern
 
         int radius = Math.Max(1, width / 2);
         int radiusSquared = radius * radius;
-        int layers = Math.Max(1, Math.Min(range, 2));
-        for (int layer = 0; layer < layers; layer++)
+
+        // A radial drill should keep boring inward with a circular cross-section. The earlier
+        // placeholder stopped after only two layers, which made the upgrade exhaust almost
+        // immediately instead of behaving like a persistent late-game mining pattern.
+        for (int depth = 0; depth < Math.Max(1, range); depth++)
         for (int a = -radius; a <= radius; a++)
         for (int b = -radius; b <= radius; b++)
         {
             if (a * a + b * b <= radiusSquared)
             {
-                yield return origin + normal * layer + axisA * a + axisB * b;
+                yield return origin + normal * depth + axisA * a + axisB * b;
             }
         }
     }
