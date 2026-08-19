@@ -8,6 +8,8 @@ public partial class MinerPlacementController : Node
     private ManualMiningController _manual = null!;
     private MinerSimulationService _miners = null!;
 
+    public bool InputEnabled { get; set; } = true;
+
     public void Initialize(ManualMiningController manual, MinerSimulationService miners)
     {
         _manual = manual;
@@ -16,7 +18,11 @@ public partial class MinerPlacementController : Node
 
     public override void _UnhandledKeyInput(InputEvent @event)
     {
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo || key.Keycode != Key.M)
+        if (!InputEnabled
+            || @event is not InputEventKey key
+            || !key.Pressed
+            || key.Echo
+            || key.Keycode != Key.M)
         {
             return;
         }
