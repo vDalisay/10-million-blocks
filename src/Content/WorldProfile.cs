@@ -34,8 +34,23 @@ public sealed class WorldProfile
     // recoloring arbitrary surface blocks into water.
     public float WaterThreshold { get; set; }
     public float TreeDensity { get; set; }
+
+    // Scale architecture. Small authored worlds leave TargetMineableBlocks at 0 and are counted
+    // exactly once at startup. Large worlds use an authored logical total so startup never scans the
+    // address space. Region quotas partition that total exactly for aggregate mining/save state.
+    public long TargetMineableBlocks { get; set; }
+    public long AggregateRewardPerBlock { get; set; } = 1;
     public int ChunkSize { get; set; } = 8;
+    public int RegionSizeInChunks { get; set; } = 8;
     public float BlockSpacing { get; set; } = 2.0f;
+
+    // Rendering/streaming controls. Worlds below the threshold retain the eager near renderer.
+    // Large profiles keep a coarse whole-world proxy and stream a bounded detailed patch.
+    public int StreamingThresholdMaxCoordinate { get; set; } = 96;
+    public int StreamingChunkRadius { get; set; } = 1;
+    public int DetailedSurfaceDepthChunks { get; set; } = 1;
+    public int MacroResolution { get; set; } = 24;
+
     public string SurfaceBlock { get; set; } = "grass";
     public string SurfaceEdgeBlock { get; set; } = "dirt_grass";
     public string SoilBlock { get; set; } = "dirt";
@@ -51,6 +66,8 @@ public sealed class WorldProfile
 
     public int MaxCoordinate => (int)MathF.Ceiling(
         BaseRadius + TerrainAmplitude + DetailAmplitude + MathF.Max(0.0f, SeaLevelOffset) + 3.0f);
+
+    public bool UsesStreamingRenderer => MaxCoordinate > StreamingThresholdMaxCoordinate;
 }
 
 public sealed class WorldCatalog
@@ -157,6 +174,17 @@ public sealed class WorldCatalog
         if (profile.PlateauStep <= 0.0f || profile.ShoreBand < 0.0f)
         {
             errors.Add($"World '{profile.Id}' has invalid plateau/shore settings.");
+        }
+
+        if (profile.TargetMineableBlocks < 0 || profile.AggregateRewardPerBlock < 0)
+        {
+            errors.Add($"World '{profile.Id}' has invalid aggregate counter/reward settings.");
+        }
+
+        if (profile.RegionSizeInChunks <= 0 || profile.StreamingChunkRadius < 0
+            || profile.DetailedSurfaceDepthChunks <= 0 || profile.MacroResolution < 4)
+        {
+            errors.Add($"World '{profile.Id}' has invalid region/streaming settings.");
         }
     }
 }
