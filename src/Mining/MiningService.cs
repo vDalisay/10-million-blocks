@@ -51,6 +51,8 @@ public sealed class MiningService
     public long Remaining => _world.RemainingMineableBlocks;
     public long Currency { get; private set; }
 
+    public BlockDefinition GetBlockDefinition(string blockId) => _content.GetBlock(blockId);
+
     public MiningResult TryMine(Vector3I voxel)
         => TryMine(voxel, MiningSource.Manual, requireExposed: true);
 
