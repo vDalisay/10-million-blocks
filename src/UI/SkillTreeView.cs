@@ -14,6 +14,7 @@ public partial class SkillTreeView : CanvasLayer
     private Control _root = null!;
     private Label _resources = null!;
     private Label _feedback = null!;
+    private ScrollContainer _scroll = null!;
     private SkillGraphCanvas _graph = null!;
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
     private Tween? _transition;
@@ -72,14 +73,28 @@ public partial class SkillTreeView : CanvasLayer
         close.Pressed += Close;
         _root.AddChild(close);
 
+        // The authored tree is no longer constrained to the first few grid rows. Keep the graph data
+        // coordinates exactly as authored and put the runtime canvas in a scroll container instead of
+        // silently clipping late-game branches off-screen.
+        _scroll = new ScrollContainer
+        {
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            OffsetLeft = 210.0f,
+            OffsetTop = 72.0f,
+            OffsetRight = -24.0f,
+            OffsetBottom = -24.0f,
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        _root.AddChild(_scroll);
+
         _graph = new SkillGraphCanvas
         {
-            Position = new Vector2(220, 80),
-            Size = new Vector2(1000, 590),
+            CustomMinimumSize = SkillGraphCanvas.RequiredSize(_skills.Catalog),
             MouseFilter = Control.MouseFilterEnum.Pass,
         };
         _graph.Initialize(_skills);
-        _root.AddChild(_graph);
+        _scroll.AddChild(_graph);
 
         BuildButtons();
         Refresh();
@@ -209,7 +224,10 @@ public partial class SkillTreeView : CanvasLayer
     private void Refresh()
     {
         if (_resources is null) return;
-        _resources.Text = $"Resources: {_mining.Currency:N0}   |   Manual: {_skills.Derived.ManualBlocksPerClick} blocks/click   |   Miner speed: x{_skills.Derived.MinerRateMultiplier:0.##}";
+        _resources.Text =
+            $"Resources: {_mining.Currency:N0}   |   Manual: {_skills.Derived.ManualBlocksPerClick}/click" +
+            $"   |   Drill speed: x{_skills.Derived.MinerRateMultiplier:0.##}" +
+            $"   |   Shovel speed: x{_skills.Derived.ShovelRateMultiplier:0.##}";
 
         foreach ((string id, Button button) in _buttons)
         {
@@ -295,6 +313,27 @@ public partial class SkillGraphCanvas : Control
 
     public static Vector2 NodePosition(SkillNodeDefinition node)
         => new(24 + node.GridX * 200, 40 + node.GridY * 112);
+
+    public static Vector2 RequiredSize(SkillTreeCatalog catalog)
+    {
+        int maxX = 0;
+        int maxY = 0;
+        foreach (SkillNodeDefinition node in catalog.Nodes.Values)
+        {
+            maxX = Math.Max(maxX, node.GridX);
+            maxY = Math.Max(maxY, node.GridY);
+            foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
+            foreach (SkillRoutePoint point in prerequisite.Route)
+            {
+                maxX = Math.Max(maxX, point.GridX);
+                maxY = Math.Max(maxY, point.GridY);
+            }
+        }
+
+        return new Vector2(
+            24 + (maxX + 1) * 200 + 190,
+            40 + (maxY + 1) * 112 + 110);
+    }
 
     private static Vector2 NodeCenter(SkillNodeDefinition node)
         => NodePosition(node) + new Vector2(87, 41);
