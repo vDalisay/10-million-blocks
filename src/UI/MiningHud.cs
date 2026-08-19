@@ -38,6 +38,7 @@ public partial class MiningHud : CanvasLayer
         _skills = skills;
         _miners = miners;
         mining.BlockMined += OnBlockMined;
+        mining.BlockDamaged += OnBlockDamaged;
         mining.CurrencyChanged += _ => Refresh();
         skills.Changed += Refresh;
         miners.Changed += Refresh;
@@ -54,15 +55,13 @@ public partial class MiningHud : CanvasLayer
         root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(root);
 
-        // Keep the playfield clear. This dock only contains at-a-glance incremental information;
-        // engineering/control detail is opt-in with H.
         _panel = new PanelContainer
         {
             AnchorTop = 1.0f,
             AnchorBottom = 1.0f,
             OffsetLeft = 16.0f,
             OffsetTop = -94.0f,
-            OffsetRight = 640.0f,
+            OffsetRight = 690.0f,
             OffsetBottom = -16.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
@@ -102,7 +101,6 @@ public partial class MiningHud : CanvasLayer
         column.AddChild(_automation);
         column.AddChild(_feedback);
         column.AddChild(_details);
-
         Refresh();
     }
 
@@ -138,7 +136,7 @@ public partial class MiningHud : CanvasLayer
 
         _detailsVisible = !_detailsVisible;
         _details.Visible = _detailsVisible;
-        _panel.OffsetTop = _detailsVisible ? -210.0f : -94.0f;
+        _panel.OffsetTop = _detailsVisible ? -222.0f : -94.0f;
         if (_detailsVisible) RefreshDetails();
         GetViewport().SetInputAsHandled();
     }
@@ -146,21 +144,41 @@ public partial class MiningHud : CanvasLayer
     private void OnBlockMined(MiningResult result)
     {
         Refresh();
-        if (_feedback is not null)
+        if (_feedback is null) return;
+
+        if (result.BlockId.StartsWith("gem_", System.StringComparison.Ordinal))
+        {
+            _feedback.Text = $"Gem found: {result.BlockId.Replace("gem_", string.Empty)}  +{result.Reward}";
+            _feedback.Modulate = new Color(0.72f, 0.92f, 1.0f);
+            _feedbackTime = 1.4;
+        }
+        else
         {
             string source = result.Source == MiningSource.Automated ? "Auto" : "Mined";
             _feedback.Text = $"{source}: {result.BlockId}  +{result.Reward}";
-            _feedback.Visible = true;
-            _feedbackTime = 0.7;
+            _feedback.Modulate = Colors.White;
+            _feedbackTime = 0.65;
         }
+        _feedback.Visible = true;
+    }
+
+    private void OnBlockDamaged(MiningResult result)
+    {
+        if (_feedback is null) return;
+        _feedback.Text = $"Unstable block: hit {result.DamageStage}/{result.DamageRequired}";
+        _feedback.Modulate = new Color(1.0f, 0.78f, 0.40f);
+        _feedback.Visible = true;
+        _feedbackTime = 1.0;
     }
 
     private void Refresh()
     {
         if (_summary is not null)
         {
+            long total = _mining.TotalMined + _mining.Remaining;
+            double percent = total <= 0 ? 100.0 : _mining.TotalMined * 100.0 / total;
             _summary.Text =
-                $"{_world.Profile.DisplayName}  |  {_mining.Remaining:N0} left  |  {_mining.Currency:N0} resources  |  {_skills.Derived.ManualBlocksPerClick}/click";
+                $"{_world.Profile.DisplayName}  |  {_mining.Remaining:N0} left  |  {_mining.Currency:N0} resources  |  {percent:0.0}%";
         }
 
         if (_progress is not null)
@@ -171,12 +189,12 @@ public partial class MiningHud : CanvasLayer
 
         if (_automation is not null)
         {
-            string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill ready" : "Drill locked";
-            string shovel = _skills.IsMinerUnlocked("shovel_miner")
-                ? $"Shovel ready x{_skills.Derived.ShovelRateMultiplier:0.##}"
-                : "Shovel locked";
+            string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill" : "Drill locked";
+            string shovel = _skills.IsMinerUnlocked("shovel_miner") ? "Shovel" : "Shovel locked";
+            string rock = _skills.IsMinerUnlocked("pickaxe_miner") ? "Rock" : "Rock locked";
+            string forest = _skills.IsMinerUnlocked("axe_miner") ? "Forest" : "Forest locked";
             _automation.Text =
-                $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} blocks/s  |  {drill}  |  {shovel}  |  [H] details";
+                $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} blocks/s  |  {drill} · {shovel} · {rock} · {forest}  |  [H] details";
         }
 
         if (_detailsVisible) RefreshDetails();
@@ -189,10 +207,12 @@ public partial class MiningHud : CanvasLayer
         string slope = _skills.Derived.ShovelHeightTolerance > 0
             ? $"+/-{_skills.Derived.ShovelHeightTolerance} height"
             : "same height only";
+        string radial = _skills.IsMinerUnlocked("disc_miner") ? "ready" : "locked";
         _details.Text =
-            $"Controls: [K] Skill Tree   [M] Drill   [N] Powered Shovel\n" +
-            $"Mined: {_mining.TotalMined:N0}   render chunks: {_view.VisibleChunkCount}   dirty: {_view.PendingChunkRebuilds}   modified: {_world.State.ModifiedChunkCount}\n" +
-            $"Drill: {_skills.Derived.DrillPatternId}, width {_skills.Derived.MinerPatternWidth}, speed x{_skills.Derived.MinerRateMultiplier:0.##}\n" +
-            $"Shovel: {_skills.Derived.ShovelRateMultiplier:0.##}x speed, {slope}, search radius {_skills.Derived.ShovelSearchRadius}";
+            "Place tools: [M] Drill   [N] Shovel   [P] Rock Breaker   [A] Forest Cutter   [B] Radial Excavator\n" +
+            "Other: [K] Skill Tree   RMB orbit   MMB pan   wheel zoom\n" +
+            $"Drill: {_skills.Derived.DrillPatternId}, width {_skills.Derived.MinerPatternWidth}; Radial: {radial}\n" +
+            $"Shovel: {_skills.Derived.ShovelRateMultiplier:0.##}x, {slope}, scout radius {_skills.Derived.ShovelSearchRadius}\n" +
+            $"Mined: {_mining.TotalMined:N0}   chunks: {_view.VisibleChunkCount}   queued: {_view.PendingChunkLoads}   dirty: {_view.PendingChunkRebuilds}";
     }
 }

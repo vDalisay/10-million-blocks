@@ -32,10 +32,10 @@ public partial class PerformanceHud : CanvasLayer
             Visible = false,
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -440.0f,
+            OffsetLeft = -470.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 312.0f,
+            OffsetBottom = 326.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -83,15 +83,22 @@ public partial class PerformanceHud : CanvasLayer
         if (_label is null || _world is null || _view is null) return;
 
         double memoryMb = GC.GetTotalMemory(false) / (1024.0 * 1024.0);
+        string renderer = _view.FullSurfaceRenderer
+            ? "real-block full surface"
+            : _view.StreamingEnabled ? "macro + streamed detail" : "eager real blocks";
+        string context = _view.FullSurfaceRenderer
+            ? "macro: disabled (real blocks only)"
+            : $"macro: {(_view.MacroVisible ? "visible" : "hidden")} opacity {_view.MacroOpacity:0.00}";
+
         _label.Text =
             "PERFORMANCE [F9]\n" +
             $"world: {_world.Profile.Id}  logical: {_world.Profile.LogicalWidth:N0} x {_world.Profile.LogicalHeight:N0} x {_world.Profile.LogicalDepth:N0}\n" +
             $"fps: {Engine.GetFramesPerSecond():0}  managed: {memoryMb:0.0} MB  GC: {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}\n" +
-            $"renderer: {(_view.StreamingEnabled ? "streamed macro+detail" : "eager detail")}  camera control: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
-            $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  macro context: {_view.MacroOpacity:0.00}\n" +
+            $"renderer: {renderer}  camera: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
+            $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
             $"chunks loaded: {_view.VisibleChunkCount}  load queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"chunk build ms last/avg: {_view.LastChunkBuildMilliseconds:0.00} / {_view.AverageChunkBuildMilliseconds:0.00}\n" +
-            $"chunk builds: {_view.TotalChunkBuilds:N0}  build samples: {_view.TotalVoxelCandidatesScanned:N0}\n" +
+            $"chunk builds: {_view.TotalChunkBuilds:N0}  samples: {_view.TotalVoxelCandidatesScanned:N0}\n" +
             $"stream load/unload: {_view.StreamedChunkLoads:N0}/{_view.StreamedChunkUnloads:N0}  macro cells: {_view.MacroInstanceCount:N0} ({_view.MacroBuildMilliseconds:0.0} ms)\n" +
             $"state sparse voxels: {_world.State.SparseVoxelOverrideCount:N0}  modified chunks: {_world.State.ModifiedChunkCount:N0}  exhausted regions: {_world.State.ExhaustedRegionCount:N0}\n" +
             $"mined/remaining: {_world.State.MinedVoxelCount:N0} / {_world.RemainingMineableBlocks:N0}";
