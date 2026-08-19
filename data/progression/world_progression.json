@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "world_ids": [
+    "reference_natural",
+    "reference_lakes"
+  ]
+}
