@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Automation;
@@ -73,19 +74,16 @@ public partial class ManualMiningController : Node3D
             return;
         }
 
-        if (!_leftPressed)
-        {
-            return;
-        }
-
+        if (!_leftPressed) return;
         _leftPressed = false;
+
         if (button.Position.DistanceTo(_pressPosition) > 5.0f || _hoveredVoxel is not Vector3I voxel)
         {
             return;
         }
 
-        int mined = MineBurst(voxel, _skills.Derived.ManualBlocksPerClick);
-        if (mined > 0)
+        int actions = MineBurst(voxel, _skills.Derived.ManualBlocksPerClick);
+        if (actions > 0)
         {
             UpdateHover();
             _highlight.PulseMine();
@@ -95,28 +93,40 @@ public partial class ManualMiningController : Node3D
 
     private int MineBurst(Vector3I initial, int requestedBlocks)
     {
-        requestedBlocks = System.Math.Max(1, requestedBlocks);
+        requestedBlocks = Math.Max(1, requestedBlocks);
         var queue = new Queue<Vector3I>();
         var visited = new HashSet<Vector3I>();
         queue.Enqueue(initial);
         visited.Add(initial);
-        int minedCount = 0;
+        int actions = 0;
         int presentationBursts = 0;
 
-        while (queue.Count > 0 && minedCount < requestedBlocks)
+        while (queue.Count > 0 && actions < requestedBlocks)
         {
             Vector3I candidate = queue.Dequeue();
             MiningResult result = _mining.TryMine(candidate);
-            if (!result.Success)
+            if (!result.Success) continue;
+
+            // Hitting an unstable block counts as this click's mining action even before it is
+            // removed. Do not enqueue neighbours because the block is still physically present.
+            if (!result.Removed)
             {
+                actions++;
                 continue;
             }
 
-            minedCount++;
-            _view.MarkDirtyAround(candidate);
+            actions++;
+            MarkEffectDirty(result);
             if (presentationBursts < 3)
             {
                 EmitDebris(result, presentationBursts++);
+            }
+
+            // A blast is already a complete high-impact action; do not let a multi-block manual
+            // upgrade immediately chain from its newly exposed rim in the same click.
+            if (result.EffectRadius > 0)
+            {
+                break;
             }
 
             foreach (Vector3I direction in VoxelMath.Neighbors)
@@ -129,7 +139,26 @@ public partial class ManualMiningController : Node3D
             }
         }
 
-        return minedCount;
+        return actions;
+    }
+
+    private void MarkEffectDirty(MiningResult result)
+    {
+        int radius = Math.Max(0, result.EffectRadius);
+        if (radius == 0)
+        {
+            _view.MarkDirtyAround(result.Voxel);
+            return;
+        }
+
+        int radiusSquared = radius * radius;
+        for (int z = -radius; z <= radius; z++)
+        for (int y = -radius; y <= radius; y++)
+        for (int x = -radius; x <= radius; x++)
+        {
+            if (x * x + y * y + z * z > radiusSquared) continue;
+            _view.MarkDirtyAround(result.Voxel + new Vector3I(x, y, z));
+        }
     }
 
     private void EmitDebris(MiningResult result, int burstIndex)
@@ -143,7 +172,7 @@ public partial class ManualMiningController : Node3D
             ^ result.Voxel.Z * 83492791
             ^ burstIndex * 265443576);
 
-        var burst = new DrillDebrisBurst { Name = "ManualMiningDebris" };
+        var burst = new DrillDebrisBurst { Name = result.EffectRadius > 0 ? "BlastDebris" : "ManualMiningDebris" };
         AddChild(burst);
         burst.Initialize(position, outward, result.BlockId, spacing, seed);
     }
