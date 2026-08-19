@@ -19,8 +19,6 @@ public sealed class WorldProfile
     public float MacroFrequency { get; set; }
     public float DetailFrequency { get; set; }
 
-    // Minecraft-inspired climate/shape controls. Terrain shape is generated first from broad
-    // continentalness/erosion/ridge fields; biome/surface rules are applied afterwards.
     public float ClimateFrequency { get; set; } = 0.92f;
     public float ErosionFrequency { get; set; } = 1.15f;
     public float RidgeFrequency { get; set; } = 2.15f;
@@ -29,23 +27,19 @@ public sealed class WorldProfile
     public float ShoreBand { get; set; } = 0.16f;
     public float PlateauStep { get; set; } = 0.5f;
     public float ForestThreshold { get; set; } = 0.08f;
-
-    // Retained for existing content. It now acts as a lake-basin threshold rather than directly
-    // recoloring arbitrary surface blocks into water.
     public float WaterThreshold { get; set; }
     public float TreeDensity { get; set; }
 
-    // Scale architecture. Small authored worlds leave TargetMineableBlocks at 0 and are counted
-    // exactly once at startup. Large worlds use an authored logical total so startup never scans the
-    // address space. Region quotas partition that total exactly for aggregate mining/save state.
     public long TargetMineableBlocks { get; set; }
     public long AggregateRewardPerBlock { get; set; } = 1;
     public int ChunkSize { get; set; } = 8;
     public int RegionSizeInChunks { get; set; } = 8;
     public float BlockSpacing { get; set; } = 2.0f;
 
-    // Rendering/streaming controls. Worlds below the threshold retain the eager near renderer.
-    // Large profiles keep a coarse whole-world proxy and stream a bounded detailed patch.
+    // auto: small worlds eager, large worlds macro+camera-detail.
+    // full_surface: large world renders every currently visible surface voxel with the real supplied
+    // block meshes. Interior voxels remain deterministic/on-demand until mining exposes them.
+    public string RendererMode { get; set; } = "auto";
     public int StreamingThresholdMaxCoordinate { get; set; } = 96;
     public int StreamingChunkRadius { get; set; } = 1;
     public int DetailedSurfaceDepthChunks { get; set; } = 1;
@@ -67,7 +61,11 @@ public sealed class WorldProfile
     public int MaxCoordinate => (int)MathF.Ceiling(
         BaseRadius + TerrainAmplitude + DetailAmplitude + MathF.Max(0.0f, SeaLevelOffset) + 3.0f);
 
-    public bool UsesStreamingRenderer => MaxCoordinate > StreamingThresholdMaxCoordinate;
+    public bool UsesFullSurfaceRenderer
+        => RendererMode.Equals("full_surface", StringComparison.OrdinalIgnoreCase);
+
+    public bool UsesStreamingRenderer
+        => UsesFullSurfaceRenderer || MaxCoordinate > StreamingThresholdMaxCoordinate;
 }
 
 public sealed class WorldCatalog
@@ -185,6 +183,12 @@ public sealed class WorldCatalog
             || profile.DetailedSurfaceDepthChunks <= 0 || profile.MacroResolution < 4)
         {
             errors.Add($"World '{profile.Id}' has invalid region/streaming settings.");
+        }
+
+        if (!profile.RendererMode.Equals("auto", StringComparison.OrdinalIgnoreCase)
+            && !profile.RendererMode.Equals("full_surface", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"World '{profile.Id}' has unknown renderer_mode '{profile.RendererMode}'.");
         }
     }
 }
