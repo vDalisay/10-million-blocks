@@ -181,7 +181,10 @@ public partial class OrbitCameraController : Node3D
             Vector3 up = _camera.GlobalTransform.Basis.Y;
             float scale = PanSensitivity * MathF.Max(0.5f, _targetDistance / MediumPreset.Distance);
             _targetPan += (-right * motion.Relative.X + up * motion.Relative.Y) * scale;
-            _targetPan = _targetPan.LimitLength(8.0f);
+            if (_targetPan.LengthSquared() > 64.0f)
+            {
+                _targetPan = _targetPan.Normalized() * 8.0f;
+            }
             ActivePresetName = "Custom";
         }
 
