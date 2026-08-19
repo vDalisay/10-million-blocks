@@ -13,6 +13,19 @@ public sealed class SkillEffectDefinition
     public string StringValue { get; set; } = string.Empty;
 }
 
+public sealed class SkillRoutePoint
+{
+    public int GridX { get; set; }
+    public int GridY { get; set; }
+}
+
+public sealed class SkillPrerequisiteDefinition
+{
+    public string NodeId { get; set; } = string.Empty;
+    public int RequiredRank { get; set; } = 1;
+    public List<SkillRoutePoint> Route { get; set; } = new();
+}
+
 public sealed class SkillNodeDefinition
 {
     public string Id { get; set; } = string.Empty;
@@ -21,7 +34,8 @@ public sealed class SkillNodeDefinition
     public int GridX { get; set; }
     public int GridY { get; set; }
     public string Category { get; set; } = string.Empty;
-    public List<string> PrerequisiteNodeIds { get; set; } = new();
+    public string PurchaseMode { get; set; } = "once"; // once | repeatable
+    public List<SkillPrerequisiteDefinition> Prerequisites { get; set; } = new();
     public long Cost { get; set; }
     public int MaxRank { get; set; } = 1;
     public List<SkillEffectDefinition> Effects { get; set; } = new();
@@ -29,7 +43,7 @@ public sealed class SkillNodeDefinition
 
 public sealed class SkillTreeCatalog
 {
-    public const int SupportedSchemaVersion = 1;
+    public const int SupportedSchemaVersion = 2;
 
     private sealed class Document
     {
@@ -46,6 +60,12 @@ public sealed class SkillTreeCatalog
         "unlock_pattern",
         "set_miner_pattern_width",
         "unlock_resource_filter",
+    };
+
+    private static readonly HashSet<string> KnownPurchaseModes = new(StringComparer.Ordinal)
+    {
+        "once",
+        "repeatable",
     };
 
     private readonly Dictionary<string, SkillNodeDefinition> _nodes;
@@ -75,7 +95,8 @@ public sealed class SkillTreeCatalog
 
         if (document is null || document.SchemaVersion != SupportedSchemaVersion)
         {
-            throw new InvalidOperationException($"Skill tree has an unsupported or unreadable schema: {path}");
+            throw new InvalidOperationException(
+                $"Skill tree has an unsupported or unreadable schema: {path}. Expected schema {SupportedSchemaVersion}.");
         }
 
         var nodes = new Dictionary<string, SkillNodeDefinition>(StringComparer.Ordinal);
@@ -87,6 +108,19 @@ public sealed class SkillTreeCatalog
             if (string.IsNullOrWhiteSpace(node.DisplayName)) errors.Add($"Skill '{node.Id}' has no display name.");
             if (node.Cost < 0) errors.Add($"Skill '{node.Id}' has a negative cost.");
             if (node.MaxRank <= 0) errors.Add($"Skill '{node.Id}' must have max_rank > 0.");
+            if (!KnownPurchaseModes.Contains(node.PurchaseMode))
+            {
+                errors.Add($"Skill '{node.Id}' has unknown purchase_mode '{node.PurchaseMode}'.");
+            }
+            else if (node.PurchaseMode == "once" && node.MaxRank != 1)
+            {
+                errors.Add($"One-time skill '{node.Id}' must have max_rank = 1.");
+            }
+            else if (node.PurchaseMode == "repeatable" && node.MaxRank < 2)
+            {
+                errors.Add($"Repeatable skill '{node.Id}' must have max_rank >= 2.");
+            }
+
             if (!string.IsNullOrWhiteSpace(node.Id) && !nodes.TryAdd(node.Id, node))
             {
                 errors.Add($"Duplicate skill id '{node.Id}'.");
@@ -103,11 +137,25 @@ public sealed class SkillTreeCatalog
 
         foreach (SkillNodeDefinition node in nodes.Values)
         {
-            foreach (string prerequisite in node.PrerequisiteNodeIds)
+            var seenPrerequisites = new HashSet<string>(StringComparer.Ordinal);
+            foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             {
-                if (!nodes.ContainsKey(prerequisite))
+                if (!nodes.TryGetValue(prerequisite.NodeId, out SkillNodeDefinition? source))
                 {
-                    errors.Add($"Skill '{node.Id}' references missing prerequisite '{prerequisite}'.");
+                    errors.Add($"Skill '{node.Id}' references missing prerequisite '{prerequisite.NodeId}'.");
+                    continue;
+                }
+
+                if (!seenPrerequisites.Add(prerequisite.NodeId))
+                {
+                    errors.Add($"Skill '{node.Id}' contains duplicate prerequisite '{prerequisite.NodeId}'.");
+                }
+
+                if (prerequisite.RequiredRank <= 0 || prerequisite.RequiredRank > source.MaxRank)
+                {
+                    errors.Add(
+                        $"Skill '{node.Id}' prerequisite '{prerequisite.NodeId}' requires rank {prerequisite.RequiredRank}, " +
+                        $"but the source max rank is {source.MaxRank}.");
                 }
             }
         }
@@ -142,9 +190,9 @@ public sealed class SkillTreeCatalog
             if (visited.Contains(id)) return false;
             if (!visiting.Add(id)) return true;
 
-            foreach (string prerequisite in nodes[id].PrerequisiteNodeIds)
+            foreach (SkillPrerequisiteDefinition prerequisite in nodes[id].Prerequisites)
             {
-                if (nodes.ContainsKey(prerequisite) && Visit(prerequisite)) return true;
+                if (nodes.ContainsKey(prerequisite.NodeId) && Visit(prerequisite.NodeId)) return true;
             }
 
             visiting.Remove(id);
