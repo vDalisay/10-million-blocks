@@ -4,6 +4,7 @@ using Godot;
 using TenMillionBlocks.Automation;
 using TenMillionBlocks.Automation.MiningPatterns;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Diagnostics;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Progression;
@@ -39,6 +40,8 @@ public partial class GameRoot : Node3D
     private MinerSimulationService? _miners;
     private MinerPlacementController? _placement;
     private SkillTreeView? _skillTree;
+    private PerformanceHud? _performanceHud;
+    private StressBenchmarkController? _stressBenchmark;
 
     private long _manualBlocksThisWorld;
     private long _automatedBlocksThisWorld;
@@ -46,6 +49,7 @@ public partial class GameRoot : Node3D
     private bool _autosaveDirty;
     private double _autosaveTimer;
     private long _loadedSaveTimestamp;
+    private bool _sessionPersists = true;
 
     public override void _Ready()
     {
@@ -54,8 +58,8 @@ public partial class GameRoot : Node3D
             LoadContentAndState();
             AddLightingAndEnvironment();
             BuildPersistentPresentation();
-            BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: true);
-            GD.Print("Gameplay ready. LMB mines, RMB drag orbits, MMB drag pans, wheel zooms, [K] skill tree, [M] places unlocked drill miner.");
+            BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: true, persistSession: true);
+            GD.Print("Gameplay ready. LMB mines, RMB drag orbits, MMB drag pans, wheel zooms, [K] skill tree, [M] places unlocked drill miner. Debug: [F8] stress world, [F9] performance HUD, [F7] stress benchmark.");
         }
         catch (Exception exception)
         {
@@ -87,9 +91,27 @@ public partial class GameRoot : Node3D
 
         // Development-only shortcut so completion/Continue can be exercised without manually
         // removing several thousand blocks. It does not alter world state or count as a real clear.
-        if (key.Keycode == Key.F10 && OS.IsDebugBuild() && !_completionShown && _world is not null)
+        if (key.Keycode == Key.F10 && OS.IsDebugBuild() && _sessionPersists && !_completionShown && _world is not null)
         {
             ShowCompletion(debugPreview: true);
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        // The stress profile deliberately sits outside authored progression. F8 toggles it without
+        // polluting the player's sparse save or progression index.
+        if (key.Keycode == Key.F8 && OS.IsDebugBuild() && _world is not null)
+        {
+            if (_world.Profile.Id == "stress_1000")
+            {
+                BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false, persistSession: true);
+                GD.Print("Returned from stress profile to authored progression world.");
+            }
+            else
+            {
+                BuildWorldSession(_worlds.Get("stress_1000"), applyOfflineProgress: false, persistSession: false);
+                GD.Print("Loaded stress_1000. [F9] metrics, [F7] 20-second automated benchmark, [F8] return.");
+            }
             GetViewport().SetInputAsHandled();
         }
     }
@@ -131,27 +153,33 @@ public partial class GameRoot : Node3D
         AddChild(_completionView);
     }
 
-    private void BuildWorldSession(WorldProfile profile, bool applyOfflineProgress)
+    private void BuildWorldSession(WorldProfile profile, bool applyOfflineProgress, bool persistSession)
     {
+        if (_sessionPersists)
+        {
+            CaptureCurrentSession();
+        }
         TearDownWorldSession();
+        _sessionPersists = persistSession;
         _completionView.HideCompletion();
         _completionShown = false;
 
-        _clouds.SetWorldExtent(
-            profile.BlockSpacing * (profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude));
+        float worldExtent = profile.BlockSpacing * (profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude + MathF.Max(0.0f, profile.SeaLevelOffset));
+        _clouds.SetWorldExtent(worldExtent);
+        _camera.ConfigureWorldExtent(worldExtent);
 
         _sessionRoot = new Node3D { Name = $"WorldSession_{profile.Id}" };
         AddChild(_sessionRoot);
 
         _world = new VirtualWorld(profile);
-        long blockCount = _world.CountMineableBlocksExact();
-        GD.Print($"World '{profile.Id}' contains {blockCount:N0} exact mineable blocks.");
+        long blockCount = _world.InitializeMineableBlockCount();
+        GD.Print($"World '{profile.Id}' contains {blockCount:N0} authoritative logical mineable blocks across {_world.TotalLogicalRegionCount:N0} addressable regions.");
 
         WorldSaveData? savedWorld = null;
-        if (_save.Worlds.TryGetValue(profile.Id, out WorldSaveData? existing))
+        if (persistSession && _save.Worlds.TryGetValue(profile.Id, out WorldSaveData? existing))
         {
             savedWorld = existing;
-            _world.State.RestoreSnapshot(existing.MinedChunks);
+            _world.State.RestoreSnapshot(existing.MinedChunks, existing.ExhaustedRegions);
             _manualBlocksThisWorld = existing.ManualBlocksMined;
             _automatedBlocksThisWorld = existing.AutomatedBlocksMined;
         }
@@ -163,15 +191,19 @@ public partial class GameRoot : Node3D
 
         _worldView = new WorldView { Name = "WorldView" };
         _sessionRoot.AddChild(_worldView);
-        _worldView.Initialize(_assets, _world);
+        _worldView.Initialize(_assets, _world, _camera);
 
         _mining = new MiningService(_world, _content);
-        _mining.RestoreCurrency(_save.Currency);
+        _mining.RestoreCurrency(persistSession ? _save.Currency : 0L);
         _mining.BlockMined += OnBlockMined;
+        _mining.BulkMined += OnBulkMined;
         _mining.CurrencyChanged += _ => MarkAutosaveDirty();
 
         _skills = new SkillTreeService(_skillCatalog, _mining);
-        _skills.RestoreRanks(_save.SkillRanks);
+        if (persistSession)
+        {
+            _skills.RestoreRanks(_save.SkillRanks);
+        }
         _skills.Changed += MarkAutosaveDirty;
 
         _manualMining = new ManualMiningController { Name = "ManualMining" };
@@ -199,9 +231,17 @@ public partial class GameRoot : Node3D
         hud.Initialize(_world, _mining, _worldView, _skills, _miners);
         _sessionRoot.AddChild(hud);
 
-        _camera.ApplyPreset(OrbitCameraController.MediumPreset);
+        _performanceHud = new PerformanceHud { Name = "PerformanceHud" };
+        _performanceHud.Initialize(_world, _worldView, _camera);
+        _sessionRoot.AddChild(_performanceHud);
 
-        if (applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
+        _stressBenchmark = new StressBenchmarkController { Name = "StressBenchmark" };
+        _stressBenchmark.Initialize(_world, _worldView, _mining, _camera);
+        _sessionRoot.AddChild(_stressBenchmark);
+
+        _camera.ApplyPreset(OrbitCameraController.MediumPreset, immediate: true);
+
+        if (persistSession && applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
         {
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             double elapsed = Math.Max(0L, now - _loadedSaveTimestamp);
@@ -213,7 +253,7 @@ public partial class GameRoot : Node3D
             }
         }
 
-        if (_world.RemainingMineableBlocks == 0)
+        if (persistSession && _world.RemainingMineableBlocks == 0)
         {
             ShowCompletion(debugPreview: false);
         }
@@ -237,6 +277,10 @@ public partial class GameRoot : Node3D
         _miners = null;
         _placement = null;
         _skillTree = null;
+        _performanceHud = null;
+        _stressBenchmark = null;
+        _autosaveDirty = false;
+        _autosaveTimer = 0.0;
     }
 
     private void OnBlockMined(MiningResult result)
@@ -251,7 +295,22 @@ public partial class GameRoot : Node3D
         }
 
         MarkAutosaveDirty();
-        if (result.Remaining == 0 && !_completionShown)
+        if (_sessionPersists && result.Remaining == 0 && !_completionShown)
+        {
+            ShowCompletion(debugPreview: false);
+        }
+    }
+
+    private void OnBulkMined(BulkMiningResult result)
+    {
+        if (result.Source == MiningSource.Automated || result.Source == MiningSource.Offline)
+        {
+            _automatedBlocksThisWorld = checked(_automatedBlocksThisWorld + result.BlocksMined);
+        }
+
+        _worldView?.MarkRegionDirty(result.Region);
+        MarkAutosaveDirty();
+        if (_sessionPersists && result.Remaining == 0 && !_completionShown)
         {
             ShowCompletion(debugPreview: false);
         }
@@ -259,7 +318,7 @@ public partial class GameRoot : Node3D
 
     private void ShowCompletion(bool debugPreview)
     {
-        if (_world is null || _mining is null || _manualMining is null || _miners is null || _placement is null)
+        if (!_sessionPersists || _world is null || _mining is null || _manualMining is null || _miners is null || _placement is null)
         {
             return;
         }
@@ -292,7 +351,7 @@ public partial class GameRoot : Node3D
 
     private void OnContinueRequested()
     {
-        if (_world is null)
+        if (!_sessionPersists || _world is null)
         {
             return;
         }
@@ -310,13 +369,13 @@ public partial class GameRoot : Node3D
 
         _save.ProgressionIndex = _progression.CurrentIndex;
         _saveService.Save(_save);
-        BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false);
+        BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false, persistSession: true);
         MarkAutosaveDirty();
     }
 
     private void CaptureCurrentSession()
     {
-        if (_world is null || _mining is null || _skills is null || _miners is null)
+        if (!_sessionPersists || _world is null || _mining is null || _skills is null || _miners is null)
         {
             return;
         }
@@ -337,13 +396,17 @@ public partial class GameRoot : Node3D
             ManualBlocksMined = _manualBlocksThisWorld,
             AutomatedBlocksMined = _automatedBlocksThisWorld,
             MinedChunks = _world.State.CreateSnapshot(),
+            ExhaustedRegions = _world.State.CreateExhaustedRegionSnapshot(),
             Miners = _miners.CreateSnapshot(),
         };
     }
 
     private void MarkAutosaveDirty()
     {
-        _autosaveDirty = true;
+        if (_sessionPersists)
+        {
+            _autosaveDirty = true;
+        }
     }
 
     private void TrySaveCurrentSession(bool captureFirst = true)
@@ -391,8 +454,6 @@ public partial class GameRoot : Node3D
             Environment = environment,
         });
 
-        // Reference look: one broad neutral key with soft shadows plus a dim opposite fill. The
-        // former blue omni fill is what gave the blocks their plastic, over-specular sheen.
         var keyLight = new DirectionalLight3D
         {
             Name = "KeyLight",
