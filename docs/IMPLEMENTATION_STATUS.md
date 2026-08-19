@@ -8,20 +8,20 @@ Source plan: `docs/IMPLEMENTATION_PLAN.md`
 - Phase 1 — Project foundation + asset catalog: **complete and locally validated**
 - Phase 2 — Reference visual slice: **superseded by the real generator; reference remains the art target**
 - Phase 3 — Virtual world data + deterministic generator: **implemented and locally iterated**
-- Phase 4 — Rendering + picking: **small-world path validated; large-world renderer is in measured optimization**
+- Phase 4 — Rendering + picking: **small-world path validated; large-world streaming performance validated, LOD appearance in active polish**
 - Phase 5 — Manual mining: **complete and locally validated**
 - Phase 6 — Automation framework: **implemented and locally iterated**
 - Phase 7 — Skill-tree runtime: **implemented**
 - Phase 8 — Skill-tree editor: **implemented**
-- Phase 9 — World completion/progression: **implemented**
+- Phase 9 — World completion/progression: **implemented; transition polish added**
 - Phase 10 — Save/load/offline foundation: **implemented; aggregate exhausted regions supported**
-- Phase 11 — 1000-scale stress/optimization: **first benchmark measured a severe chunk-build bottleneck; remediation implemented and awaiting rerun**
-- Phase 12 — Game-feel/reference polish: **partial**
+- Phase 11 — 1000-scale stress/optimization: **CPU/frame-time target passed; close/far LOD UX awaiting visual validation**
+- Phase 12 — Game-feel/reference polish: **in progress; mining, skill-tree and completion feedback improved**
 - Phase 13 — final-scale validation: **reframed to the clarified one-million-block total target**
-- Phase 14 — tool-class automation/world-event proposal: **foundation started**
+- Phase 14 — tool-class automation/world events: **generic foundation implemented; powered shovel now playable; asset-dependent tool/event work remains**
 
-The user's locally added forest assets, terrain/presentation tuning, UID files, shovel presentation and
-plan additions remain preserved on this branch.
+The user's locally added forest assets, terrain/presentation tuning, UID files, shovel asset and plan
+additions remain preserved on this branch.
 
 ---
 
@@ -29,220 +29,214 @@ plan additions remain preserved on this branch.
 
 The intended gameplay end goal is **1,000,000 mineable blocks total**.
 
-The earlier implementation interpreted a prior "million by million" description too literally and
-created diagnostic counters of 1,000,000,000 and 1,000,000,000,000 blocks. That was not the intended
-final gameplay target and has been corrected.
+Current diagnostic meanings:
 
-Current meanings:
-
-- `stress_1000` is still a deliberately pathological **1000 x 1000 x 1000 logical address-space**
-  renderer test, but its authoritative mining target is now exactly **1,000,000 blocks**.
-- `final_target_1m` is a separate non-progression validation profile with an exact
-  **1,000,000-block** authoritative target and more plausible cube dimensions.
-- Exact final world dimensions remain a content/art-direction decision. The architecture no longer
-  assumes that the final playable world itself is one million blocks wide or contains billions/trillions of blocks.
+- `stress_1000` is deliberately pathological at 1000 x 1000 x 1000 logical address dimensions so the
+  renderer/state architecture can be abused, but its authoritative mining target is exactly 1,000,000.
+- `final_target_1m` is a separate non-progression validation profile with a 1,000,000-block target and
+  more plausible 128 x 128 x 128 logical dimensions.
+- Neither profile commits the game to a final visual/world dimension. Final progression-world scale is
+  still an art/content decision.
 
 ---
 
-## First Phase 11 measurement
+## Phase 11 performance result
 
-The first real `stress_1000` run successfully proved several architecture properties but exposed a
-catastrophic render-path cost.
+The first local streamed renderer measured approximately 1 FPS and 1.38 seconds per chunk because it
+reused the exact small-world algorithm: scan 32^3 voxels, sample each, then repeatedly resample
+neighbours through `IsExposed`.
 
-Measured baseline:
+That renderer was replaced with direct surface-column construction. The second local benchmark passed:
 
 ```text
-duration_s=20.43
-generator_probes=1920
-generator_avg_us=8.430
-probe_batch_max_ms=1.654
-minimum_observed_fps=1.0
-chunk_build_avg_ms=1380.179
-chunk_build_last_ms=1341.115
-stream_loads=19
-stream_unloads=17
-aggregate_blocks_mined=56000000
+duration_s=20.01
+generator_probes=418176
+generator_avg_us=8.699
+probe_batch_max_ms=2.233
+minimum_observed_fps=159.0
+chunk_build_avg_ms=0.626
+chunk_build_last_ms=0.813
+stream_loads=5759
+stream_unloads=1331
+aggregate_blocks_mined=12348
 sparse_voxel_overrides=0
-exhausted_regions=7
-managed_memory_mb=8.2
+exhausted_regions=9
+managed_memory_mb=5.3
 ```
 
-The main result is not the 1 FPS by itself. The profile showed that a streamed chunk build averaged
-**~1.38 seconds**, while an isolated procedural query averaged only **~8.4 microseconds**.
+The Phase 11 performance problem is therefore considered solved at the current detail workload. The
+remaining large-world issue is presentation/LOD quality rather than raw synchronous chunk cost.
 
-### Root cause
+### Stream churn cleanup
 
-The old streamed `WorldView.RebuildChunk` used the small-world exact renderer algorithm:
+The successful benchmark still recorded thousands of stream load/unload requests. Camera focus could
+change faster than the old queue drained, so stale queued chunks were repeatedly checked later.
 
-1. scan every voxel in a 32 x 32 x 32 chunk;
-2. call `SampleVoxel` for the voxel;
-3. call `IsExposed` for present voxels;
-4. `IsExposed` samples up to six neighbours;
-5. each sample evaluates the multi-field procedural terrain noise again.
-
-That turns one streamed build into hundreds of thousands of procedural evaluations. The call stack
-captured locally (`WorldView.RebuildChunk -> IsExposed -> noise sampling`) matches the measured cost.
-
-The original F7 benchmark also appeared to crash/freeze because `_Process(delta)` was used as its
-clock. Godot clamps very large process deltas, so at ~1.4 seconds per frame the nominal 20-second test
-required minutes of wall-clock time. There was no thrown runtime exception.
+`WorldView` now clears and rebuilds the small pending queue from the **current** desired working set on a
+focus transition instead of accumulating obsolete work.
 
 ---
 
-## Phase 11 remediation now implemented
+## Large-world camera and LOD revision
 
-### 1. Wall-clock benchmark
+The 1000-wide stress profile revealed why simply scaling the normal centre-orbit camera does not work:
+zooming closer than the world radius puts the camera inside the terrain, while staying outside makes
+individual blocks visually tiny.
 
-`StressBenchmarkController` now uses `Time.GetTicksUsec()` for elapsed benchmark time.
+### Surface-focus camera
 
-- 20 benchmark seconds now means ~20 real wall-clock seconds even during a severe frame-time regression.
-- automated orbit uses real elapsed time as well, with a per-frame jump clamp
-- orderly scene/window shutdown writes an `aborted` report if a benchmark is active
-- hard OS process termination remains inherently uncatchable
+`OrbitCameraController` now treats large worlds differently:
 
-### 2. Dedicated large-world surface sampler
+- far/medium views continue to orbit the world centre;
+- as the user zooms toward the surface, the orbit pivot smoothly moves toward the currently viewed face;
+- at close range, camera distance becomes a **surface stand-off** instead of centre distance;
+- the camera can therefore inspect blocks from a few block widths away without entering the cube;
+- wheel zoom is deliberately finer through the centre-to-surface transition;
+- MMB panning becomes finer in surface inspection mode;
+- the large-world Near preset enters a surface inspection distance rather than scaling the ordinary
+  centre-orbit Near distance.
 
-`ProceduralWorldSource.TrySampleOutermostSurfaceVoxel(...)` is a new presentation-oriented fast path.
+The normal Verdant/Lakebound camera behavior remains on the existing small-world path.
 
-For one tangential column it:
+### Detail working set follows zoom level
 
-- evaluates the expensive terrain/climate/hydrology fields once
-- derives the outer generated radius directly
-- classifies the visible surface block from the same terrain context
-- uses only a two-voxel bounded quantization fallback
+Large-world streamed detail is now LOD-aware:
 
-The exact small-world `SampleVoxel` behavior remains intact.
+- far view: base detailed radius around the active surface focus;
+- transition: radius expands by one chunk;
+- close inspection: radius expands by two chunks, bounded by a hard cap;
+- depth is still calculated from the authored relief band so valleys/water do not disappear;
+- close detail restores deterministic supplied tree models;
+- chunk building remains suspended while RMB/MMB is actively held.
 
-### 3. Streamed chunks no longer scan their volume
+### Macro proxy behavior
 
-Large-world detail rendering now has its own builder instead of reusing the eager small-world path.
+The coarse macro shell is now treated strictly as a far/movement LOD:
 
-For each streamed chunk it:
+- `stress_1000` macro resolution increased from 24 to 48 cells per face after performance validation;
+- `final_target_1m` uses a 40-cell-per-face diagnostic macro resolution;
+- while zooming/orbiting the proxy remains immediately available;
+- once surface focus is close, the detailed queue is settled and real block chunks are present, the
+  coarse macro shell is hidden so a single giant green macro tile cannot fill the close view;
+- F9 exposes surface-focus blend, detail radius and macro visible/hidden state.
 
-- samples tangential surface columns only
-- emits the one currently visible outer block for each column
-- does **not** call `IsExposed` on every candidate
-- does **not** scan the entire chunk volume
-- only performs a short inward exact search for columns that the player has actually modified/mined
-- continues to use MultiMesh batches for the resulting visible blocks
-
-Trees remain on the exact small-world path for now; large-world tree/detail LOD should be added after
-this performance path is validated rather than reintroducing expensive feature sampling prematurely.
-
-### 4. Smaller stress chunks
-
-`stress_1000` now uses:
-
-- 8-voxel chunks instead of 32
-- 16 x 16 x 16 chunk regions
-- automatic inward detail depth sufficient to cover the terrain relief band
-- a fixed 24-cell-per-face macro resolution
-
-The working set is still bounded and independent of the 1000-wide logical volume.
-
-### 5. Camera drag cannot be blocked by detail catch-up
-
-`OrbitCameraController` exposes whether RMB/MMB manipulation is active.
-
-While the user is actively orbiting or panning:
-
-- desired streaming focus may change
-- the always-present macro world remains visible
-- **no detailed chunk builds are run**
-
-After the drag is released, detail catches up with a ~2.5 ms per-frame build budget and at most four
-cheap chunk builds in one frame.
-
-### 6. Macro proxy holes/ridges addressed
-
-The first proxy deliberately left spacing between its coarse cells and used very shallow boxes. With
-large terrain-height differences this exposed black gaps and produced the Rubik's-cube ridge pattern
-seen in the local screenshots.
-
-The macro proxy now:
-
-- uses the direct one-sample surface-column API rather than an inward search loop
-- always emits all configured face cells, with a conservative seam fallback
-- slightly overlaps neighbouring cells tangentially
-- gives cells a deep inward skirt so height differences do not expose empty space
-- keeps the outer macro face inset below detailed blocks
-- disables specular response
-
-It remains a diagnostic/far representation, not final large-world art.
+This makes the pathological stress world useful for inspecting the LOD transition. It does **not** mean
+its far proxy is intended as final art.
 
 ---
 
-## Hierarchical mining/state remains valid
+## Phase 12 game-feel work
 
-The first benchmark did validate the non-render architecture:
+### Manual mining
 
-- managed memory stayed small
-- sparse voxel overrides stayed at zero during aggregate mining
-- region exhaustion represented many logical blocks with a few markers
-- no full logical world allocation occurred
+- block-aware debris remains capped for multi-block clicks;
+- hover highlight now has a subtle breathing pulse;
+- successful manual mining adds a short hit pulse to the highlight;
+- LMB remains mining/UI only, RMB orbit and MMB pan.
 
-`WorldStateStore`, `VirtualWorld` region quotas, `MiningService.TryExhaustRegion`, save/load aggregate
-markers and bounded offline architecture remain in place. Only the authored total has been corrected
-to the one-million-block gameplay target.
+### Runtime skill tree
 
----
+- open/close has a short fade;
+- purchases provide success/failure feedback;
+- purchased nodes pulse briefly;
+- owned/maxed, prereq-locked and unaffordable states are visually differentiated;
+- routed prerequisite lines remain data-driven and now sit on a faint grid matching the editor model.
 
-## Phase 14 foundation retained
+### Completion overview
 
-The locally expanded plan's specialised automation work remains available:
+- completion overlay fades/scales in;
+- Continue fades/scales out before changing world;
+- Continue disables immediately to prevent double activation.
 
-- miner `toolClass`
-- per-block-tag rate multipliers
-- allowed material tags
-- affinity-aware live/offline work-credit scheduler
-- tangential `surface_strip` pattern
-- provisional shovel miner content
-
-Still intentionally deferred until the renderer checkpoint passes:
-
-- final shovel placement/unlock UX
-- tree-feature clearing for axe automation
-- axe/pickaxe final visuals/content
-- deterministic bomb blocks and region-aware blast rendering
-- gem-pocket placement/content
+These are lightweight feedback additions; sound and broader UI art direction remain later polish.
 
 ---
 
-## Required local checkpoint
+## Phase 14 — specialised automation progress
 
-The next local test is deliberately narrow: verify that the measured 1.38-second streamed chunk path
-is actually gone before building more systems on top of it.
+The generic tool architecture already supports:
 
-### Normal regression
+- `toolClass`
+- optional allowed block tags
+- per-tag rate multipliers
+- affinity-aware work credits in live and bounded offline simulation
+- swappable pure mining patterns including inward line, wide bore, disc and tangential `surface_strip`
 
-Run:
+### Drill presentation restored
 
-```bat
-play_game.bat
-```
+Drill-class miners now use their own procedural drill presentation instead of sharing the locally added
+shovel model:
 
-A quick launch/mine/orbit check on Verdant is sufficient.
+- cylindrical motor housing
+- shaft + pointed bit
+- rotating three-fin cutting head
+- material-aware debris at the working face
+- visual advances to the most recently mined block
 
-### Stress regression
+The supplied KayKit shovel remains reserved for the shovel tool class.
 
-1. Press **F8** to enter `stress_1000`.
-2. Press **F9**.
-3. Confirm the counter is now `1,000,000` total rather than `1,000,000,000`.
-4. RMB-orbit continuously for several seconds. Camera movement should remain responsive because detail
-   builds are suspended during the drag.
-5. Release RMB and watch the detail queue catch up.
-6. Check the macro world for the previous black missing faces / pronounced Rubik-grid gaps.
-7. Record `chunk build ms last/avg` after the detail working set has populated.
-8. Press **F7**. It should now finish after roughly 20 wall-clock seconds and write the report.
-9. Send the F7 report and one F9 screenshot.
+### Powered Shovel is now playable
 
-### Success criterion for continuing without another renderer rewrite
+The previously provisional shovel is wired into runtime progression:
 
-The key number is streamed chunk build time. The immediate target is:
+- new skill-tree node `Powered Shovel`
+- requires `Resource Sensors`
+- unlocks `shovel_miner` and the `surface_strip` pattern
+- **N** places an unlocked Powered Shovel on the hovered surface block
+- it follows the surface rather than boring inward
+- allowed tags keep it focused on surface/soil/sand
+- dirt/sand/surface affinity multipliers make it materially faster on its intended block families
+- HUD shows drill/shovel lock state and both placement controls
 
-- average below **4 ms**
-- routine builds below **12 ms**
-- no pointer-drag stalls from chunk construction
+### Asset-dependent Phase 14 work still deferred
 
-If builds are still materially above budget, the next step is worker-thread surface sampling / cached
-column contexts rather than adding more visual systems.
+The current branch does not contain dedicated axe, pickaxe or gem models. Rather than silently baking
+placeholder visuals into final content, these remain pending assets/content direction:
+
+- persistent tree-feature clearing and axe automation
+- pickaxe final model/content and stone/ore-specific automation
+- deterministic multi-hit bomb blocks and blast presentation
+- gem block models and rare procedural pockets
+
+The underlying tool/tag/pattern/state architecture is intended to support them without another miner
+framework rewrite.
+
+---
+
+## Next local checkpoint
+
+The performance numbers no longer require another benchmark before ordinary development continues. The
+next required local check is now genuinely visual/input-specific because it changes how a giant world is
+navigated and switches between two render representations.
+
+### Quick normal-world regression
+
+Run `play_game.bat` and confirm Verdant still launches, RMB orbit/MMB pan work and one LMB mining click
+still behaves normally.
+
+### Large-world inspection check
+
+1. Press **F8**, then **F9**.
+2. At far range the denser macro shell should still show the whole stress world.
+3. Scroll inward slowly. The camera should approach the viewed **surface** rather than eventually pass
+   through the cube.
+4. Press **3** as a shortcut to the large-world Near inspection distance.
+5. F9 should show `surface focus` approaching 1.00 and detail radius increasing as the view gets closer.
+6. After the detail queue settles, F9 should report the macro as `hidden`; the visible close patch should
+   consist of actual supplied block meshes rather than one giant flat green macro tile.
+7. Some trees should return in sufficiently close detailed land patches.
+8. RMB drag should remain smooth; macro may temporarily reappear while moving and detail should catch up
+   after release.
+
+### New progression/tool check
+
+On the ordinary world, unlock the Powered Shovel path in the skill tree. Verify:
+
+- **M** places the drill and it visibly looks/rotates like a drill;
+- **N** places the Powered Shovel and uses the supplied shovel model;
+- the shovel travels tangentially across suitable surface terrain rather than following the drill inward;
+- the skill tree and completion overview transitions do not throw UI errors.
+
+This is the next point where a local result is actually needed. If it passes, implementation can continue
+into deeper Phase 12 polish and the asset-independent parts of Phase 14 without revisiting the streaming
+architecture.
