@@ -2,26 +2,30 @@
 
 Godot 4.6.1 C# project for the block-mining incremental game currently being designed under the working names **1 Million Blocks / 1 Million Squared**.
 
-The intended late-game progression target is **1,000,000 mineable blocks total**. The separate `stress_1000` world deliberately uses a pathological 1000 x 1000 x 1000 logical address space to test streaming/state architecture; it is not the planned visual shape or block count of the final world.
+The intended late-game progression target is **1,000,000 mineable blocks total**. The one-million world is now rendered as actual block-scale terrain: the visible surface is made from the same supplied block meshes and voxel addresses the player can mine. The earlier coarse macro-cell world is no longer the product direction.
 
-## Current development slice
+## Current implementation
 
-The implementation now includes the main architectural/gameplay systems from the implementation plan:
+The branch now includes the main architectural/gameplay systems from `docs/IMPLEMENTATION_PLAN.md`:
 
-- deterministic cube-world generation with terrain, sand, shallow/deep water, ores, trees and multiple authored profiles
-- supplied-model chunk rendering with large-world macro/detail streaming
+- deterministic cube-world generation with plateaus, beaches, shallow/deep water, ores and trees
+- small-world eager rendering plus a real-block full-surface renderer for the one-million end world
 - block picking, hover feedback and authoritative manual mining
-- scalable sparse mined state and aggregate region exhaustion
-- placeable animated drill automation and material-aware debris
-- Powered Shovel automation with a deliberately primitive base behavior and skill-driven intelligence/speed upgrades
-- data-driven skill tree with repeatable/rank-gated upgrades and selectable drill mining patterns
-- standalone grid-based skill-tree editor with routed prerequisites
-- world completion -> overview -> Continue progression flow
+- sparse mined state, exact 64-bit target accounting and aggregate region state
+- base drill that advances exactly one depth block/second
+- Wide Bore upgrade that physically scales the drill to a 3x3 cutter and clears one 3x3 depth slice/second
+- separate Radial Excavator automation instead of mutating the primary drill into a disc
+- Powered Shovel with sand-only base traversal, speed upgrades, slope sensing and Terrain Scout
+- Rock Breaker/pickaxe automation specialized for stone, ore and gem blocks
+- Forest Cutter/axe automation that seeks deterministic tree-bearing surface blocks
+- deterministic deep gem pockets with high-value rewards
+- deterministic unstable blocks that require repeated manual hits and then clear a bounded blast radius
+- data-driven skill tree, repeatable/rank-gated upgrades and standalone visual skill-tree editor
+- world completion -> overview -> Continue progression, ending in the one-million world
 - save/load and bounded offline automation foundation
-- large-address-space diagnostics, performance HUD and automated benchmark
-- compact gameplay HUD and close-surface camera mode for very large worlds
+- compact gameplay HUD, mining feedback, camera safety/zoom smoothing and performance diagnostics
 
-See `docs/IMPLEMENTATION_STATUS.md` for the current checkpoint and deferred work.
+See `docs/IMPLEMENTATION_STATUS.md` for current verification status and `docs/ONE_MILLION_WORLD_RENDERING.md` for the large-world rendering decision.
 
 ## Run on Windows
 
@@ -31,20 +35,20 @@ Use the .NET build of Godot 4.6.1.
 play_game.bat
 ```
 
-The helper searches for Godot in common locations and on `PATH`. To force a specific editor executable:
+The helper searches common locations and `PATH`. To force a specific editor executable:
 
 ```bat
 set GODOT_PATH=C:\path\to\Godot_v4.6.1-stable_mono_win64.exe
 play_game.bat
 ```
 
-To compile without launching:
+Compile without launching:
 
 ```bat
 build_game.bat
 ```
 
-To edit the skill tree visually:
+Edit the skill tree visually:
 
 ```bat
 skill_tree_editor.bat
@@ -59,25 +63,28 @@ skill_tree_editor.bat
 - `1` / `2` / `3`: far / medium / near camera presets
 - `F`: recenter camera pan
 - `K`: open/close skill tree
-- `M`: place the unlocked drill on the highlighted block
-- `N`: place the unlocked Powered Shovel on a highlighted sand block
 - `H`: expand/collapse gameplay HUD details
+- `M`: place the unlocked Drill
+- `N`: place the unlocked Powered Shovel on sand
+- `P`: place the unlocked Rock Breaker
+- `A`: place the unlocked Forest Cutter on a tree-bearing surface tile
+- `B`: place the unlocked Radial Excavator
 
 Debug-build controls:
 
-- `F8`: toggle the 1000-address-space stress profile
-- `F9`: performance/streaming diagnostics
-- `F7`: run/cancel the 20-second stress benchmark while in a streaming profile
-- `F10`: preview the completion/Continue flow without actually clearing the current world
+- `F8`: toggle the real-block one-million debug world
+- `F9`: performance/render diagnostics
+- `F7`: run/cancel the 20-second stress benchmark while in a large profile
+- `F10`: preview completion/Continue without clearing the current world
 
 ## Content
 
 Primary editable runtime content lives under `data/`:
 
-- `data/blocks/blocks.json` — block definitions, supplied model paths, values and material tags
-- `data/worlds/worlds.json` — world-generation and streaming profiles
-- `data/miners/miners.json` — automation definitions
+- `data/blocks/blocks.json` — block definitions, model paths, values and material tags
+- `data/worlds/worlds.json` — world-generation/render profiles
+- `data/miners/miners.json` — automation definitions and material affinities
 - `data/skills/skill_tree.json` — skill graph, costs, ranks and effects
 - `data/progression/world_progression.json` — authored world order
 
-Supplied runtime model paths primarily use `Assets/gltf`, with the added forest models under `Assets/forest` and the Powered Shovel under `Assets/godeeper`. See `docs/ASSET_CATALOG.md` for asset scale/batching notes.
+Runtime model paths primarily use `Assets/gltf`, with forest models under `Assets/forest` and the Powered Shovel under `Assets/godeeper`. The current Rock Breaker/Forest Cutter are procedural placeholder presentations so their mechanics are testable without blocking on final art. Gem/unstable blocks currently reuse supplied colored block meshes. See `docs/ASSET_CATALOG.md` for batching and asset-scale notes.
