@@ -18,6 +18,9 @@ public partial class ManualMiningController : Node3D
     private Vector2 _pressPosition;
     private Vector3I? _hoveredVoxel;
 
+    public Vector3I? HoveredVoxel => _hoveredVoxel;
+    public bool InputEnabled { get; set; } = true;
+
     public void Initialize(VirtualWorld world, OrbitCameraController camera, WorldView view, MiningService mining)
     {
         _world = world;
@@ -35,12 +38,20 @@ public partial class ManualMiningController : Node3D
     public override void _Process(double delta)
     {
         _ = delta;
-        UpdateHover();
+        if (InputEnabled)
+        {
+            UpdateHover();
+        }
+        else
+        {
+            _hoveredVoxel = null;
+            _highlight.HideVoxel();
+        }
     }
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event is not InputEventMouseButton button || button.ButtonIndex != MouseButton.Left)
+        if (!InputEnabled || @event is not InputEventMouseButton button || button.ButtonIndex != MouseButton.Left)
         {
             return;
         }
