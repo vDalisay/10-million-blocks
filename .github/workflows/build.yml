@@ -1,9 +1,10 @@
 name: Build
 
-# Kept manual while this repository's hosted Actions runner access is unreliable.
-# Re-enable push/pull_request once hosted runners consistently start jobs.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent/one-million-squared-plan
 
 jobs:
   build:
