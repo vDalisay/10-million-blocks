@@ -34,6 +34,13 @@ public sealed class LineMiningPattern : IMiningPattern
         if (ay >= ax && ay >= az) return direction.Y >= 0 ? Vector3I.Up : Vector3I.Down;
         return direction.Z >= 0 ? Vector3I.Back : Vector3I.Forward;
     }
+
+    internal static (Vector3I A, Vector3I B) PerpendicularAxes(Vector3I forward)
+    {
+        if (Math.Abs(forward.Y) == 1) return (Vector3I.Right, Vector3I.Back);
+        if (Math.Abs(forward.X) == 1) return (Vector3I.Up, Vector3I.Back);
+        return (Vector3I.Right, Vector3I.Up);
+    }
 }
 
 public sealed class WideLineMiningPattern : IMiningPattern
@@ -43,7 +50,7 @@ public sealed class WideLineMiningPattern : IMiningPattern
     public IEnumerable<Vector3I> Enumerate(Vector3I origin, Vector3I direction, int range, int width = 3)
     {
         Vector3I forward = LineMiningPattern.Cardinal(direction);
-        (Vector3I sideA, Vector3I sideB) = PerpendicularAxes(forward);
+        (Vector3I sideA, Vector3I sideB) = LineMiningPattern.PerpendicularAxes(forward);
         int radius = Math.Max(0, width / 2);
 
         for (int depth = 0; depth < range; depth++)
@@ -52,13 +59,6 @@ public sealed class WideLineMiningPattern : IMiningPattern
         {
             yield return origin + forward * depth + sideA * a + sideB * b;
         }
-    }
-
-    private static (Vector3I, Vector3I) PerpendicularAxes(Vector3I forward)
-    {
-        if (Math.Abs(forward.Y) == 1) return (Vector3I.Right, Vector3I.Back);
-        if (Math.Abs(forward.X) == 1) return (Vector3I.Up, Vector3I.Back);
-        return (Vector3I.Right, Vector3I.Up);
     }
 }
 
@@ -69,11 +69,7 @@ public sealed class DiscMiningPattern : IMiningPattern
     public IEnumerable<Vector3I> Enumerate(Vector3I origin, Vector3I direction, int range, int width = 5)
     {
         Vector3I normal = LineMiningPattern.Cardinal(direction);
-        (Vector3I axisA, Vector3I axisB) = Math.Abs(normal.Y) == 1
-            ? (Vector3I.Right, Vector3I.Back)
-            : Math.Abs(normal.X) == 1
-                ? (Vector3I.Up, Vector3I.Back)
-                : (Vector3I.Right, Vector3I.Up);
+        (Vector3I axisA, Vector3I axisB) = LineMiningPattern.PerpendicularAxes(normal);
 
         int radius = Math.Max(1, width / 2);
         int radiusSquared = radius * radius;
@@ -90,6 +86,38 @@ public sealed class DiscMiningPattern : IMiningPattern
     }
 }
 
+/// <summary>
+/// Tangential strip used by surface tools such as the planned shovel. It intentionally describes
+/// address order only; the miner/world query decides whether a coordinate is still terrain. This
+/// keeps pattern generation pure while allowing later surface-following policy to be layered on top.
+/// </summary>
+public sealed class SurfaceStripMiningPattern : IMiningPattern
+{
+    public string Id => "surface_strip";
+
+    public IEnumerable<Vector3I> Enumerate(Vector3I origin, Vector3I direction, int range, int width = 3)
+    {
+        Vector3I inward = LineMiningPattern.Cardinal(direction);
+        (Vector3I along, Vector3I across) = LineMiningPattern.PerpendicularAxes(inward);
+        int radius = Math.Max(0, width / 2);
+
+        for (int step = 0; step < range; step++)
+        {
+            // Alternate row direction so a future visual path can traverse the strip continuously.
+            if ((step & 1) == 0)
+            {
+                for (int offset = -radius; offset <= radius; offset++)
+                    yield return origin + along * step + across * offset;
+            }
+            else
+            {
+                for (int offset = radius; offset >= -radius; offset--)
+                    yield return origin + along * step + across * offset;
+            }
+        }
+    }
+}
+
 public sealed class MiningPatternRegistry
 {
     private readonly Dictionary<string, IMiningPattern> _patterns = new(StringComparer.Ordinal)
@@ -97,6 +125,7 @@ public sealed class MiningPatternRegistry
         ["line"] = new LineMiningPattern(),
         ["wide_line"] = new WideLineMiningPattern(),
         ["disc"] = new DiscMiningPattern(),
+        ["surface_strip"] = new SurfaceStripMiningPattern(),
     };
 
     public IMiningPattern Get(string id)
