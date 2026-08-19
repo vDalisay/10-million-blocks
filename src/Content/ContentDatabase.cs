@@ -109,5 +109,15 @@ public sealed class ContentDatabase
         {
             errors.Add($"Block '{block.Id}' cannot have a negative base value.");
         }
+
+        if (block.RenderTint.Count != 0 && block.RenderTint.Count != 3 && block.RenderTint.Count != 4)
+        {
+            errors.Add($"Block '{block.Id}' render_tint must contain 3 or 4 values.");
+        }
+
+        if (block.RenderTint.Any(value => value < 0.0f || value > 2.0f))
+        {
+            errors.Add($"Block '{block.Id}' render_tint values must be between 0 and 2.");
+        }
     }
 }
