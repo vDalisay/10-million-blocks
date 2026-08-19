@@ -10,6 +10,7 @@ public sealed class SkillDerivedStats
     public int ManualBlocksPerClick { get; internal set; } = 1;
     public double MinerRateMultiplier { get; internal set; } = 1.0;
     public int MinerPatternWidth { get; internal set; } = 1;
+    public string DrillPatternId { get; internal set; } = "line";
 
     // Powered Shovel deliberately starts primitive: one sand tile per second, adjacent cardinal tiles
     // only, and no ability to climb/drop. Separate skills make it faster and smarter.
@@ -146,6 +147,9 @@ public sealed class SkillTreeService
                 break;
             case "unlock_pattern":
                 if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.UnlockedPatterns.Add(effect.StringValue);
+                break;
+            case "set_drill_pattern":
+                if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.DrillPatternId = effect.StringValue;
                 break;
             case "set_miner_pattern_width":
                 stats.MinerPatternWidth = Math.Max(stats.MinerPatternWidth, (int)Math.Round(effect.Value));
