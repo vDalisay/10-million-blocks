@@ -41,43 +41,40 @@ public partial class GameRoot : Node3D
 
     private void AddLightingAndEnvironment()
     {
-        var environment = new Godot.Environment
-        {
-            BackgroundMode = Godot.Environment.BGMode.Color,
-            BackgroundColor = new Color(0.006f, 0.014f, 0.025f, 1.0f),
-            AmbientLightSource = Godot.Environment.AmbientSource.Color,
-            AmbientLightColor = new Color(0.18f, 0.28f, 0.42f, 1.0f),
-            AmbientLightEnergy = 0.42f,
-            ReflectedLightSource = Godot.Environment.ReflectionSource.Disabled,
-            TonemapMode = Godot.Environment.ToneMapper.Filmic,
-        };
-
-        AddChild(new WorldEnvironment
-        {
-            Name = "WorldEnvironment",
-            Environment = environment,
-        });
+        RenderingServer.SetDefaultClearColor(new Color(0.006f, 0.014f, 0.025f));
 
         var keyLight = new DirectionalLight3D
         {
             Name = "KeyLight",
             RotationDegrees = new Vector3(-48.0f, -36.0f, 0.0f),
-            LightColor = new Color(0.92f, 0.97f, 1.0f),
-            LightEnergy = 1.55f,
+            LightColor = new Color(0.98f, 0.97f, 0.90f),
+            LightEnergy = 1.42f,
             ShadowEnabled = true,
-            DirectionalShadowMaxDistance = 80.0f,
+            DirectionalShadowMaxDistance = 90.0f,
         };
         AddChild(keyLight);
 
-        var rimLight = new DirectionalLight3D
+        var coolFill = new OmniLight3D
         {
-            Name = "RimLight",
-            RotationDegrees = new Vector3(38.0f, 142.0f, 8.0f),
-            LightColor = new Color(0.30f, 0.48f, 0.75f),
-            LightEnergy = 0.46f,
+            Name = "CoolFill",
+            Position = new Vector3(-20.0f, 14.0f, 19.0f),
+            LightColor = new Color(0.30f, 0.52f, 1.0f),
+            LightEnergy = 4.6f,
+            OmniRange = 60.0f,
             ShadowEnabled = false,
         };
-        AddChild(rimLight);
+        AddChild(coolFill);
+
+        var greenRim = new OmniLight3D
+        {
+            Name = "GreenRim",
+            Position = new Vector3(18.0f, -7.0f, -16.0f),
+            LightColor = new Color(0.34f, 0.74f, 0.57f),
+            LightEnergy = 2.2f,
+            OmniRange = 52.0f,
+            ShadowEnabled = false,
+        };
+        AddChild(greenRim);
     }
 
     private void ShowFatalError(string message)
