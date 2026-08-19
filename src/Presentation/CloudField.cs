@@ -15,6 +15,7 @@ public partial class CloudField : Node3D
     {
         public Node3D Pivot { get; init; } = null!;
         public Node3D Carrier { get; init; } = null!;
+        public Vector3 LocalOffset { get; init; }
         public float AngularSpeed { get; init; }
     }
 
@@ -35,9 +36,6 @@ public partial class CloudField : Node3D
             orbiter.Pivot.Rotation = rotation;
         }
 
-        // The cloud mesh is authored flat in local X/Z with its underside at -Y. Reorient the
-        // carrier after orbital movement so local -Y always faces the planet, like clouds hugging
-        // the atmosphere rather than cards locked to the global horizontal plane.
         OrientCloudsTowardWorld();
     }
 
@@ -61,10 +59,10 @@ public partial class CloudField : Node3D
             };
             AddChild(pivot);
 
+            Vector3 localOffset = new(radius, height, 0.0f);
             var carrier = new Node3D
             {
                 Name = "Carrier",
-                Position = new Vector3(radius, height, 0.0f),
                 TopLevel = true,
             };
             pivot.AddChild(carrier);
@@ -72,14 +70,13 @@ public partial class CloudField : Node3D
             int pieces = random.Next(5, 10);
             carrier.AddChild(BuildClump(random, pieces));
 
-            // A complete revolution takes roughly 95-190 seconds. Nearby clouds are a little faster,
-            // but every clump keeps its shape instead of independently wiggling in place.
             float direction = cloudIndex % 5 == 0 ? -1.0f : 1.0f;
             float angularSpeed = direction * (0.033f + (34.0f - radius) * 0.0012f);
             _orbiters.Add(new CloudOrbiter
             {
                 Pivot = pivot,
                 Carrier = carrier,
+                LocalOffset = localOffset,
                 AngularSpeed = angularSpeed,
             });
         }
@@ -89,12 +86,7 @@ public partial class CloudField : Node3D
     {
         foreach (CloudOrbiter orbiter in _orbiters)
         {
-            // Because Carrier is top-level, explicitly follow the orbital point's transformed
-            // position while choosing our own orientation.
-            Vector3 orbitalPosition = orbiter.Pivot.ToGlobal(new Vector3(
-                orbiter.Carrier.Position.X,
-                orbiter.Carrier.Position.Y,
-                orbiter.Carrier.Position.Z));
+            Vector3 orbitalPosition = orbiter.Pivot.ToGlobal(orbiter.LocalOffset);
             orbiter.Carrier.GlobalPosition = orbitalPosition;
 
             Vector3 outward = orbitalPosition.Normalized();
@@ -132,8 +124,6 @@ public partial class CloudField : Node3D
             VisibleInstanceCount = pieces,
         };
 
-        // One coherent flattened voxel formation. The lower layer is broad and the occasional
-        // second layer sits on the outward-facing side, giving the clump a readable "underside".
         for (int i = 0; i < pieces; i++)
         {
             float lane = i - (pieces - 1) * 0.5f;
