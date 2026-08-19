@@ -69,15 +69,8 @@ public sealed class MiningService
 
     public bool TrySpend(long amount)
     {
-        if (amount < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(amount));
-        }
-
-        if (Currency < amount)
-        {
-            return false;
-        }
+        if (amount < 0) throw new ArgumentOutOfRangeException(nameof(amount));
+        if (Currency < amount) return false;
 
         Currency -= amount;
         CurrencyChanged?.Invoke(Currency);
@@ -86,12 +79,14 @@ public sealed class MiningService
 
     public void GrantCurrency(long amount)
     {
-        if (amount <= 0)
-        {
-            return;
-        }
-
+        if (amount <= 0) return;
         Currency = checked(Currency + amount);
+        CurrencyChanged?.Invoke(Currency);
+    }
+
+    public void RestoreCurrency(long amount)
+    {
+        Currency = Math.Max(0L, amount);
         CurrencyChanged?.Invoke(Currency);
     }
 }
