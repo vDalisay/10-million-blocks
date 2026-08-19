@@ -21,13 +21,23 @@ public partial class MinerPlacementController : Node
         if (!InputEnabled
             || @event is not InputEventKey key
             || !key.Pressed
-            || key.Echo
-            || key.Keycode != Key.M)
+            || key.Echo)
         {
             return;
         }
 
-        if (_manual.HoveredVoxel is Vector3I voxel && _miners.PlaceLineMiner(voxel) is not null)
+        string? minerId = key.Keycode switch
+        {
+            Key.M => "line_miner",
+            Key.N => "shovel_miner",
+            _ => null,
+        };
+        if (minerId is null)
+        {
+            return;
+        }
+
+        if (_manual.HoveredVoxel is Vector3I voxel && _miners.PlaceMiner(minerId, voxel) is not null)
         {
             GetViewport().SetInputAsHandled();
         }
