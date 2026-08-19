@@ -12,8 +12,6 @@ namespace TenMillionBlocks.World.Rendering;
 /// </summary>
 public partial class MacroWorldProxy : Node3D
 {
-    private readonly record struct MacroInstance(string Family, Transform3D Transform);
-
     public int InstanceCount { get; private set; }
     public int Resolution { get; private set; }
     public double BuildMilliseconds { get; private set; }
@@ -24,11 +22,8 @@ public partial class MacroWorldProxy : Node3D
         Resolution = Math.Clamp(world.Profile.MacroResolution, 4, 64);
         int max = world.MaxCoordinate;
         float spacing = world.Profile.BlockSpacing;
-        float logicalCell = max * 2.0f / Resolution;
+        float logicalCell = (max * 2.0f + 1.0f) / Resolution;
         float worldCell = MathF.Max(spacing, logicalCell * spacing);
-        int searchDepth = Math.Max(8, (int)MathF.Ceiling(
-            world.Profile.TerrainAmplitude + world.Profile.DetailAmplitude
-            + MathF.Abs(world.Profile.SeaLevelOffset) + 8.0f));
 
         var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         for (int face = 0; face < 6; face++)
@@ -41,35 +36,37 @@ public partial class MacroWorldProxy : Node3D
                 float fv = ((v + 0.5f) / Resolution) * 2.0f - 1.0f;
                 int tangentU = Math.Clamp((int)MathF.Round(fu * max), -max, max);
                 int tangentV = Math.Clamp((int)MathF.Round(fv * max), -max, max);
-                Vector3I outer = FaceVoxel(face, max, tangentU, tangentV);
 
-                BlockSample found = BlockSample.Empty;
-                Vector3I foundVoxel = outer;
-                for (int depth = 0; depth <= searchDepth; depth++)
+                Vector3I foundVoxel;
+                string family;
+                if (world.Source.TrySampleOutermostSurfaceVoxel(normal, tangentU, tangentV, out foundVoxel, out BlockSample found))
                 {
-                    Vector3I candidate = outer - normal * depth;
-                    BlockSample sample = world.Source.SampleVoxel(candidate);
-                    if (!sample.Present)
-                    {
-                        continue;
-                    }
-
-                    found = sample;
-                    foundVoxel = candidate;
-                    break;
+                    family = Family(world, found.BlockId);
+                }
+                else
+                {
+                    // Every macro cell gets geometry. Near cube seams the dominant axis can flip to
+                    // the neighbouring face; a conservative fallback prevents black holes while the
+                    // neighbouring face overlaps it. This proxy is presentation-only.
+                    int fallbackRadius = Math.Max(
+                        Math.Max(1, (int)MathF.Round(world.Profile.BaseRadius)),
+                        Math.Max(Math.Abs(tangentU), Math.Abs(tangentV)));
+                    foundVoxel = FaceVoxel(face, fallbackRadius, tangentU, tangentV);
+                    family = "grass";
                 }
 
-                if (!found.Present)
-                {
-                    continue;
-                }
-
-                string family = Family(world, found.BlockId);
                 Basis orientation = BasisForNormal(normal);
-                // The proxy is intentionally inset slightly so detailed streamed blocks can render
-                // over it without z-fighting when both representations overlap.
-                Vector3 position = (Vector3)foundVoxel * spacing - (Vector3)normal * worldCell * 0.07f;
-                Vector3 scale = new(worldCell * 0.94f, worldCell * 0.16f, worldCell * 0.94f);
+
+                // The old proxy used 94% cell width and very thin boxes. That deliberately left a
+                // visible gap around every cell and terrain-height changes exposed the empty space
+                // behind them, producing the Rubik's-cube ridges/missing faces seen in stress_1000.
+                // Slight tangential overlap plus a deep inward skirt makes the six macro faces read
+                // as one continuous solid shell. The outer face remains inset below detailed blocks.
+                float thickness = MathF.Max(spacing * 2.0f, worldCell * 0.62f);
+                float detailInset = spacing * 0.72f;
+                Vector3 position = (Vector3)foundVoxel * spacing
+                    - (Vector3)normal * (thickness * 0.5f + detailInset);
+                Vector3 scale = new(worldCell * 1.025f, thickness, worldCell * 1.025f);
                 Transform3D transform = new(
                     orientation * Basis.Identity.Scaled(scale),
                     position);
@@ -98,8 +95,9 @@ public partial class MacroWorldProxy : Node3D
         var material = new StandardMaterial3D
         {
             AlbedoColor = FamilyColor(family),
-            Roughness = 0.94f,
+            Roughness = 1.0f,
             Metallic = 0.0f,
+            SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled,
         };
 
         var mesh = new BoxMesh
@@ -164,12 +162,12 @@ public partial class MacroWorldProxy : Node3D
     private static Vector3I FaceVoxel(int face, int radius, int u, int v)
         => face switch
         {
-            0 => new Vector3I(radius, v, u),
-            1 => new Vector3I(-radius, v, -u),
+            0 => new Vector3I(radius, u, v),
+            1 => new Vector3I(-radius, u, v),
             2 => new Vector3I(u, radius, v),
-            3 => new Vector3I(u, -radius, -v),
+            3 => new Vector3I(u, -radius, v),
             4 => new Vector3I(u, v, radius),
-            _ => new Vector3I(-u, v, -radius),
+            _ => new Vector3I(u, v, -radius),
         };
 
     private static Basis BasisForNormal(Vector3I normal)
