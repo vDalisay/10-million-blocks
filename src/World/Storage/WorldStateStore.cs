@@ -26,6 +26,8 @@ public sealed class WorldStateStore
     private readonly int _chunkSize;
     private readonly int _regionSizeInChunks;
     private readonly Dictionary<ChunkCoord, HashSet<int>> _minedByChunk = new();
+    private readonly Dictionary<RegionCoord, long> _sparseMinedCountByRegion = new();
+    private readonly Dictionary<RegionCoord, HashSet<ChunkCoord>> _modifiedChunksByRegion = new();
     private readonly Dictionary<RegionCoord, long> _exhaustedRegions = new();
 
     public WorldStateStore(int chunkSize, int regionSizeInChunks = 8)
@@ -37,8 +39,9 @@ public sealed class WorldStateStore
     }
 
     public int ModifiedChunkCount => _minedByChunk.Count;
+    public int SparseModifiedRegionCount => _sparseMinedCountByRegion.Count;
     public int ExhaustedRegionCount => _exhaustedRegions.Count;
-    public long SparseVoxelOverrideCount => _minedByChunk.Sum(pair => (long)pair.Value.Count);
+    public long SparseVoxelOverrideCount => _sparseMinedCountByRegion.Values.Sum();
     public long MinedVoxelCount { get; private set; }
 
     public bool IsRegionExhausted(RegionCoord region) => _exhaustedRegions.ContainsKey(region);
@@ -69,6 +72,12 @@ public sealed class WorldStateStore
         {
             mined = new HashSet<int>();
             _minedByChunk.Add(chunk, mined);
+            if (!_modifiedChunksByRegion.TryGetValue(region, out HashSet<ChunkCoord>? regionChunks))
+            {
+                regionChunks = new HashSet<ChunkCoord>();
+                _modifiedChunksByRegion.Add(region, regionChunks);
+            }
+            regionChunks.Add(chunk);
         }
 
         if (!mined.Add(VoxelMath.LocalIndex(voxel, _chunkSize)))
@@ -76,26 +85,18 @@ public sealed class WorldStateStore
             return false;
         }
 
+        _sparseMinedCountByRegion[region] = checked(_sparseMinedCountByRegion.GetValueOrDefault(region) + 1L);
         MinedVoxelCount = checked(MinedVoxelCount + 1L);
         return true;
     }
 
     public long GetSparseMinedCountInRegion(RegionCoord region)
-    {
-        long count = 0L;
-        foreach ((ChunkCoord chunk, HashSet<int> mined) in _minedByChunk)
-        {
-            if (RegionCoord.FromChunk(chunk, _regionSizeInChunks) == region)
-            {
-                count = checked(count + mined.Count);
-            }
-        }
-        return count;
-    }
+        => _sparseMinedCountByRegion.GetValueOrDefault(region);
 
     /// <summary>
     /// Replaces all sparse per-voxel deviations inside a region with one aggregate exhausted marker.
-    /// regionMineableCount is the exact logical quota assigned by VirtualWorld, not a scanned count.
+    /// Region bookkeeping makes this proportional only to modified chunks in that region, rather than
+    /// scanning every modified chunk in the world.
     /// </summary>
     public long MarkRegionExhausted(RegionCoord region, long regionMineableCount)
     {
@@ -104,23 +105,15 @@ public sealed class WorldStateStore
             return 0L;
         }
 
-        long alreadyMined = 0L;
-        var remove = new List<ChunkCoord>();
-        foreach ((ChunkCoord chunk, HashSet<int> mined) in _minedByChunk)
+        long alreadyMined = _sparseMinedCountByRegion.GetValueOrDefault(region);
+        if (_modifiedChunksByRegion.Remove(region, out HashSet<ChunkCoord>? remove))
         {
-            if (RegionCoord.FromChunk(chunk, _regionSizeInChunks) != region)
+            foreach (ChunkCoord chunk in remove)
             {
-                continue;
+                _minedByChunk.Remove(chunk);
             }
-
-            alreadyMined = checked(alreadyMined + mined.Count);
-            remove.Add(chunk);
         }
-
-        foreach (ChunkCoord chunk in remove)
-        {
-            _minedByChunk.Remove(chunk);
-        }
+        _sparseMinedCountByRegion.Remove(region);
 
         long newlyMined = Math.Max(0L, regionMineableCount - alreadyMined);
         _exhaustedRegions[region] = regionMineableCount;
@@ -177,6 +170,8 @@ public sealed class WorldStateStore
         IEnumerable<ExhaustedRegionSnapshot> exhaustedRegions)
     {
         _minedByChunk.Clear();
+        _sparseMinedCountByRegion.Clear();
+        _modifiedChunksByRegion.Clear();
         _exhaustedRegions.Clear();
         MinedVoxelCount = 0L;
 
@@ -220,6 +215,13 @@ public sealed class WorldStateStore
             }
 
             _minedByChunk[key] = indices;
+            _sparseMinedCountByRegion[region] = checked(_sparseMinedCountByRegion.GetValueOrDefault(region) + indices.Count);
+            if (!_modifiedChunksByRegion.TryGetValue(region, out HashSet<ChunkCoord>? regionChunks))
+            {
+                regionChunks = new HashSet<ChunkCoord>();
+                _modifiedChunksByRegion.Add(region, regionChunks);
+            }
+            regionChunks.Add(key);
             MinedVoxelCount = checked(MinedVoxelCount + indices.Count);
         }
     }
