@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Automation;
 using TenMillionBlocks.Automation.MiningPatterns;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Presentation;
+using TenMillionBlocks.Progression;
+using TenMillionBlocks.Save;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.UI;
 using TenMillionBlocks.World;
@@ -14,71 +17,347 @@ namespace TenMillionBlocks.App;
 
 public partial class GameRoot : Node3D
 {
+    private ContentDatabase _content = null!;
+    private BlockAssetRegistry _assets = null!;
+    private WorldCatalog _worlds = null!;
+    private MinerCatalog _minerCatalog = null!;
+    private SkillTreeCatalog _skillCatalog = null!;
+    private MiningPatternRegistry _patterns = null!;
+    private WorldProgressionService _progression = null!;
+    private SaveService _saveService = null!;
+    private GameSaveData _save = null!;
+
+    private OrbitCameraController _camera = null!;
+    private WorldCompleteView _completionView = null!;
+    private Node3D? _sessionRoot;
+    private VirtualWorld? _world;
+    private WorldView? _worldView;
+    private MiningService? _mining;
+    private SkillTreeService? _skills;
+    private ManualMiningController? _manualMining;
+    private MinerSimulationService? _miners;
+    private MinerPlacementController? _placement;
+    private SkillTreeView? _skillTree;
+
+    private long _manualBlocksThisWorld;
+    private long _automatedBlocksThisWorld;
+    private bool _completionShown;
+    private bool _autosaveDirty;
+    private double _autosaveTimer;
+    private long _loadedSaveTimestamp;
+
     public override void _Ready()
     {
         try
         {
-            ContentDatabase content = ContentDatabase.Load();
-            var assets = new BlockAssetRegistry(content);
-            assets.ValidateAndPreload();
-
-            WorldCatalog worlds = WorldCatalog.Load();
-            WorldSelfTest.Run(worlds);
-            MinerCatalog minerCatalog = MinerCatalog.Load();
-            SkillTreeCatalog skillCatalog = SkillTreeCatalog.Load();
-            var patterns = new MiningPatternRegistry();
-            ContentCrossValidator.Validate(minerCatalog, patterns, skillCatalog);
-
-            WorldProfile profile = worlds.Get("reference_natural");
-            var world = new VirtualWorld(profile);
-            long blockCount = world.CountMineableBlocksExact();
-            GD.Print($"World '{profile.Id}' contains {blockCount:N0} exact mineable blocks.");
-
+            LoadContentAndState();
             AddLightingAndEnvironment();
-
-            var worldView = new WorldView { Name = "WorldView" };
-            AddChild(worldView);
-            worldView.Initialize(assets, world);
-
-            var clouds = new CloudField { Name = "SpacePresentation" };
-            AddChild(clouds);
-
-            var camera = new OrbitCameraController { Name = "OrbitCamera" };
-            AddChild(camera);
-
-            var harness = new ReferenceVisualHarness { Name = "ReferenceVisualHarness" };
-            harness.Initialize(camera);
-            AddChild(harness);
-
-            var mining = new MiningService(world, content);
-            var skills = new SkillTreeService(skillCatalog, mining);
-
-            var manualMining = new ManualMiningController { Name = "ManualMining" };
-            manualMining.Initialize(world, camera, worldView, mining, skills);
-            AddChild(manualMining);
-
-            var miners = new MinerSimulationService { Name = "MinerSimulation" };
-            miners.Initialize(world, mining, worldView, minerCatalog, patterns, skills);
-            AddChild(miners);
-
-            var placement = new MinerPlacementController { Name = "MinerPlacement" };
-            placement.Initialize(manualMining, miners);
-            AddChild(placement);
-
-            var skillTree = new SkillTreeView { Name = "SkillTreeView" };
-            skillTree.Initialize(skills, mining, manualMining);
-            AddChild(skillTree);
-
-            var hud = new MiningHud { Name = "MiningHud" };
-            hud.Initialize(world, mining, worldView, skills, miners);
-            AddChild(hud);
-
-            GD.Print("Gameplay slice ready. Mine with LMB; [K] skill tree; unlock Automation then [M] places a line miner on the hovered block.");
+            BuildPersistentPresentation();
+            BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: true);
+            GD.Print("Gameplay ready. LMB mines, RMB drag orbits, MMB drag pans, wheel zooms, [K] skill tree, [M] places unlocked drill miner.");
         }
         catch (Exception exception)
         {
             GD.PushError($"Failed to initialize 10 Million Blocks gameplay slice:\n{exception}");
             ShowFatalError(exception.Message);
+        }
+    }
+
+    public override void _Process(double delta)
+    {
+        if (!_autosaveDirty || _world is null)
+        {
+            return;
+        }
+
+        _autosaveTimer += delta;
+        if (_autosaveTimer >= 10.0)
+        {
+            TrySaveCurrentSession();
+        }
+    }
+
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
+        {
+            return;
+        }
+
+        // Development-only shortcut so completion/Continue can be exercised without manually
+        // removing several thousand blocks. It does not alter world state or count as a real clear.
+        if (key.Keycode == Key.F10 && OS.IsDebugBuild() && !_completionShown && _world is not null)
+        {
+            ShowCompletion(debugPreview: true);
+            GetViewport().SetInputAsHandled();
+        }
+    }
+
+    private void LoadContentAndState()
+    {
+        _content = ContentDatabase.Load();
+        _assets = new BlockAssetRegistry(_content);
+        _assets.ValidateAndPreload();
+
+        _worlds = WorldCatalog.Load();
+        WorldSelfTest.Run(_worlds);
+        _minerCatalog = MinerCatalog.Load();
+        _skillCatalog = SkillTreeCatalog.Load();
+        _patterns = new MiningPatternRegistry();
+        ContentCrossValidator.Validate(_minerCatalog, _patterns, _skillCatalog);
+
+        _progression = WorldProgressionService.Load(_worlds);
+        _saveService = new SaveService();
+        _save = _saveService.LoadOrCreate();
+        _loadedSaveTimestamp = _save.SavedAtUnixSeconds;
+        _progression.RestoreIndex(_save.ProgressionIndex);
+    }
+
+    private void BuildPersistentPresentation()
+    {
+        var clouds = new CloudField { Name = "SpacePresentation" };
+        AddChild(clouds);
+
+        _camera = new OrbitCameraController { Name = "OrbitCamera" };
+        AddChild(_camera);
+
+        var harness = new ReferenceVisualHarness { Name = "ReferenceVisualHarness" };
+        harness.Initialize(_camera);
+        AddChild(harness);
+
+        _completionView = new WorldCompleteView { Name = "WorldCompleteView" };
+        _completionView.ContinueRequested += OnContinueRequested;
+        AddChild(_completionView);
+    }
+
+    private void BuildWorldSession(WorldProfile profile, bool applyOfflineProgress)
+    {
+        TearDownWorldSession();
+        _completionView.HideCompletion();
+        _completionShown = false;
+
+        _sessionRoot = new Node3D { Name = $"WorldSession_{profile.Id}" };
+        AddChild(_sessionRoot);
+
+        _world = new VirtualWorld(profile);
+        long blockCount = _world.CountMineableBlocksExact();
+        GD.Print($"World '{profile.Id}' contains {blockCount:N0} exact mineable blocks.");
+
+        WorldSaveData? savedWorld = null;
+        if (_save.Worlds.TryGetValue(profile.Id, out WorldSaveData? existing))
+        {
+            savedWorld = existing;
+            _world.State.RestoreSnapshot(existing.MinedChunks);
+            _manualBlocksThisWorld = existing.ManualBlocksMined;
+            _automatedBlocksThisWorld = existing.AutomatedBlocksMined;
+        }
+        else
+        {
+            _manualBlocksThisWorld = 0;
+            _automatedBlocksThisWorld = 0;
+        }
+
+        _worldView = new WorldView { Name = "WorldView" };
+        _sessionRoot.AddChild(_worldView);
+        _worldView.Initialize(_assets, _world);
+
+        _mining = new MiningService(_world, _content);
+        _mining.RestoreCurrency(_save.Currency);
+        _mining.BlockMined += OnBlockMined;
+        _mining.CurrencyChanged += _ => MarkAutosaveDirty();
+
+        _skills = new SkillTreeService(_skillCatalog, _mining);
+        _skills.RestoreRanks(_save.SkillRanks);
+        _skills.Changed += MarkAutosaveDirty;
+
+        _manualMining = new ManualMiningController { Name = "ManualMining" };
+        _manualMining.Initialize(_world, _camera, _worldView, _mining, _skills);
+        _sessionRoot.AddChild(_manualMining);
+
+        _miners = new MinerSimulationService { Name = "MinerSimulation" };
+        _miners.Initialize(_world, _mining, _worldView, _minerCatalog, _patterns, _skills);
+        _sessionRoot.AddChild(_miners);
+        if (savedWorld is not null)
+        {
+            _miners.RestoreSnapshot(savedWorld.Miners);
+        }
+        _miners.Changed += MarkAutosaveDirty;
+
+        _placement = new MinerPlacementController { Name = "MinerPlacement" };
+        _placement.Initialize(_manualMining, _miners);
+        _sessionRoot.AddChild(_placement);
+
+        _skillTree = new SkillTreeView { Name = "SkillTreeView" };
+        _skillTree.Initialize(_skills, _mining, _manualMining);
+        _sessionRoot.AddChild(_skillTree);
+
+        var hud = new MiningHud { Name = "MiningHud" };
+        hud.Initialize(_world, _mining, _worldView, _skills, _miners);
+        _sessionRoot.AddChild(hud);
+
+        _camera.ApplyPreset(OrbitCameraController.MediumPreset);
+
+        if (applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
+        {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            double elapsed = Math.Max(0L, now - _loadedSaveTimestamp);
+            long offlineMined = _miners.ApplyOfflineProgress(elapsed);
+            if (offlineMined > 0)
+            {
+                GD.Print($"Applied {offlineMined:N0} exact offline mining operations after {elapsed:0} seconds away.");
+                MarkAutosaveDirty();
+            }
+        }
+
+        if (_world.RemainingMineableBlocks == 0)
+        {
+            ShowCompletion(debugPreview: false);
+        }
+    }
+
+    private void TearDownWorldSession()
+    {
+        if (_sessionRoot is null)
+        {
+            return;
+        }
+
+        RemoveChild(_sessionRoot);
+        _sessionRoot.QueueFree();
+        _sessionRoot = null;
+        _world = null;
+        _worldView = null;
+        _mining = null;
+        _skills = null;
+        _manualMining = null;
+        _miners = null;
+        _placement = null;
+        _skillTree = null;
+    }
+
+    private void OnBlockMined(MiningResult result)
+    {
+        if (result.Source == MiningSource.Automated || result.Source == MiningSource.Offline)
+        {
+            _automatedBlocksThisWorld++;
+        }
+        else if (result.Source == MiningSource.Manual)
+        {
+            _manualBlocksThisWorld++;
+        }
+
+        MarkAutosaveDirty();
+        if (result.Remaining == 0 && !_completionShown)
+        {
+            ShowCompletion(debugPreview: false);
+        }
+    }
+
+    private void ShowCompletion(bool debugPreview)
+    {
+        if (_world is null || _mining is null || _manualMining is null || _miners is null || _placement is null)
+        {
+            return;
+        }
+
+        _completionShown = true;
+        _skillTree?.Close();
+        _manualMining.InputEnabled = false;
+        _placement.InputEnabled = false;
+        _miners.ProcessMode = ProcessModeEnum.Disabled;
+
+        WorldProfile? next = _progression.NextProfile();
+        _completionView.ShowCompletion(
+            _world.Profile,
+            next,
+            _mining.TotalMined,
+            _mining.Currency,
+            _manualBlocksThisWorld,
+            _automatedBlocksThisWorld);
+
+        if (debugPreview)
+        {
+            GD.Print("DEBUG: showing completion-flow preview without marking the world cleared. Continue still tests the next-world transition.");
+        }
+        else
+        {
+            CaptureCurrentSession();
+            TrySaveCurrentSession(captureFirst: false);
+        }
+    }
+
+    private void OnContinueRequested()
+    {
+        if (_world is null)
+        {
+            return;
+        }
+
+        CaptureCurrentSession();
+
+        if (!_progression.Advance())
+        {
+            _save.ProgressionIndex = _progression.CurrentIndex;
+            _saveService.Save(_save);
+            _completionView.HideCompletion();
+            GD.Print("Current authored test progression is complete.");
+            return;
+        }
+
+        _save.ProgressionIndex = _progression.CurrentIndex;
+        _saveService.Save(_save);
+        BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false);
+        MarkAutosaveDirty();
+    }
+
+    private void CaptureCurrentSession()
+    {
+        if (_world is null || _mining is null || _skills is null || _miners is null)
+        {
+            return;
+        }
+
+        _save.Currency = _mining.Currency;
+        _save.ProgressionIndex = _progression.CurrentIndex;
+
+        var skillRanks = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach ((string id, int rank) in _skills.Ranks)
+        {
+            skillRanks[id] = rank;
+        }
+        _save.SkillRanks = skillRanks;
+
+        _save.Worlds[_world.Profile.Id] = new WorldSaveData
+        {
+            WorldId = _world.Profile.Id,
+            ManualBlocksMined = _manualBlocksThisWorld,
+            AutomatedBlocksMined = _automatedBlocksThisWorld,
+            MinedChunks = _world.State.CreateSnapshot(),
+            Miners = _miners.CreateSnapshot(),
+        };
+    }
+
+    private void MarkAutosaveDirty()
+    {
+        _autosaveDirty = true;
+    }
+
+    private void TrySaveCurrentSession(bool captureFirst = true)
+    {
+        try
+        {
+            if (captureFirst)
+            {
+                CaptureCurrentSession();
+            }
+            _saveService.Save(_save);
+            _autosaveDirty = false;
+            _autosaveTimer = 0.0;
+        }
+        catch (Exception exception)
+        {
+            _autosaveTimer = 0.0;
+            GD.PushError($"Autosave failed: {exception}");
         }
     }
 
@@ -138,7 +417,7 @@ public partial class GameRoot : Node3D
 
     private void ShowFatalError(string message)
     {
-        var canvas = new CanvasLayer();
+        var canvas = new CanvasLayer { Layer = 100 };
         AddChild(canvas);
 
         var panel = new PanelContainer
