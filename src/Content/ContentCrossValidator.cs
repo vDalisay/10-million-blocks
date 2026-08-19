@@ -35,6 +35,9 @@ public static class ContentCrossValidator
                     case "unlock_pattern" when !patterns.Contains(effect.StringValue):
                         errors.Add($"Skill '{node.Id}' unlocks unknown mining pattern '{effect.StringValue}'.");
                         break;
+                    case "set_drill_pattern" when !patterns.Contains(effect.StringValue):
+                        errors.Add($"Skill '{node.Id}' selects unknown drill pattern '{effect.StringValue}'.");
+                        break;
                 }
             }
         }
