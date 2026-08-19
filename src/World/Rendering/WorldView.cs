@@ -8,8 +8,17 @@ namespace TenMillionBlocks.World.Rendering;
 
 public partial class WorldView : Node3D
 {
+    // KayKit Forest Nature Pack variants. Trees are scattered by hash so a chunk rebuild always
+    // reproduces the same forest.
+    private static readonly string[] TreeVariants =
+    [
+        "tree_1_a", "tree_1_b", "tree_2_a", "tree_2_b", "tree_2_c",
+        "tree_3_a", "tree_3_b", "tree_4_a", "tree_4_b",
+    ];
+
     private readonly Dictionary<ChunkCoord, Node3D> _chunkRoots = new();
     private readonly HashSet<ChunkCoord> _dirtyChunks = new();
+    private readonly Dictionary<string, float> _treeScales = new(StringComparer.Ordinal);
 
     private BlockAssetRegistry _assets = null!;
     private VirtualWorld _world = null!;
@@ -72,7 +81,7 @@ public partial class WorldView : Node3D
         int max = _world.MaxCoordinate;
         Vector3I min = chunk.MinVoxel(chunkSize);
         var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
-        var treeTransforms = new List<Transform3D>();
+        var treeBatches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
 
         for (int z = 0; z < chunkSize; z++)
         for (int y = 0; y < chunkSize; y++)
@@ -101,16 +110,12 @@ public partial class WorldView : Node3D
             {
                 if (!_world.IsPresent(voxel + feature.OutwardNormal))
                 {
-                    // The supplied tree is deliberately enlarged slightly. At 1:1 it disappeared into the
-                    // highly detailed grass silhouette and was difficult to read at the reference camera distance.
-                    Basis treeBasis = BasisForNormal(feature.OutwardNormal).Scaled(Vector3.One * 1.38f);
-                    Vector3 position = VoxelToWorld(voxel + feature.OutwardNormal);
-                    treeTransforms.Add(new Transform3D(treeBasis, position));
+                    AddTransform(treeBatches, PickTree(voxel), TreeTransform(voxel, feature.OutwardNormal));
                 }
             }
         }
 
-        if (batches.Count == 0 && treeTransforms.Count == 0)
+        if (batches.Count == 0 && treeBatches.Count == 0)
         {
             return;
         }
@@ -123,12 +128,51 @@ public partial class WorldView : Node3D
             AddBatch(chunkRoot, blockId, transforms, true);
         }
 
-        if (treeTransforms.Count > 0)
+        foreach ((string variant, List<Transform3D> transforms) in treeBatches)
         {
-            AddBatch(chunkRoot, "tree", treeTransforms, true);
+            AddBatch(chunkRoot, variant, transforms, true);
         }
 
         _chunkRoots.Add(chunk, chunkRoot);
+    }
+
+    private string PickTree(Vector3I voxel)
+    {
+        float roll = DeterministicNoise.Hash01(voxel.X, voxel.Y, voxel.Z, _world.Profile.Seed + 44017);
+        int index = Math.Clamp((int)(roll * TreeVariants.Length), 0, TreeVariants.Length - 1);
+        return TreeVariants[index];
+    }
+
+    private Transform3D TreeTransform(Vector3I voxel, Vector3I outward)
+    {
+        string variant = PickTree(voxel);
+        float spacing = _world.Profile.BlockSpacing;
+        float yaw = DeterministicNoise.Hash01(voxel.X, voxel.Y, voxel.Z, _world.Profile.Seed + 44019) * Mathf.Tau;
+        float sizeJitter = 0.85f + DeterministicNoise.Hash01(voxel.X, voxel.Y, voxel.Z, _world.Profile.Seed + 44023) * 0.34f;
+
+        Basis basis = BasisForNormal(outward)
+            * new Basis(Vector3.Up, yaw)
+            * Basis.Identity.Scaled(Vector3.One * TreeScale(variant) * sizeJitter);
+
+        // Source trees have their origin at the trunk base, so they stand on the block face rather
+        // than in the middle of the empty cell above it.
+        Vector3 position = VoxelToWorld(voxel) + (Vector3)outward * spacing * 0.5f;
+        return new Transform3D(basis, position);
+    }
+
+    private float TreeScale(string variant)
+    {
+        if (_treeScales.TryGetValue(variant, out float cached))
+        {
+            return cached;
+        }
+
+        // Pack heights range from ~2.9 to ~7 source units; normalise so every variant reads as
+        // roughly two blocks tall regardless of which one the hash picked.
+        Aabb bounds = _assets.GetMesh(variant).GetAabb();
+        float scale = bounds.Size.Y > 0.001f ? _world.Profile.BlockSpacing * 2.0f / bounds.Size.Y : 1.0f;
+        _treeScales[variant] = scale;
+        return scale;
     }
 
     private void AddBatch(Node3D parent, string blockId, List<Transform3D> transforms, bool castShadow)

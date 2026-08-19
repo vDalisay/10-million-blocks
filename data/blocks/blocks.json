@@ -15,6 +15,16 @@
     { "id": "water_deep", "display_name": "Deep Water", "asset_path": "res://Assets/gltf/water.gltf", "hardness": 1.0, "base_value": 0, "render_class": "liquid", "tags": ["liquid", "water", "deep"], "render_tint": [0.54, 0.72, 0.92, 1.0] },
     { "id": "wood", "display_name": "Wood", "asset_path": "res://Assets/gltf/wood.gltf", "hardness": 1.5, "base_value": 2, "render_class": "terrain", "tags": ["wood"] },
     { "id": "brick", "display_name": "Brick", "asset_path": "res://Assets/gltf/bricks_A.gltf", "hardness": 2.0, "base_value": 2, "render_class": "special", "tags": ["constructed"] },
-    { "id": "tree", "display_name": "Tree", "asset_path": "res://Assets/gltf/tree.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] }
+    { "id": "tree_1_a", "display_name": "Tree 1 A", "asset_path": "res://Assets/forest/Tree_1_A_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_1_b", "display_name": "Tree 1 B", "asset_path": "res://Assets/forest/Tree_1_B_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_2_a", "display_name": "Tree 2 A", "asset_path": "res://Assets/forest/Tree_2_A_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_2_b", "display_name": "Tree 2 B", "asset_path": "res://Assets/forest/Tree_2_B_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_2_c", "display_name": "Tree 2 C", "asset_path": "res://Assets/forest/Tree_2_C_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_3_a", "display_name": "Tree 3 A", "asset_path": "res://Assets/forest/Tree_3_A_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_3_b", "display_name": "Tree 3 B", "asset_path": "res://Assets/forest/Tree_3_B_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_4_a", "display_name": "Tree 4 A", "asset_path": "res://Assets/forest/Tree_4_A_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_4_b", "display_name": "Tree 4 B", "asset_path": "res://Assets/forest/Tree_4_B_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_bare_1_b", "display_name": "Tree Bare 1 B", "asset_path": "res://Assets/forest/Tree_Bare_1_B_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] },
+    { "id": "tree_bare_2_b", "display_name": "Tree Bare 2 B", "asset_path": "res://Assets/forest/Tree_Bare_2_B_Color1.gltf", "hardness": 1.5, "base_value": 2, "render_class": "decorative", "tags": ["feature", "tree"] }
   ]
 }
