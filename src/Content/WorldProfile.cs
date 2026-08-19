@@ -18,6 +18,20 @@ public sealed class WorldProfile
     public float DetailAmplitude { get; set; }
     public float MacroFrequency { get; set; }
     public float DetailFrequency { get; set; }
+
+    // Minecraft-inspired climate/shape controls. Terrain shape is generated first from broad
+    // continentalness/erosion/ridge fields; biome/surface rules are applied afterwards.
+    public float ClimateFrequency { get; set; } = 0.92f;
+    public float ErosionFrequency { get; set; } = 1.15f;
+    public float RidgeFrequency { get; set; } = 2.15f;
+    public float OceanThreshold { get; set; } = -0.16f;
+    public float SeaLevelOffset { get; set; } = 0.65f;
+    public float ShoreBand { get; set; } = 0.16f;
+    public float PlateauStep { get; set; } = 0.5f;
+    public float ForestThreshold { get; set; } = 0.08f;
+
+    // Retained for existing content. It now acts as a lake-basin threshold rather than directly
+    // recoloring arbitrary surface blocks into water.
     public float WaterThreshold { get; set; }
     public float TreeDensity { get; set; }
     public int ChunkSize { get; set; } = 8;
@@ -29,11 +43,14 @@ public sealed class WorldProfile
     public string DarkStoneBlock { get; set; } = "stone_dark";
     public string SandBlock { get; set; } = "sand";
     public string WaterBlock { get; set; } = "water";
+    public string ShallowWaterBlock { get; set; } = "water_shallow";
+    public string DeepWaterBlock { get; set; } = "water_deep";
     public string CopperBlock { get; set; } = "copper";
     public string SilverBlock { get; set; } = "silver";
     public string GoldBlock { get; set; } = "gold";
 
-    public int MaxCoordinate => (int)MathF.Ceiling(BaseRadius + TerrainAmplitude + DetailAmplitude + 2.0f);
+    public int MaxCoordinate => (int)MathF.Ceiling(
+        BaseRadius + TerrainAmplitude + DetailAmplitude + MathF.Max(0.0f, SeaLevelOffset) + 3.0f);
 }
 
 public sealed class WorldCatalog
@@ -135,6 +152,11 @@ public sealed class WorldCatalog
         if (profile.TreeDensity < 0.0f || profile.TreeDensity > 1.0f)
         {
             errors.Add($"World '{profile.Id}' tree density must be between 0 and 1.");
+        }
+
+        if (profile.PlateauStep <= 0.0f || profile.ShoreBand < 0.0f)
+        {
+            errors.Add($"World '{profile.Id}' has invalid plateau/shore settings.");
         }
     }
 }
