@@ -73,7 +73,7 @@ public partial class MinerSimulationService : Node3D
             for (int i = 0; i < requested && budget > 0; i++)
             {
                 budget--;
-                if (Advance(miner, definition))
+                if (Advance(miner, definition, emitPresentation: true))
                 {
                     changed = true;
                 }
@@ -173,19 +173,49 @@ public partial class MinerSimulationService : Node3D
         Changed?.Invoke();
     }
 
+    public long ApplyOfflineProgress(double elapsedSeconds, long operationCap = 50_000)
+    {
+        if (elapsedSeconds <= 0.0 || operationCap <= 0 || _miners.Count == 0) return 0L;
+
+        // Current small-world implementation performs exact logical mining while suppressing visual
+        // debris. It is intentionally capped. The region-aggregate path in the scale milestone will
+        // replace this loop for million-scale worlds rather than ever replaying unbounded ticks.
+        double seconds = Math.Min(elapsedSeconds, 7.0 * 24.0 * 60.0 * 60.0);
+        long operationsLeft = operationCap;
+        long minedBefore = _mining.TotalMined;
+        double rateMultiplier = _skills.Derived.MinerRateMultiplier;
+
+        foreach (MinerInstance miner in _miners)
+        {
+            if (operationsLeft <= 0 || miner.Exhausted) break;
+
+            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+            double accumulated = miner.WorkAccumulator + definition.BaseRate * rateMultiplier * seconds;
+            long requested = Math.Min((long)Math.Floor(accumulated), operationsLeft);
+            miner.WorkAccumulator = accumulated - requested;
+
+            for (long i = 0; i < requested && operationsLeft > 0 && !miner.Exhausted; i++)
+            {
+                operationsLeft--;
+                _ = Advance(miner, definition, emitPresentation: false);
+            }
+        }
+
+        long mined = _mining.TotalMined - minedBefore;
+        if (mined > 0) Changed?.Invoke();
+        return mined;
+    }
+
     public void ClearMiners()
     {
-        foreach (Node3D visual in _visuals.Values)
-        {
-            visual.QueueFree();
-        }
+        foreach (Node3D visual in _visuals.Values) visual.QueueFree();
         _visuals.Clear();
         _miners.Clear();
         _lastDebrisAtMs.Clear();
         _nextInstanceId = 1;
     }
 
-    private bool Advance(MinerInstance miner, MinerDefinition definition)
+    private bool Advance(MinerInstance miner, MinerDefinition definition, bool emitPresentation)
     {
         IMiningPattern pattern = _patterns.Get(definition.PatternId);
         int width = definition.PatternId == "line" ? 1 : Math.Max(1, _skills.Derived.MinerPatternWidth);
@@ -209,7 +239,7 @@ public partial class MinerSimulationService : Node3D
             miner.BlocksMined++;
             miner.LastMinedVoxel = candidate.Value;
             _view.MarkDirtyAround(candidate.Value);
-            EmitDebris(miner, result);
+            if (emitPresentation) EmitDebris(miner, result);
             UpdateVisual(miner);
             return true;
         }
