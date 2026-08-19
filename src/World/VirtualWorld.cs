@@ -55,9 +55,12 @@ public sealed class VirtualWorld
     }
 
     public bool TryMine(Vector3I coordinate, out BlockSample mined)
+        => TryMine(coordinate, requireExposed: true, out mined);
+
+    public bool TryMine(Vector3I coordinate, bool requireExposed, out BlockSample mined)
     {
         mined = SampleVoxel(coordinate);
-        if (!mined.Present || !mined.Mineable || !IsExposed(coordinate))
+        if (!mined.Present || !mined.Mineable || (requireExposed && !IsExposed(coordinate)))
         {
             mined = BlockSample.Empty;
             return false;
