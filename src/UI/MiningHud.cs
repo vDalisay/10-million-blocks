@@ -138,7 +138,7 @@ public partial class MiningHud : CanvasLayer
 
         _detailsVisible = !_detailsVisible;
         _details.Visible = _detailsVisible;
-        _panel.OffsetTop = _detailsVisible ? -196.0f : -94.0f;
+        _panel.OffsetTop = _detailsVisible ? -210.0f : -94.0f;
         if (_detailsVisible) RefreshDetails();
         GetViewport().SetInputAsHandled();
     }
@@ -192,6 +192,7 @@ public partial class MiningHud : CanvasLayer
         _details.Text =
             $"Controls: [K] Skill Tree   [M] Drill   [N] Powered Shovel\n" +
             $"Mined: {_mining.TotalMined:N0}   render chunks: {_view.VisibleChunkCount}   dirty: {_view.PendingChunkRebuilds}   modified: {_world.State.ModifiedChunkCount}\n" +
+            $"Drill: {_skills.Derived.DrillPatternId}, width {_skills.Derived.MinerPatternWidth}, speed x{_skills.Derived.MinerRateMultiplier:0.##}\n" +
             $"Shovel: {_skills.Derived.ShovelRateMultiplier:0.##}x speed, {slope}, search radius {_skills.Derived.ShovelSearchRadius}";
     }
 }
