@@ -16,6 +16,8 @@ public partial class SkillTreeView : CanvasLayer
     private Label _feedback = null!;
     private SkillGraphCanvas _graph = null!;
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
+    private Tween? _transition;
+    private double _feedbackTimer;
 
     public bool IsOpen => _root is not null && _root.Visible;
 
@@ -83,6 +85,16 @@ public partial class SkillTreeView : CanvasLayer
         Refresh();
     }
 
+    public override void _Process(double delta)
+    {
+        if (_feedbackTimer <= 0.0 || _feedback is null || string.IsNullOrEmpty(_feedback.Text)) return;
+        _feedbackTimer -= delta;
+        if (_feedbackTimer <= 0.0)
+        {
+            _feedback.Text = string.Empty;
+        }
+    }
+
     public override void _UnhandledKeyInput(InputEvent @event)
     {
         if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
@@ -106,15 +118,32 @@ public partial class SkillTreeView : CanvasLayer
 
     public void Open()
     {
+        _transition?.Kill();
         _root.Visible = true;
+        _root.Modulate = new Color(1, 1, 1, 0);
         _manual.InputEnabled = false;
         Refresh();
+
+        _transition = CreateTween();
+        _transition.SetEase(Tween.EaseType.Out);
+        _transition.SetTrans(Tween.TransitionType.Quad);
+        _transition.TweenProperty(_root, "modulate:a", 1.0f, 0.16f);
     }
 
     public void Close()
     {
-        _root.Visible = false;
-        _manual.InputEnabled = true;
+        if (!IsOpen) return;
+        _transition?.Kill();
+        _transition = CreateTween();
+        _transition.SetEase(Tween.EaseType.In);
+        _transition.SetTrans(Tween.TransitionType.Quad);
+        _transition.TweenProperty(_root, "modulate:a", 0.0f, 0.11f);
+        _transition.TweenCallback(Callable.From(() =>
+        {
+            _root.Visible = false;
+            _root.Modulate = Colors.White;
+            _manual.InputEnabled = true;
+        }));
     }
 
     private void BuildButtons()
@@ -151,6 +180,15 @@ public partial class SkillTreeView : CanvasLayer
         if (result.Success)
         {
             _feedback.Text = $"Purchased {_skills.Catalog.Get(skillId).DisplayName} rank {result.NewRank}.";
+            _feedback.Modulate = new Color(0.60f, 1.0f, 0.70f);
+            if (_buttons.TryGetValue(skillId, out Button? button))
+            {
+                Vector2 originalScale = button.Scale;
+                button.PivotOffset = button.Size * 0.5f;
+                var pulse = CreateTween();
+                pulse.TweenProperty(button, "scale", originalScale * 1.05f, 0.07f);
+                pulse.TweenProperty(button, "scale", originalScale, 0.11f);
+            }
         }
         else
         {
@@ -161,8 +199,10 @@ public partial class SkillTreeView : CanvasLayer
                 SkillPurchaseFailure.MaxRank => "Skill is already maxed.",
                 _ => "Skill could not be purchased.",
             };
+            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
         }
 
+        _feedbackTimer = 2.0;
         Refresh();
     }
 
@@ -178,20 +218,28 @@ public partial class SkillTreeView : CanvasLayer
             bool maxed = rank >= node.MaxRank;
             bool prerequisites = _skills.PrerequisitesMet(node);
             long cost = checked(node.Cost * (rank + 1L));
+            bool affordable = _mining.Currency >= cost;
 
             if (maxed)
             {
                 button.Text = node.PurchaseMode == "repeatable"
                     ? $"{node.DisplayName}\nMAX {rank}/{node.MaxRank}"
                     : $"{node.DisplayName}\nOWNED";
+                button.Modulate = new Color(0.70f, 1.0f, 0.78f);
             }
             else if (node.PurchaseMode == "repeatable")
             {
                 button.Text = $"{node.DisplayName}\nRank {rank}/{node.MaxRank}  |  {cost:N0}";
+                button.Modulate = prerequisites
+                    ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
+                    : new Color(0.52f, 0.55f, 0.62f);
             }
             else
             {
                 button.Text = $"{node.DisplayName}\n{cost:N0} resources";
+                button.Modulate = prerequisites
+                    ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
+                    : new Color(0.52f, 0.55f, 0.62f);
             }
 
             button.Disabled = maxed || !prerequisites;
@@ -210,6 +258,16 @@ public partial class SkillGraphCanvas : Control
     public override void _Draw()
     {
         if (_skills is null) return;
+
+        Color grid = new(0.16f, 0.22f, 0.31f, 0.32f);
+        for (float x = 24; x < Size.X; x += 200)
+        {
+            DrawLine(new Vector2(x, 0), new Vector2(x, Size.Y), grid, 1.0f);
+        }
+        for (float y = 40; y < Size.Y; y += 112)
+        {
+            DrawLine(new Vector2(0, y), new Vector2(Size.X, y), grid, 1.0f);
+        }
 
         foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
