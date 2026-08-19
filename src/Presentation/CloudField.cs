@@ -9,23 +9,36 @@ public partial class CloudField : Node3D
     private const int StarCount = 180;
     private const int CloudCount = 16;
 
-    private readonly List<(Node3D Pivot, float AngularSpeed)> _orbiters = new();
+    private readonly List<CloudOrbiter> _orbiters = new();
+
+    private sealed class CloudOrbiter
+    {
+        public Node3D Pivot { get; init; } = null!;
+        public Node3D Carrier { get; init; } = null!;
+        public float AngularSpeed { get; init; }
+    }
 
     public override void _Ready()
     {
         BuildOrbitingClouds();
         AddChild(BuildStars());
+        OrientCloudsTowardWorld();
     }
 
     public override void _Process(double delta)
     {
         float dt = (float)delta;
-        foreach ((Node3D pivot, float angularSpeed) in _orbiters)
+        foreach (CloudOrbiter orbiter in _orbiters)
         {
-            Vector3 rotation = pivot.Rotation;
-            rotation.Y = Mathf.Wrap(rotation.Y + angularSpeed * dt, -Mathf.Pi, Mathf.Pi);
-            pivot.Rotation = rotation;
+            Vector3 rotation = orbiter.Pivot.Rotation;
+            rotation.Y = Mathf.Wrap(rotation.Y + orbiter.AngularSpeed * dt, -Mathf.Pi, Mathf.Pi);
+            orbiter.Pivot.Rotation = rotation;
         }
+
+        // The cloud mesh is authored flat in local X/Z with its underside at -Y. Reorient the
+        // carrier after orbital movement so local -Y always faces the planet, like clouds hugging
+        // the atmosphere rather than cards locked to the global horizontal plane.
+        OrientCloudsTowardWorld();
     }
 
     private void BuildOrbitingClouds()
@@ -36,9 +49,9 @@ public partial class CloudField : Node3D
         {
             float normalized = cloudIndex / (float)CloudCount;
             float radius = 20.0f + (float)random.NextDouble() * 14.0f;
-            float height = -9.0f + (float)random.NextDouble() * 18.0f;
-            float inclination = Mathf.DegToRad(-16.0f + (float)random.NextDouble() * 32.0f);
-            float bank = Mathf.DegToRad(-8.0f + (float)random.NextDouble() * 16.0f);
+            float height = -7.0f + (float)random.NextDouble() * 14.0f;
+            float inclination = Mathf.DegToRad(-18.0f + (float)random.NextDouble() * 36.0f);
+            float bank = Mathf.DegToRad(-7.0f + (float)random.NextDouble() * 14.0f);
             float phase = normalized * Mathf.Tau + ((float)random.NextDouble() - 0.5f) * 0.48f;
 
             var pivot = new Node3D
@@ -52,17 +65,48 @@ public partial class CloudField : Node3D
             {
                 Name = "Carrier",
                 Position = new Vector3(radius, height, 0.0f),
+                TopLevel = true,
             };
             pivot.AddChild(carrier);
 
-            int pieces = random.Next(4, 9);
+            int pieces = random.Next(5, 10);
             carrier.AddChild(BuildClump(random, pieces));
 
             // A complete revolution takes roughly 95-190 seconds. Nearby clouds are a little faster,
             // but every clump keeps its shape instead of independently wiggling in place.
             float direction = cloudIndex % 5 == 0 ? -1.0f : 1.0f;
             float angularSpeed = direction * (0.033f + (34.0f - radius) * 0.0012f);
-            _orbiters.Add((pivot, angularSpeed));
+            _orbiters.Add(new CloudOrbiter
+            {
+                Pivot = pivot,
+                Carrier = carrier,
+                AngularSpeed = angularSpeed,
+            });
+        }
+    }
+
+    private void OrientCloudsTowardWorld()
+    {
+        foreach (CloudOrbiter orbiter in _orbiters)
+        {
+            // Because Carrier is top-level, explicitly follow the orbital point's transformed
+            // position while choosing our own orientation.
+            Vector3 orbitalPosition = orbiter.Pivot.ToGlobal(new Vector3(
+                orbiter.Carrier.Position.X,
+                orbiter.Carrier.Position.Y,
+                orbiter.Carrier.Position.Z));
+            orbiter.Carrier.GlobalPosition = orbitalPosition;
+
+            Vector3 outward = orbitalPosition.Normalized();
+            if (outward.LengthSquared() < 0.0001f)
+            {
+                continue;
+            }
+
+            Vector3 reference = MathF.Abs(outward.Dot(Vector3.Up)) > 0.92f ? Vector3.Right : Vector3.Up;
+            Vector3 xAxis = reference.Cross(outward).Normalized();
+            Vector3 zAxis = xAxis.Cross(outward).Normalized();
+            orbiter.Carrier.GlobalBasis = new Basis(xAxis, outward, zAxis).Orthonormalized();
         }
     }
 
@@ -88,26 +132,26 @@ public partial class CloudField : Node3D
             VisibleInstanceCount = pieces,
         };
 
-        // Build one coherent flattened voxel cloud around local origin. Pieces overlap enough to read
-        // as one cloud at a distance, matching the reference instead of a ring of unrelated cubes.
+        // One coherent flattened voxel formation. The lower layer is broad and the occasional
+        // second layer sits on the outward-facing side, giving the clump a readable "underside".
         for (int i = 0; i < pieces; i++)
         {
             float lane = i - (pieces - 1) * 0.5f;
             Vector3 local = new(
-                lane * (0.72f + (float)random.NextDouble() * 0.30f),
-                ((float)random.NextDouble() - 0.5f) * 0.75f,
-                ((float)random.NextDouble() - 0.5f) * 1.65f);
+                lane * (0.70f + (float)random.NextDouble() * 0.26f),
+                ((float)random.NextDouble() - 0.5f) * 0.34f,
+                ((float)random.NextDouble() - 0.5f) * 1.55f);
 
-            if (i > 1 && i < pieces - 1 && random.NextDouble() > 0.55)
+            if (i > 1 && i < pieces - 1 && random.NextDouble() > 0.62)
             {
-                local.Y += 0.55f;
+                local.Y += 0.62f;
             }
 
-            float size = 1.25f + (float)random.NextDouble() * 0.85f;
+            float size = 1.18f + (float)random.NextDouble() * 0.76f;
             Vector3 scale = new(
-                size * (1.15f + (float)random.NextDouble() * 0.35f),
-                size * (0.38f + (float)random.NextDouble() * 0.16f),
-                size * (0.72f + (float)random.NextDouble() * 0.28f));
+                size * (1.12f + (float)random.NextDouble() * 0.32f),
+                size * (0.32f + (float)random.NextDouble() * 0.14f),
+                size * (0.72f + (float)random.NextDouble() * 0.26f));
 
             multiMesh.SetInstanceTransform(i, new Transform3D(Basis.Identity.Scaled(scale), local));
         }
