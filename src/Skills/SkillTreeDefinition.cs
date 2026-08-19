@@ -59,6 +59,7 @@ public sealed class SkillTreeCatalog
         "unlock_miner",
         "unlock_pattern",
         "set_miner_pattern_width",
+        "set_shovel_search_radius",
         "unlock_resource_filter",
     };
 
