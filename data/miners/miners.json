@@ -51,7 +51,7 @@
         "soil": 2.5,
         "sand": 3.0
       },
-      "description": "Sweeps tangentially across a cube face and works fastest through dirt and sand."
+      "description": "Crawls to neighboring exposed dirt/sand surface tiles instead of boring inward; Terrain Scout can bridge a wider gap."
     }
   ]
 }
