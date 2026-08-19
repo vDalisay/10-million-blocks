@@ -1,8 +1,10 @@
 name: Build
 
+# Kept manual for the prototype because this repository's hosted runner currently
+# terminates before any workflow step starts. Re-enable push/pull_request once the
+# repository's Actions runner access is available.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
