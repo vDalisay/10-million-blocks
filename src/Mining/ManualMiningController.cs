@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Presentation;
+using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Interaction;
 using TenMillionBlocks.World.Rendering;
@@ -12,6 +14,7 @@ public partial class ManualMiningController : Node3D
     private OrbitCameraController _camera = null!;
     private WorldView _view = null!;
     private MiningService _mining = null!;
+    private SkillTreeService _skills = null!;
     private SelectionHighlight _highlight = null!;
 
     private bool _leftPressed;
@@ -21,12 +24,18 @@ public partial class ManualMiningController : Node3D
     public Vector3I? HoveredVoxel => _hoveredVoxel;
     public bool InputEnabled { get; set; } = true;
 
-    public void Initialize(VirtualWorld world, OrbitCameraController camera, WorldView view, MiningService mining)
+    public void Initialize(
+        VirtualWorld world,
+        OrbitCameraController camera,
+        WorldView view,
+        MiningService mining,
+        SkillTreeService skills)
     {
         _world = world;
         _camera = camera;
         _view = view;
         _mining = mining;
+        _skills = skills;
 
         _highlight = new SelectionHighlight { Name = "SelectionHighlight" };
         _highlight.Initialize(world.Profile.BlockSpacing);
@@ -74,13 +83,46 @@ public partial class ManualMiningController : Node3D
             return;
         }
 
-        MiningResult result = _mining.TryMine(voxel);
-        if (result.Success)
+        int mined = MineBurst(voxel, _skills.Derived.ManualBlocksPerClick);
+        if (mined > 0)
         {
-            _view.MarkDirtyAround(voxel);
             UpdateHover();
             GetViewport().SetInputAsHandled();
         }
+    }
+
+    private int MineBurst(Vector3I initial, int requestedBlocks)
+    {
+        requestedBlocks = System.Math.Max(1, requestedBlocks);
+        var queue = new Queue<Vector3I>();
+        var visited = new HashSet<Vector3I>();
+        queue.Enqueue(initial);
+        visited.Add(initial);
+        int minedCount = 0;
+
+        while (queue.Count > 0 && minedCount < requestedBlocks)
+        {
+            Vector3I candidate = queue.Dequeue();
+            MiningResult result = _mining.TryMine(candidate);
+            if (!result.Success)
+            {
+                continue;
+            }
+
+            minedCount++;
+            _view.MarkDirtyAround(candidate);
+
+            foreach (Vector3I direction in VoxelMath.Neighbors)
+            {
+                Vector3I neighbor = candidate + direction;
+                if (visited.Add(neighbor) && _world.IsPresent(neighbor) && _world.IsExposed(neighbor))
+                {
+                    queue.Enqueue(neighbor);
+                }
+            }
+        }
+
+        return minedCount;
     }
 
     private void UpdateHover()
