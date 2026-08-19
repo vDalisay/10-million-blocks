@@ -88,7 +88,7 @@ public partial class PerformanceHud : CanvasLayer
             $"world: {_world.Profile.Id}  logical: {_world.Profile.LogicalWidth:N0} x {_world.Profile.LogicalHeight:N0} x {_world.Profile.LogicalDepth:N0}\n" +
             $"fps: {Engine.GetFramesPerSecond():0}  managed: {memoryMb:0.0} MB  GC: {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}\n" +
             $"renderer: {(_view.StreamingEnabled ? "streamed macro+detail" : "eager detail")}  camera control: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
-            $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  macro: {(_view.MacroVisible ? "visible" : "hidden")}\n" +
+            $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  macro context: {_view.MacroOpacity:0.00}\n" +
             $"chunks loaded: {_view.VisibleChunkCount}  load queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"chunk build ms last/avg: {_view.LastChunkBuildMilliseconds:0.00} / {_view.AverageChunkBuildMilliseconds:0.00}\n" +
             $"chunk builds: {_view.TotalChunkBuilds:N0}  build samples: {_view.TotalVoxelCandidatesScanned:N0}\n" +
