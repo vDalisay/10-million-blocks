@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 7,
+  "content_version": 8,
   "nodes": [
     {
       "id": "manual_2x",
@@ -13,9 +13,7 @@
       "prerequisites": [],
       "cost": 20,
       "max_rank": 1,
-      "effects": [
-        { "type": "add_manual_blocks_per_click", "value": 1.0 }
-      ]
+      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
     },
     {
       "id": "manual_3x",
@@ -30,9 +28,7 @@
       ],
       "cost": 60,
       "max_rank": 1,
-      "effects": [
-        { "type": "add_manual_blocks_per_click", "value": 1.0 }
-      ]
+      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
     },
     {
       "id": "automation_unlock",
@@ -45,14 +41,12 @@
       "prerequisites": [],
       "cost": 30,
       "max_rank": 1,
-      "effects": [
-        { "type": "unlock_miner", "string_value": "line_miner" }
-      ]
+      "effects": [{ "type": "unlock_miner", "string_value": "line_miner" }]
     },
     {
       "id": "miner_speed_1",
       "display_name": "Faster Motors",
-      "description": "Repeatable speed upgrade for later/secondary automation. The starter drill remains locked to one depth layer per second.",
+      "description": "Repeatable speed upgrade for secondary automation. The starter drill remains locked to one depth layer per second.",
       "grid_x": 2,
       "grid_y": 2,
       "category": "automation",
@@ -62,24 +56,18 @@
       ],
       "cost": 50,
       "max_rank": 5,
-      "effects": [
-        { "type": "multiply_miner_rate", "value": 1.15 }
-      ]
+      "effects": [{ "type": "multiply_miner_rate", "value": 1.15 }]
     },
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Upgrade the starter drill into a physical 3x3 cutter. It still moves inward one depth block per second, clearing the full 3x3 slice each step.",
+      "description": "Turn the starter drill into a physical 3x3 cutter. It still moves inward one depth block per second, clearing the full 3x3 slice each step.",
       "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
       "purchase_mode": "once",
       "prerequisites": [
-        {
-          "node_id": "automation_unlock",
-          "required_rank": 1,
-          "route": [{ "grid_x": 3, "grid_y": 0 }, { "grid_x": 4, "grid_y": 1 }]
-        }
+        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 0 }, { "grid_x": 4, "grid_y": 1 }] }
       ],
       "cost": 140,
       "max_rank": 1,
@@ -92,7 +80,7 @@
     {
       "id": "disc_unlock",
       "display_name": "Radial Excavator",
-      "description": "Unlock a separate disc-pattern excavator. This no longer mutates the starter/Wide Bore drill into a circular cutter.",
+      "description": "Unlock a separate radial excavator. It does not change the starter or Wide Bore drill.",
       "grid_x": 4,
       "grid_y": 4,
       "category": "patterns",
@@ -110,23 +98,47 @@
     {
       "id": "resource_sensors",
       "display_name": "Resource Sensors",
-      "description": "Foundation unlock for resource-targeting miner filters.",
+      "description": "Foundation unlock for material-specialized automation.",
       "grid_x": 1,
       "grid_y": 3,
       "category": "resources",
       "purchase_mode": "once",
       "prerequisites": [
-        {
-          "node_id": "automation_unlock",
-          "required_rank": 1,
-          "route": [{ "grid_x": 1, "grid_y": 1 }, { "grid_x": 1, "grid_y": 2 }]
-        }
+        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 1 }, { "grid_x": 1, "grid_y": 2 }] }
       ],
       "cost": 110,
       "max_rank": 1,
-      "effects": [
-        { "type": "unlock_resource_filter", "string_value": "ore" }
-      ]
+      "effects": [{ "type": "unlock_resource_filter", "string_value": "ore" }]
+    },
+    {
+      "id": "pickaxe_unlock",
+      "display_name": "Rock Breaker",
+      "description": "Unlock a pickaxe-class miner that skips soft terrain and works faster on stone, ore and gems.",
+      "grid_x": 6,
+      "grid_y": 3,
+      "category": "tools",
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "resource_sensors", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 3 }, { "grid_x": 5, "grid_y": 3 }] }
+      ],
+      "cost": 260,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_miner", "string_value": "pickaxe_miner" }]
+    },
+    {
+      "id": "axe_unlock",
+      "display_name": "Forest Cutter",
+      "description": "Unlock an axe-class surface machine that seeks deterministic tree-bearing tiles and clears the tree with its support block.",
+      "grid_x": 6,
+      "grid_y": 5,
+      "category": "tools",
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "resource_sensors", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 3 }, { "grid_x": 5, "grid_y": 5 }] }
+      ],
+      "cost": 230,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_miner", "string_value": "axe_miner" }]
     },
     {
       "id": "shovel_unlock",
@@ -137,11 +149,7 @@
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
-        {
-          "node_id": "resource_sensors",
-          "required_rank": 1,
-          "route": [{ "grid_x": 1, "grid_y": 4 }]
-        }
+        { "node_id": "resource_sensors", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 4 }] }
       ],
       "cost": 180,
       "max_rank": 1,
@@ -159,17 +167,11 @@
       "category": "shovel",
       "purchase_mode": "repeatable",
       "prerequisites": [
-        {
-          "node_id": "shovel_unlock",
-          "required_rank": 1,
-          "route": [{ "grid_x": 3, "grid_y": 4 }, { "grid_x": 4, "grid_y": 4 }]
-        }
+        { "node_id": "shovel_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 4 }, { "grid_x": 4, "grid_y": 4 }] }
       ],
       "cost": 90,
       "max_rank": 4,
-      "effects": [
-        { "type": "multiply_shovel_rate", "value": 1.25 }
-      ]
+      "effects": [{ "type": "multiply_shovel_rate", "value": 1.25 }]
     },
     {
       "id": "shovel_high_torque",
@@ -180,17 +182,11 @@
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
-        {
-          "node_id": "shovel_speed",
-          "required_rank": 3,
-          "route": [{ "grid_x": 4, "grid_y": 6 }]
-        }
+        { "node_id": "shovel_speed", "required_rank": 3, "route": [{ "grid_x": 4, "grid_y": 6 }] }
       ],
       "cost": 420,
       "max_rank": 1,
-      "effects": [
-        { "type": "multiply_shovel_rate", "value": 1.5 }
-      ]
+      "effects": [{ "type": "multiply_shovel_rate", "value": 1.5 }]
     },
     {
       "id": "shovel_vertical_sensing",
@@ -201,17 +197,11 @@
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
-        {
-          "node_id": "shovel_unlock",
-          "required_rank": 1,
-          "route": [{ "grid_x": 1, "grid_y": 4 }, { "grid_x": 1, "grid_y": 5 }]
-        }
+        { "node_id": "shovel_unlock", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 5 }] }
       ],
       "cost": 220,
       "max_rank": 1,
-      "effects": [
-        { "type": "set_shovel_height_tolerance", "value": 1.0 }
-      ]
+      "effects": [{ "type": "set_shovel_height_tolerance", "value": 1.0 }]
     },
     {
       "id": "shovel_search_upgrade",
@@ -222,17 +212,11 @@
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
-        {
-          "node_id": "shovel_vertical_sensing",
-          "required_rank": 1,
-          "route": [{ "grid_x": 1, "grid_y": 7 }]
-        }
+        { "node_id": "shovel_vertical_sensing", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 7 }] }
       ],
       "cost": 360,
       "max_rank": 1,
-      "effects": [
-        { "type": "set_shovel_search_radius", "value": 5.0 }
-      ]
+      "effects": [{ "type": "set_shovel_search_radius", "value": 5.0 }]
     }
   ]
 }

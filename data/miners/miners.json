@@ -3,15 +3,15 @@
   "miners": [
     {
       "id": "line_miner",
-      "display_name": "Line Miner",
+      "display_name": "Drill",
       "tool_class": "drill",
       "base_rate": 1.0,
       "pattern_id": "line",
-      "range": 64,
+      "range": 96,
       "power": 1.0,
       "allowed_block_tags": [],
       "tag_rate_multipliers": {},
-      "description": "Mines straight inward from the surface it is placed on."
+      "description": "Advances one block of depth per second. Wide Bore turns its cutter into a physical 3x3 footprint without increasing travel speed."
     },
     {
       "id": "wide_bore_miner",
@@ -19,23 +19,23 @@
       "tool_class": "drill",
       "base_rate": 2.0,
       "pattern_id": "wide_line",
-      "range": 48,
+      "range": 64,
       "power": 1.0,
       "allowed_block_tags": [],
       "tag_rate_multipliers": {},
-      "description": "Placeholder content for a later unlocked wider tunnel pattern."
+      "description": "Standalone wide-pattern content entry retained for data compatibility."
     },
     {
       "id": "disc_miner",
-      "display_name": "Disc Miner",
+      "display_name": "Radial Excavator",
       "tool_class": "drill",
       "base_rate": 3.0,
       "pattern_id": "disc",
-      "range": 18,
+      "range": 32,
       "power": 1.0,
       "allowed_block_tags": [],
       "tag_rate_multipliers": {},
-      "description": "Placeholder content for a later radial mining pattern."
+      "description": "Separate radial excavator unlocked after Wide Bore; it does not mutate the starter drill."
     },
     {
       "id": "shovel_miner",
@@ -43,11 +43,39 @@
       "tool_class": "shovel",
       "base_rate": 1.0,
       "pattern_id": "surface_strip",
-      "range": 36,
+      "range": 64,
       "power": 1.0,
       "allowed_block_tags": ["sand"],
       "tag_rate_multipliers": {},
       "description": "Starts as a deliberately dumb one-block-per-second sand crawler. Skills add speed, slope sensing and longer-range terrain scouting."
+    },
+    {
+      "id": "pickaxe_miner",
+      "display_name": "Rock Breaker",
+      "tool_class": "pickaxe",
+      "base_rate": 0.8,
+      "pattern_id": "line",
+      "range": 96,
+      "power": 1.0,
+      "allowed_block_tags": ["stone", "ore", "gem"],
+      "tag_rate_multipliers": {
+        "stone": 2.0,
+        "ore": 2.8,
+        "gem": 3.2
+      },
+      "description": "Skips soft terrain and specializes in stone, ore and gem blocks."
+    },
+    {
+      "id": "axe_miner",
+      "display_name": "Forest Cutter",
+      "tool_class": "axe",
+      "base_rate": 1.25,
+      "pattern_id": "surface_strip",
+      "range": 64,
+      "power": 1.0,
+      "allowed_block_tags": ["surface"],
+      "tag_rate_multipliers": {},
+      "description": "Moves between deterministic tree-bearing surface blocks and clears the tree together with its supporting block."
     }
   ]
 }

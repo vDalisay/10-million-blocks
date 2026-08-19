@@ -36,7 +36,8 @@ public sealed class VirtualWorld
             return BlockSample.Empty;
         }
 
-        return Source.SampleVoxel(coordinate);
+        BlockSample sample = Source.SampleVoxel(coordinate);
+        return ReclassifyDeepSpecialBlock(coordinate, sample);
     }
 
     public bool IsPresent(Vector3I coordinate) => SampleVoxel(coordinate).Present;
@@ -92,8 +93,6 @@ public sealed class VirtualWorld
             return false;
         }
 
-        // Once a large-world region reaches its authored quota, compact it immediately to a single
-        // aggregate marker. The global count does not change during compaction.
         if (regionQuota > 0 && beforeInRegion + 1L >= regionQuota)
         {
             State.MarkRegionExhausted(region, regionQuota);
@@ -102,10 +101,6 @@ public sealed class VirtualWorld
         return true;
     }
 
-    /// <summary>
-    /// Initializes the authoritative total without forcing large profiles to enumerate their volume.
-    /// Small worlds remain exact scans; large profiles use the authored logical target.
-    /// </summary>
     public long InitializeMineableBlockCount()
     {
         if (Profile.TargetMineableBlocks > 0)
@@ -132,7 +127,7 @@ public sealed class VirtualWorld
         for (int y = -max; y <= max; y++)
         for (int x = -max; x <= max; x++)
         {
-            BlockSample sample = Source.SampleVoxel(new Vector3I(x, y, z));
+            BlockSample sample = ReclassifyDeepSpecialBlock(new Vector3I(x, y, z), Source.SampleVoxel(new Vector3I(x, y, z)));
             if (sample.Present && sample.Mineable)
             {
                 count++;
@@ -151,11 +146,6 @@ public sealed class VirtualWorld
             && region.Y >= MinRegionCoordinate && region.Y <= MaxRegionCoordinate
             && region.Z >= MinRegionCoordinate && region.Z <= MaxRegionCoordinate;
 
-    /// <summary>
-    /// Deterministically partitions the authored logical total over the region address space. The
-    /// quotient/remainder partition sums exactly to InitialMineableBlocks without allocating an entry
-    /// for every region, even for the million-scale validation profile.
-    /// </summary>
     public long GetRegionQuota(RegionCoord region)
     {
         if (!IsRegionInBounds(region) || InitialMineableBlocks <= 0)
@@ -204,4 +194,73 @@ public sealed class VirtualWorld
         float size = (MaxCoordinate * 2 + 1) * spacing;
         return new Aabb(new Vector3(min, min, min), new Vector3(size, size, size));
     }
+
+    /// <summary>
+    /// Adds rare late-game content without storing it. Untouched gem pockets and unstable blocks are
+    /// pure functions of world seed + voxel address, so save files remain sparse and deterministic.
+    /// The broad field creates pockets; the high-frequency hash prevents every block in a pocket from
+    /// becoming special. Surface rendering stays cheap because these rules only affect deep rock.
+    /// </summary>
+    private BlockSample ReclassifyDeepSpecialBlock(Vector3I coordinate, BlockSample sample)
+    {
+        if (!sample.Present || !sample.Mineable || !IsRockFamily(sample.BlockId))
+        {
+            return sample;
+        }
+
+        float maxAbs = Math.Max(Math.Abs(coordinate.X), Math.Max(Math.Abs(coordinate.Y), Math.Abs(coordinate.Z)));
+        float approximateDepth = Profile.BaseRadius - maxAbs;
+        if (approximateDepth < 4.0f)
+        {
+            return sample;
+        }
+
+        float pocket = DeterministicNoise.Fractal3D(
+            coordinate.X * 0.075f,
+            coordinate.Y * 0.075f,
+            coordinate.Z * 0.075f,
+            Profile.Seed + 51031,
+            3);
+        float grain = DeterministicNoise.Hash01(
+            coordinate.X,
+            coordinate.Y,
+            coordinate.Z,
+            Profile.Seed + 51047);
+
+        // Unstable blocks are intentionally rare. They are promoted to multi-hit blast events by
+        // MiningService; this sampler only owns deterministic placement.
+        float bombRoll = DeterministicNoise.Hash01(
+            coordinate.X,
+            coordinate.Y,
+            coordinate.Z,
+            Profile.Seed + 77191);
+        if (approximateDepth > 9.0f && bombRoll > 0.99955f)
+        {
+            return new BlockSample(true, "bomb", true);
+        }
+
+        if (approximateDepth > 10.0f && pocket > 0.56f && grain > 0.78f)
+        {
+            return new BlockSample(true, "gem_red", true);
+        }
+
+        if (approximateDepth > 7.0f && pocket > 0.43f && grain > 0.70f)
+        {
+            return new BlockSample(true, "gem_blue", true);
+        }
+
+        if (pocket > 0.30f && grain > 0.64f)
+        {
+            return new BlockSample(true, "gem_green", true);
+        }
+
+        return sample;
+    }
+
+    private bool IsRockFamily(string blockId)
+        => blockId == Profile.StoneBlock
+            || blockId == Profile.DarkStoneBlock
+            || blockId == Profile.CopperBlock
+            || blockId == Profile.SilverBlock
+            || blockId == Profile.GoldBlock;
 }

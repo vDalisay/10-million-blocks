@@ -31,12 +31,11 @@ public partial class MinerPlacementController : Node
             Key.M => "line_miner",
             Key.N => "shovel_miner",
             Key.B => "disc_miner",
+            Key.P => "pickaxe_miner",
+            Key.A => "axe_miner",
             _ => null,
         };
-        if (minerId is null)
-        {
-            return;
-        }
+        if (minerId is null) return;
 
         if (_manual.HoveredVoxel is not Vector3I voxel)
         {
@@ -51,8 +50,6 @@ public partial class MinerPlacementController : Node
             GD.Print($"Could not place '{minerId}' on {voxel}. Check the unlock and tool-specific material requirement.");
         }
 
-        // Placement keys are commands, not mining input. Consume them whether placement succeeds or
-        // fails so another controller cannot interpret the same key press.
         GetViewport().SetInputAsHandled();
     }
 }
