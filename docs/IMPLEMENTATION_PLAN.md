@@ -1334,6 +1334,64 @@ Exit criteria:
 
 ---
 
+## Phase 14 — Tool-class automations and world events (proposed)
+
+**Goal:** move automation from one generic drill toward a small roster of specialised tools, and give
+the late-game cube two reasons to keep exploring it after the surface is gone.
+
+None of this is required for the first playable milestone; it is recorded here so the systems built
+in Phases 6/7 stay general enough to accept it.
+
+### 14a. Tool-class miners
+
+The KayKit "Go Deeper" pack already supplies axe, pickaxe and shovel meshes, so the visual identity
+of each tool exists before the mechanics do. Each becomes a placeable, skill-tree-unlocked
+automation with a block-affinity bonus rather than a flat rate:
+
+- **Shovel** — fast on dirt/sand/soil, and mines *horizontally* along the surface rather than boring
+  straight inward. This is a new mining pattern, not just a rate multiplier.
+- **Axe** — fast on blocks carrying a tree feature, and clears the tree with the block.
+- **Pickaxe** — fast on stone/dark stone/ore.
+
+Design constraints this implies:
+
+- `MinerDefinition` needs a per-tag rate multiplier, not only `allowed_block_tags`. The existing
+  allow-list already keys off block tags, so the affinity table can reuse the same vocabulary.
+- `MiningPatternRegistry` needs a surface-tangential pattern for the shovel. Every pattern so far
+  works along the outward normal; a tangential walk has to decide what happens when it reaches a
+  drop or a water body.
+- Tree features are currently render-only decorations resolved by `ProceduralWorldSource.TrySampleTree`
+  and are not part of the voxel grid. The axe bonus needs trees to be *queryable* per voxel, which
+  the deterministic sampler already supports, but "clearing" one has to be recorded in world state.
+
+### 14b. Block bombs
+
+Unstable blocks spawned deterministically in and around the cube's core. Mining one a few times
+detonates it and clears a large radius in one operation.
+
+Design constraints:
+
+- detonation must clear a region through `MiningService` in bulk, using the same exact 64-bit
+  accounting as normal mining — it cannot bypass the counters or the remaining-block total
+- placement must be deterministic from the world seed so a bomb survives save/load and offline
+  progress without being stored per-instance
+- the cleared radius interacts with `WorldView.MarkDirtyAround`, which currently dirties a single
+  voxel's neighbourhood; a blast needs a region-level dirty mark
+
+### 14c. Gem mines
+
+Deterministically placed high-value pockets inside the core that pay out extra resources. The
+exported `Gem1`/`Gem2`/`Gem3` meshes from the same pack cover the visual.
+
+Design constraints:
+
+- these are ordinary blocks with a high `base_value`, so the existing content pipeline covers them;
+  what is new is a *placement rule* that clusters them rather than the per-voxel ore noise used today
+- they should be rare enough that finding one is an event, which makes them a natural reward for the
+  bomb and deep-drill paths above
+
+---
+
 ## 23. Acceptance criteria for the first playable milestone
 
 The first playable milestone should not be considered complete until all of the following are true:
