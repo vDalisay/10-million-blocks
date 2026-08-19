@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 2,
+  "content_version": 3,
   "nodes": [
     {
       "id": "manual_2x",
@@ -113,6 +113,28 @@
       "cost": 110,
       "max_rank": 1,
       "effects": [{ "type": "unlock_resource_filter", "string_value": "ore" }]
+    },
+    {
+      "id": "shovel_unlock",
+      "display_name": "Powered Shovel",
+      "description": "Unlock a surface-sweeping shovel that moves tangentially and works fastest on dirt and sand.",
+      "grid_x": 2,
+      "grid_y": 4,
+      "category": "automation",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1,
+          "route": [{ "grid_x": 1, "grid_y": 4 }]
+        }
+      ],
+      "cost": 180,
+      "max_rank": 1,
+      "effects": [
+        { "type": "unlock_miner", "string_value": "shovel_miner" },
+        { "type": "unlock_pattern", "string_value": "surface_strip" }
+      ]
     }
   ]
 }
