@@ -4,6 +4,7 @@ using System.Linq;
 using Godot;
 using TenMillionBlocks.Automation.MiningPatterns;
 using TenMillionBlocks.Mining;
+using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Rendering;
 
@@ -19,38 +20,40 @@ public partial class MinerSimulationService : Node3D
     private WorldView _view = null!;
     private MinerCatalog _catalog = null!;
     private MiningPatternRegistry _patterns = null!;
+    private SkillTreeService _skills = null!;
     private long _nextInstanceId = 1;
 
     public event Action? Changed;
     public event Action<MinerInstance>? MinerPlaced;
 
     public IReadOnlyList<MinerInstance> Miners => _miners;
-    public double RateMultiplier { get; set; } = 1.0;
-    public int PatternWidth { get; set; } = 1;
     public int MaxMiningOperationsPerFrame { get; set; } = 96;
 
     public double BlocksPerSecond => _miners
         .Where(miner => !miner.Exhausted)
-        .Sum(miner => _catalog.Get(miner.DefinitionId).BaseRate * RateMultiplier);
+        .Sum(miner => _catalog.Get(miner.DefinitionId).BaseRate * _skills.Derived.MinerRateMultiplier);
 
     public void Initialize(
         VirtualWorld world,
         MiningService mining,
         WorldView view,
         MinerCatalog catalog,
-        MiningPatternRegistry patterns)
+        MiningPatternRegistry patterns,
+        SkillTreeService skills)
     {
         _world = world;
         _mining = mining;
         _view = view;
         _catalog = catalog;
         _patterns = patterns;
+        _skills = skills;
     }
 
     public override void _Process(double delta)
     {
         int budget = MaxMiningOperationsPerFrame;
         bool changed = false;
+        double rateMultiplier = _skills.Derived.MinerRateMultiplier;
 
         foreach (MinerInstance miner in _miners)
         {
@@ -60,7 +63,7 @@ public partial class MinerSimulationService : Node3D
             }
 
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            miner.WorkAccumulator += definition.BaseRate * RateMultiplier * delta;
+            miner.WorkAccumulator += definition.BaseRate * rateMultiplier * delta;
 
             int requested = Math.Min((int)Math.Floor(miner.WorkAccumulator), budget);
             if (requested <= 0)
@@ -95,6 +98,11 @@ public partial class MinerSimulationService : Node3D
 
     public MinerInstance? PlaceMiner(string definitionId, Vector3I surfaceVoxel)
     {
+        if (!_skills.IsMinerUnlocked(definitionId))
+        {
+            return null;
+        }
+
         if (!_world.IsPresent(surfaceVoxel) || !_world.IsExposed(surfaceVoxel))
         {
             return null;
@@ -126,7 +134,7 @@ public partial class MinerSimulationService : Node3D
     private bool Advance(MinerInstance miner, MinerDefinition definition)
     {
         IMiningPattern pattern = _patterns.Get(definition.PatternId);
-        int width = definition.PatternId == "line" ? 1 : Math.Max(1, PatternWidth);
+        int width = definition.PatternId == "line" ? 1 : Math.Max(1, _skills.Derived.MinerPatternWidth);
 
         int safety = Math.Max(16, definition.Range * Math.Max(1, width * width));
         while (safety-- > 0)
@@ -186,8 +194,7 @@ public partial class MinerSimulationService : Node3D
         var root = new Node3D
         {
             Name = $"Miner_{miner.InstanceId}",
-            Position = position,
-            Basis = BasisForNormal(outward),
+            Transform = new Transform3D(BasisForNormal(outward), position),
         };
         AddChild(root);
 
