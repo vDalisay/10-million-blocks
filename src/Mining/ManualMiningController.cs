@@ -88,6 +88,7 @@ public partial class ManualMiningController : Node3D
         if (mined > 0)
         {
             UpdateHover();
+            _highlight.PulseMine();
             GetViewport().SetInputAsHandled();
         }
     }
