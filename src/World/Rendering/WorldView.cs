@@ -90,21 +90,22 @@ public partial class WorldView : Node3D
                 continue;
             }
 
-            bool grassSurface = sample.BlockId == _world.Profile.SurfaceBlock
-                || sample.BlockId == _world.Profile.SurfaceEdgeBlock;
-            Basis blockBasis = grassSurface
-                ? BasisForNormal(_world.Source.GetOutwardNormal(voxel))
+            Vector3I outward = _world.Source.GetOutwardNormal(voxel);
+            Basis blockBasis = ShouldOrientToCubeFace(sample.BlockId)
+                ? BasisForNormal(outward)
                 : Basis.Identity;
             AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
-            if (grassSurface && _world.Source.TrySampleTree(voxel, out FeatureSample feature))
+            if ((sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
+                && _world.Source.TrySampleTree(voxel, out FeatureSample feature))
             {
-                Vector3I outward = feature.OutwardNormal;
-                if (!_world.IsPresent(voxel + outward))
+                if (!_world.IsPresent(voxel + feature.OutwardNormal))
                 {
-                    Basis basis = BasisForNormal(outward);
-                    Vector3 position = VoxelToWorld(voxel + outward);
-                    treeTransforms.Add(new Transform3D(basis, position));
+                    // The supplied tree is deliberately enlarged slightly. At 1:1 it disappeared into the
+                    // highly detailed grass silhouette and was difficult to read at the reference camera distance.
+                    Basis treeBasis = BasisForNormal(feature.OutwardNormal).Scaled(Vector3.One * 1.38f);
+                    Vector3 position = VoxelToWorld(voxel + feature.OutwardNormal);
+                    treeTransforms.Add(new Transform3D(treeBasis, position));
                 }
             }
         }
@@ -149,10 +150,17 @@ public partial class WorldView : Node3D
         {
             Name = $"Batch_{blockId}",
             Multimesh = multiMesh,
+            MaterialOverride = _assets.GetMaterialOverride(blockId),
             CastShadow = castShadow
                 ? GeometryInstance3D.ShadowCastingSetting.On
                 : GeometryInstance3D.ShadowCastingSetting.Off,
         });
+    }
+
+    private bool ShouldOrientToCubeFace(string blockId)
+    {
+        BlockDefinition definition = _assets.GetDefinition(blockId);
+        return definition.Tags.Contains("surface") || definition.Tags.Contains("water");
     }
 
     private static void AddTransform(Dictionary<string, List<Transform3D>> batches, string blockId, Transform3D transform)
@@ -198,16 +206,14 @@ public partial class WorldView : Node3D
 
     private bool TryPopDirtyChunk(out ChunkCoord chunk)
     {
-        if (_dirtyChunks.Count == 0)
+        foreach (ChunkCoord candidate in _dirtyChunks)
         {
-            chunk = default;
-            return false;
+            chunk = candidate;
+            _dirtyChunks.Remove(candidate);
+            return true;
         }
 
-        using HashSet<ChunkCoord>.Enumerator enumerator = _dirtyChunks.GetEnumerator();
-        enumerator.MoveNext();
-        chunk = enumerator.Current;
-        _dirtyChunks.Remove(chunk);
-        return true;
+        chunk = default;
+        return false;
     }
 }
