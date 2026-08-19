@@ -1,8 +1,11 @@
 using System;
 using Godot;
+using TenMillionBlocks.Automation;
+using TenMillionBlocks.Automation.MiningPatterns;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Presentation;
+using TenMillionBlocks.Skills;
 using TenMillionBlocks.UI;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Rendering;
@@ -21,6 +24,9 @@ public partial class GameRoot : Node3D
 
             WorldCatalog worlds = WorldCatalog.Load();
             WorldSelfTest.Run(worlds);
+            MinerCatalog minerCatalog = MinerCatalog.Load();
+            SkillTreeCatalog skillCatalog = SkillTreeCatalog.Load();
+            var patterns = new MiningPatternRegistry();
 
             WorldProfile profile = worlds.Get("reference_natural");
             var world = new VirtualWorld(profile);
@@ -44,16 +50,29 @@ public partial class GameRoot : Node3D
             AddChild(harness);
 
             var mining = new MiningService(world, content);
+            var skills = new SkillTreeService(skillCatalog, mining);
 
             var manualMining = new ManualMiningController { Name = "ManualMining" };
-            manualMining.Initialize(world, camera, worldView, mining);
+            manualMining.Initialize(world, camera, worldView, mining, skills);
             AddChild(manualMining);
 
+            var miners = new MinerSimulationService { Name = "MinerSimulation" };
+            miners.Initialize(world, mining, worldView, minerCatalog, patterns, skills);
+            AddChild(miners);
+
+            var placement = new MinerPlacementController { Name = "MinerPlacement" };
+            placement.Initialize(manualMining, miners);
+            AddChild(placement);
+
+            var skillTree = new SkillTreeView { Name = "SkillTreeView" };
+            skillTree.Initialize(skills, mining, manualMining);
+            AddChild(skillTree);
+
             var hud = new MiningHud { Name = "MiningHud" };
-            hud.Initialize(world, mining, worldView);
+            hud.Initialize(world, mining, worldView, skills, miners);
             AddChild(hud);
 
-            GD.Print("Procedural mining slice ready. LMB click mines; LMB drag orbits; RMB/MMB pans; wheel zooms.");
+            GD.Print("Gameplay slice ready. Mine with LMB; [K] skill tree; unlock Automation then [M] places a line miner on the hovered block.");
         }
         catch (Exception exception)
         {
