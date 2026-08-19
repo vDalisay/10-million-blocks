@@ -11,12 +11,21 @@ config_version=5
 [application]
 
 config/name="10-million-blocks"
-config/features=PackedStringArray("4.6", "GL Compatibility")
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.6", "C#", "GL Compatibility")
 config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
 
 [dotnet]
 
-project/assembly_name="10-million-blocks"
+project/assembly_name="TenMillionBlocks"
 
 [physics]
 
