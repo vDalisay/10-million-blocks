@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.World.Generation;
 
 namespace TenMillionBlocks.World.Rendering;
@@ -18,28 +19,85 @@ public partial class WorldView : Node3D
 
     private readonly Dictionary<ChunkCoord, Node3D> _chunkRoots = new();
     private readonly HashSet<ChunkCoord> _dirtyChunks = new();
+    private readonly HashSet<ChunkCoord> _desiredChunks = new();
+    private readonly Queue<ChunkCoord> _loadQueue = new();
+    private readonly HashSet<ChunkCoord> _queuedLoads = new();
     private readonly Dictionary<string, float> _treeScales = new(StringComparer.Ordinal);
 
     private BlockAssetRegistry _assets = null!;
     private VirtualWorld _world = null!;
+    private OrbitCameraController? _camera;
+    private MacroWorldProxy? _macroProxy;
+    private ChunkCoord? _lastStreamingFocus;
+    private double _streamRefreshTimer;
+    private double _chunkBuildTotalMilliseconds;
 
     public int VisibleChunkCount => _chunkRoots.Count;
     public int PendingChunkRebuilds => _dirtyChunks.Count;
+    public int PendingChunkLoads => _loadQueue.Count;
+    public bool StreamingEnabled => _world is not null && _world.Profile.UsesStreamingRenderer;
+    public int MacroInstanceCount => _macroProxy?.InstanceCount ?? 0;
+    public double MacroBuildMilliseconds => _macroProxy?.BuildMilliseconds ?? 0.0;
+    public long TotalChunkBuilds { get; private set; }
+    public long TotalVoxelCandidatesScanned { get; private set; }
+    public long StreamedChunkLoads { get; private set; }
+    public long StreamedChunkUnloads { get; private set; }
+    public double LastChunkBuildMilliseconds { get; private set; }
+    public double AverageChunkBuildMilliseconds => TotalChunkBuilds == 0 ? 0.0 : _chunkBuildTotalMilliseconds / TotalChunkBuilds;
 
-    public void Initialize(BlockAssetRegistry assets, VirtualWorld world)
+    public void Initialize(BlockAssetRegistry assets, VirtualWorld world, OrbitCameraController? camera = null)
     {
         _assets = assets;
         _world = world;
-        BuildInitialChunks();
+        _camera = camera;
+
+        if (StreamingEnabled)
+        {
+            _macroProxy = new MacroWorldProxy { Name = "MacroWorldProxy" };
+            AddChild(_macroProxy);
+            _macroProxy.Build(world);
+            RefreshStreamingSet(force: true);
+        }
+        else
+        {
+            BuildInitialChunks();
+        }
     }
 
     public override void _Process(double delta)
     {
-        _ = delta;
-        int budget = 2;
-        while (budget-- > 0 && TryPopDirtyChunk(out ChunkCoord chunk))
+        if (StreamingEnabled)
         {
+            _streamRefreshTimer += delta;
+            if (_streamRefreshTimer >= 0.18)
+            {
+                _streamRefreshTimer = 0.0;
+                RefreshStreamingSet(force: false);
+            }
+        }
+
+        int buildBudget = StreamingEnabled ? 1 : 2;
+        while (buildBudget > 0 && TryPopDirtyChunk(out ChunkCoord dirty))
+        {
+            if (!StreamingEnabled || _desiredChunks.Contains(dirty))
+            {
+                RebuildChunk(dirty);
+                buildBudget--;
+            }
+        }
+
+        while (buildBudget > 0 && _loadQueue.Count > 0)
+        {
+            ChunkCoord chunk = _loadQueue.Dequeue();
+            _queuedLoads.Remove(chunk);
+            if (!_desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk))
+            {
+                continue;
+            }
+
             RebuildChunk(chunk);
+            StreamedChunkLoads++;
+            buildBudget--;
         }
     }
 
@@ -53,14 +111,23 @@ public partial class WorldView : Node3D
         }
     }
 
+    public void MarkRegionDirty(RegionCoord region)
+    {
+        foreach (ChunkCoord chunk in _chunkRoots.Keys)
+        {
+            if (RegionCoord.FromChunk(chunk, _world.Profile.RegionSizeInChunks) == region)
+            {
+                _dirtyChunks.Add(chunk);
+            }
+        }
+    }
+
     public Vector3 VoxelToWorld(Vector3I voxel) => (Vector3)voxel * _world.Profile.BlockSpacing;
 
     private void BuildInitialChunks()
     {
-        int max = _world.MaxCoordinate;
-        int chunkSize = _world.Profile.ChunkSize;
-        int minChunk = VoxelMath.FloorDiv(-max, chunkSize);
-        int maxChunk = VoxelMath.FloorDiv(max, chunkSize);
+        int minChunk = _world.MinChunkCoordinate;
+        int maxChunk = _world.MaxChunkCoordinate;
 
         for (int z = minChunk; z <= maxChunk; z++)
         for (int y = minChunk; y <= maxChunk; y++)
@@ -70,11 +137,96 @@ public partial class WorldView : Node3D
         }
     }
 
+    private void RefreshStreamingSet(bool force)
+    {
+        if (_camera?.Camera is null)
+        {
+            return;
+        }
+
+        Vector3 cameraPosition = _camera.Camera.GlobalPosition;
+        Vector3 direction = cameraPosition.LengthSquared() > 0.001f
+            ? cameraPosition.Normalized()
+            : new Vector3(0.4f, 0.4f, 1.0f).Normalized();
+        float maxAbs = MathF.Max(MathF.Abs(direction.X), MathF.Max(MathF.Abs(direction.Y), MathF.Abs(direction.Z)));
+        float radius = MathF.Max(1.0f, _world.Profile.BaseRadius);
+        Vector3 surfacePoint = direction * (radius / MathF.Max(0.0001f, maxAbs));
+        var focusVoxel = new Vector3I(
+            (int)MathF.Round(surfacePoint.X),
+            (int)MathF.Round(surfacePoint.Y),
+            (int)MathF.Round(surfacePoint.Z));
+        ChunkCoord focus = ChunkCoord.FromVoxel(focusVoxel, _world.Profile.ChunkSize);
+
+        if (!force && _lastStreamingFocus == focus)
+        {
+            return;
+        }
+        _lastStreamingFocus = focus;
+
+        _desiredChunks.Clear();
+        int radiusChunks = Math.Max(0, _world.Profile.StreamingChunkRadius);
+        int depthChunks = Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
+        Vector3I faceNormal = DominantNormal(direction);
+        ChunkCoord normalStep = new(faceNormal.X, faceNormal.Y, faceNormal.Z);
+        (ChunkCoord tangentA, ChunkCoord tangentB) = TangentChunkAxes(faceNormal);
+
+        for (int depth = 0; depth < depthChunks; depth++)
+        for (int a = -radiusChunks; a <= radiusChunks; a++)
+        for (int b = -radiusChunks; b <= radiusChunks; b++)
+        {
+            ChunkCoord candidate = Add(focus, Scale(normalStep, -depth));
+            candidate = Add(candidate, Scale(tangentA, a));
+            candidate = Add(candidate, Scale(tangentB, b));
+            if (ChunkInWorldBounds(candidate))
+            {
+                _desiredChunks.Add(candidate);
+            }
+        }
+
+        var unload = new List<ChunkCoord>();
+        foreach (ChunkCoord loaded in _chunkRoots.Keys)
+        {
+            if (!_desiredChunks.Contains(loaded))
+            {
+                unload.Add(loaded);
+            }
+        }
+
+        foreach (ChunkCoord chunk in unload)
+        {
+            Node3D root = _chunkRoots[chunk];
+            _chunkRoots.Remove(chunk);
+            root.QueueFree();
+            StreamedChunkUnloads++;
+        }
+
+        foreach (ChunkCoord desired in _desiredChunks)
+        {
+            if (!_chunkRoots.ContainsKey(desired) && _queuedLoads.Add(desired))
+            {
+                _loadQueue.Enqueue(desired);
+            }
+        }
+    }
+
+    private bool ChunkInWorldBounds(ChunkCoord chunk)
+        => chunk.X >= _world.MinChunkCoordinate && chunk.X <= _world.MaxChunkCoordinate
+            && chunk.Y >= _world.MinChunkCoordinate && chunk.Y <= _world.MaxChunkCoordinate
+            && chunk.Z >= _world.MinChunkCoordinate && chunk.Z <= _world.MaxChunkCoordinate;
+
     private void RebuildChunk(ChunkCoord chunk)
     {
+        ulong started = Time.GetTicksUsec();
         if (_chunkRoots.Remove(chunk, out Node3D? oldRoot))
         {
             oldRoot.QueueFree();
+        }
+
+        RegionCoord region = RegionCoord.FromChunk(chunk, _world.Profile.RegionSizeInChunks);
+        if (_world.State.IsRegionExhausted(region))
+        {
+            FinishChunkBuild(started, 0L);
+            return;
         }
 
         int chunkSize = _world.Profile.ChunkSize;
@@ -82,6 +234,14 @@ public partial class WorldView : Node3D
         Vector3I min = chunk.MinVoxel(chunkSize);
         var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         var treeBatches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
+        long scanned = 0L;
+
+        float innerSurfaceBand = MathF.Max(0.0f,
+            _world.Profile.BaseRadius
+            - _world.Profile.TerrainAmplitude
+            - _world.Profile.DetailAmplitude
+            - MathF.Abs(_world.Profile.SeaLevelOffset)
+            - 5.0f);
 
         for (int z = 0; z < chunkSize; z++)
         for (int y = 0; y < chunkSize; y++)
@@ -93,6 +253,12 @@ public partial class WorldView : Node3D
                 continue;
             }
 
+            if (StreamingEnabled && MaxAbs(voxel) < innerSurfaceBand)
+            {
+                continue;
+            }
+
+            scanned++;
             BlockSample sample = _world.SampleVoxel(voxel);
             if (!sample.Present || !_world.IsExposed(voxel))
             {
@@ -106,17 +272,16 @@ public partial class WorldView : Node3D
             AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
             if ((sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
-                && _world.Source.TrySampleTree(voxel, out FeatureSample feature))
+                && _world.Source.TrySampleTree(voxel, out FeatureSample feature)
+                && !_world.IsPresent(voxel + feature.OutwardNormal))
             {
-                if (!_world.IsPresent(voxel + feature.OutwardNormal))
-                {
-                    AddTransform(treeBatches, PickTree(voxel), TreeTransform(voxel, feature.OutwardNormal));
-                }
+                AddTransform(treeBatches, PickTree(voxel), TreeTransform(voxel, feature.OutwardNormal));
             }
         }
 
         if (batches.Count == 0 && treeBatches.Count == 0)
         {
+            FinishChunkBuild(started, scanned);
             return;
         }
 
@@ -133,7 +298,16 @@ public partial class WorldView : Node3D
             AddBatch(chunkRoot, variant, transforms, true);
         }
 
-        _chunkRoots.Add(chunk, chunkRoot);
+        _chunkRoots[chunk] = chunkRoot;
+        FinishChunkBuild(started, scanned);
+    }
+
+    private void FinishChunkBuild(ulong startedUsec, long scanned)
+    {
+        LastChunkBuildMilliseconds = (Time.GetTicksUsec() - startedUsec) / 1000.0;
+        _chunkBuildTotalMilliseconds += LastChunkBuildMilliseconds;
+        TotalChunkBuilds++;
+        TotalVoxelCandidatesScanned = checked(TotalVoxelCandidatesScanned + scanned);
     }
 
     private string PickTree(Vector3I voxel)
@@ -154,8 +328,6 @@ public partial class WorldView : Node3D
             * new Basis(Vector3.Up, yaw)
             * Basis.Identity.Scaled(Vector3.One * TreeScale(variant) * sizeJitter);
 
-        // Source trees have their origin at the trunk base, so they stand on the block face rather
-        // than in the middle of the empty cell above it.
         Vector3 position = VoxelToWorld(voxel) + (Vector3)outward * spacing * 0.5f;
         return new Transform3D(basis, position);
     }
@@ -167,8 +339,6 @@ public partial class WorldView : Node3D
             return cached;
         }
 
-        // Pack heights range from ~2.9 to ~7 source units; normalise so every variant reads as
-        // roughly two blocks tall regardless of which one the hash picked.
         Aabb bounds = _assets.GetMesh(variant).GetAabb();
         float scale = bounds.Size.Y > 0.001f ? _world.Profile.BlockSpacing * 2.0f / bounds.Size.Y : 1.0f;
         _treeScales[variant] = scale;
@@ -218,46 +388,50 @@ public partial class WorldView : Node3D
         transforms.Add(transform);
     }
 
+    private static float MaxAbs(Vector3I voxel)
+        => Math.Max(Math.Abs(voxel.X), Math.Max(Math.Abs(voxel.Y), Math.Abs(voxel.Z)));
+
+    private static Vector3I DominantNormal(Vector3 direction)
+    {
+        float ax = MathF.Abs(direction.X);
+        float ay = MathF.Abs(direction.Y);
+        float az = MathF.Abs(direction.Z);
+        if (ax >= ay && ax >= az) return direction.X >= 0.0f ? Vector3I.Right : Vector3I.Left;
+        if (ay >= ax && ay >= az) return direction.Y >= 0.0f ? Vector3I.Up : Vector3I.Down;
+        return direction.Z >= 0.0f ? Vector3I.Back : Vector3I.Forward;
+    }
+
+    private static (ChunkCoord A, ChunkCoord B) TangentChunkAxes(Vector3I normal)
+    {
+        if (Math.Abs(normal.X) == 1) return (new ChunkCoord(0, 1, 0), new ChunkCoord(0, 0, 1));
+        if (Math.Abs(normal.Y) == 1) return (new ChunkCoord(1, 0, 0), new ChunkCoord(0, 0, 1));
+        return (new ChunkCoord(1, 0, 0), new ChunkCoord(0, 1, 0));
+    }
+
+    private static ChunkCoord Add(ChunkCoord a, ChunkCoord b) => new(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
+    private static ChunkCoord Scale(ChunkCoord value, int scale) => new(value.X * scale, value.Y * scale, value.Z * scale);
+
     private static Basis BasisForNormal(Vector3I normal)
     {
-        if (normal == Vector3I.Up)
-        {
-            return Basis.Identity;
-        }
-
-        if (normal == Vector3I.Down)
-        {
-            return new Basis(Vector3.Right, Mathf.Pi);
-        }
-
-        if (normal == Vector3I.Right)
-        {
-            return new Basis(Vector3.Back, -Mathf.Pi * 0.5f);
-        }
-
-        if (normal == Vector3I.Left)
-        {
-            return new Basis(Vector3.Back, Mathf.Pi * 0.5f);
-        }
-
-        if (normal == Vector3I.Back)
-        {
-            return new Basis(Vector3.Right, Mathf.Pi * 0.5f);
-        }
-
+        if (normal == Vector3I.Up) return Basis.Identity;
+        if (normal == Vector3I.Down) return new Basis(Vector3.Right, Mathf.Pi);
+        if (normal == Vector3I.Right) return new Basis(Vector3.Back, -Mathf.Pi * 0.5f);
+        if (normal == Vector3I.Left) return new Basis(Vector3.Back, Mathf.Pi * 0.5f);
+        if (normal == Vector3I.Back) return new Basis(Vector3.Right, Mathf.Pi * 0.5f);
         return new Basis(Vector3.Right, -Mathf.Pi * 0.5f);
     }
 
     private bool TryPopDirtyChunk(out ChunkCoord chunk)
     {
-        foreach (ChunkCoord candidate in _dirtyChunks)
+        using HashSet<ChunkCoord>.Enumerator enumerator = _dirtyChunks.GetEnumerator();
+        if (!enumerator.MoveNext())
         {
-            chunk = candidate;
-            _dirtyChunks.Remove(candidate);
-            return true;
+            chunk = default;
+            return false;
         }
 
-        chunk = default;
-        return false;
+        chunk = enumerator.Current;
+        _dirtyChunks.Remove(chunk);
+        return true;
     }
 }
