@@ -40,6 +40,7 @@ public partial class OrbitCameraController : Node3D
     private float _worldRadius = ReferenceWorldRadius;
     private bool _surfaceFocusEnabled;
     private float _surfaceFocusBlend;
+    private float _surfaceClearance;
 
     public string ActivePresetName { get; private set; } = MediumPreset.Name;
     public Camera3D Camera => _camera;
@@ -49,12 +50,12 @@ public partial class OrbitCameraController : Node3D
 
     /// <summary>
     /// 0 means the camera is orbiting the world centre. 1 means the orbit pivot has moved onto the
-    /// currently viewed surface, allowing a giant world to be inspected from only a few blocks away
-    /// without ever driving the camera through the cube.
+    /// currently viewed surface, allowing a giant world to be inspected from only a few blocks away.
     /// </summary>
     public float SurfaceFocusBlend => _surfaceFocusBlend;
     public bool SurfaceFocusEnabled => _surfaceFocusEnabled;
     public float WorldRadius => _worldRadius;
+    public float SurfaceClearance => _surfaceClearance;
 
     public override void _Ready()
     {
@@ -81,16 +82,26 @@ public partial class OrbitCameraController : Node3D
 
         Rotation = new Vector3(_pitch, _yaw, 0.0f);
 
-        // A centre-orbit camera cannot zoom close to a 1000-wide cube: once its distance drops below
-        // the world radius the camera is literally inside the terrain. For large worlds we therefore
-        // transition the orbit pivot from the centre toward the visible surface as the user zooms in.
-        // The physical camera remains outside the cube while its distance to the new surface pivot can
-        // become small enough to see individual supplied block meshes.
+        // A centre-orbit camera cannot safely use the cube half-extent as though it were a sphere:
+        // along a diagonal the actual cube surface is much farther from the centre. The previous
+        // surface-focus implementation did exactly that, so even Medium/Near could land inside a huge
+        // cube. Compute the ray/cube support distance for the current view and then enforce an expanded
+        // cube as a hard camera barrier. This remains true while panning and during the focus blend.
         _surfaceFocusBlend = CalculateSurfaceFocusBlend(_distance);
         Vector3 radial = Transform.Basis.Z.Normalized();
-        Vector3 surfaceOffset = radial * _worldRadius * _surfaceFocusBlend;
-        Position = _pan + surfaceOffset;
-        _camera.Position = new Vector3(0.0f, 0.0f, _distance);
+        float supportRadius = SurfaceRadiusAlong(radial);
+        Vector3 pivot = _pan + radial * supportRadius * _surfaceFocusBlend;
+        Position = pivot;
+
+        float localDistance = _distance;
+        if (_surfaceFocusEnabled)
+        {
+            float safeExtent = _worldRadius + MinimumSurfaceClearance();
+            localDistance = MathF.Max(localDistance, DistanceToExitCube(pivot, radial, safeExtent));
+        }
+
+        _camera.Position = new Vector3(0.0f, 0.0f, localDistance);
+        _surfaceClearance = EstimateCubeClearance(_camera.GlobalPosition);
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -120,9 +131,9 @@ public partial class OrbitCameraController : Node3D
 
         if (_surfaceFocusEnabled)
         {
-            // This is distance from the surface-focused pivot, not distance from the world centre.
-            // At full focus the camera's centre distance is worldRadius + this stand-off.
-            MinDistance = MathF.Max(8.0f, _worldRadius * 0.012f);
+            // Full surface focus interprets this as stand-off from the inspected face. Keep it low
+            // enough for individual 1-unit blocks to be readable, but never allow zero/negative range.
+            MinDistance = MathF.Max(1.5f, MathF.Min(4.0f, _worldRadius * 0.004f));
         }
         else
         {
@@ -132,9 +143,9 @@ public partial class OrbitCameraController : Node3D
         MaxDistance = 65.0f * _presetScale;
         if (_camera is not null)
         {
-            _camera.Far = MathF.Max(300.0f, _worldRadius * 6.0f);
+            _camera.Far = MathF.Max(300.0f, _worldRadius * 8.0f);
             _camera.Near = _surfaceFocusEnabled
-                ? MathF.Max(0.03f, _worldRadius * 0.00004f)
+                ? 0.03f
                 : MathF.Max(0.05f, _presetScale * 0.015f);
         }
     }
@@ -147,9 +158,9 @@ public partial class OrbitCameraController : Node3D
 
         if (_surfaceFocusEnabled && preset.Name == NearPreset.Name)
         {
-            // Near on a huge world means inspecting its surface, not placing a centre-orbit camera
-            // approximately at the surface radius where it clips straight through the terrain.
-            _targetDistance = MathF.Max(MinDistance * 2.0f, _worldRadius * 0.035f);
+            // Near on a huge world is an actual close inspection stand-off. The cube barrier in
+            // _Process guarantees this can never put the camera inside the world, including diagonals.
+            _targetDistance = MathF.Max(MinDistance * 2.0f, 5.0f);
         }
         else
         {
@@ -189,7 +200,7 @@ public partial class OrbitCameraController : Node3D
     {
         if (button.ButtonIndex == MouseButton.WheelUp && button.Pressed)
         {
-            _targetDistance = Mathf.Clamp(_targetDistance * EffectiveZoomStep(), MinDistance, MaxDistance);
+            ZoomByWheel(zoomIn: true);
             ActivePresetName = "Custom";
             GetViewport().SetInputAsHandled();
             return;
@@ -197,7 +208,7 @@ public partial class OrbitCameraController : Node3D
 
         if (button.ButtonIndex == MouseButton.WheelDown && button.Pressed)
         {
-            _targetDistance = Mathf.Clamp(_targetDistance / EffectiveZoomStep(), MinDistance, MaxDistance);
+            ZoomByWheel(zoomIn: false);
             ActivePresetName = "Custom";
             GetViewport().SetInputAsHandled();
             return;
@@ -266,7 +277,7 @@ public partial class OrbitCameraController : Node3D
             float centreOrbitScale = PanSensitivity
                 * MathF.Max(0.5f, _targetDistance / (MediumPreset.Distance * _presetScale))
                 * _presetScale;
-            float inspectionScale = PanSensitivity * MathF.Max(0.35f, _targetDistance / ReferenceWorldRadius);
+            float inspectionScale = PanSensitivity * MathF.Max(0.20f, _targetDistance / ReferenceWorldRadius);
             float scale = Mathf.Lerp(centreOrbitScale, inspectionScale, _surfaceFocusBlend);
 
             _targetPan += (-right * motion.Relative.X + up * motion.Relative.Y) * scale;
@@ -283,19 +294,42 @@ public partial class OrbitCameraController : Node3D
         GetViewport().SetInputAsHandled();
     }
 
-    private float EffectiveZoomStep()
+    private void ZoomByWheel(bool zoomIn)
     {
         if (!_surfaceFocusEnabled)
         {
-            return ZoomStep;
+            float next = zoomIn ? _targetDistance * ZoomStep : _targetDistance / ZoomStep;
+            _targetDistance = Mathf.Clamp(next, MinDistance, MaxDistance);
+            return;
         }
 
-        // Large multiplicative steps are extremely coarse while traversing a thousand-world-unit
-        // radius. Slow the wheel through the centre->surface transition, then permit slightly faster
-        // close inspection once one wheel notch corresponds to only a few world units.
-        if (_targetDistance > _worldRadius * 1.20f) return 0.92f;
-        if (_targetDistance > _worldRadius * 0.30f) return 0.945f;
-        return 0.90f;
+        // Large worlds use additive, distance-adaptive wheel motion. Multiplying a 500-1000 unit
+        // distance by 0.94 makes one notch jump tens of blocks; near the surface each notch now shrinks
+        // naturally to fractions of a block instead. This is deliberately monotonic and symmetric.
+        float delta = LargeWorldZoomDelta(_targetDistance);
+        _targetDistance = Mathf.Clamp(
+            _targetDistance + (zoomIn ? -delta : delta),
+            MinDistance,
+            MaxDistance);
+    }
+
+    private float LargeWorldZoomDelta(float distance)
+    {
+        float transitionStart = _worldRadius * 1.20f;
+        float transitionEnd = _worldRadius * 0.32f;
+
+        if (distance > transitionStart)
+        {
+            return MathF.Max(_worldRadius * 0.012f, distance * 0.022f);
+        }
+
+        if (distance > transitionEnd)
+        {
+            return MathF.Max(_worldRadius * 0.004f, distance * 0.012f);
+        }
+
+        float closeMaximum = MathF.Max(0.75f, _worldRadius * 0.008f);
+        return Mathf.Clamp(distance * 0.08f, 0.20f, closeMaximum);
     }
 
     private float CalculateSurfaceFocusBlend(float distance)
@@ -313,5 +347,45 @@ public partial class OrbitCameraController : Node3D
         float t = (transitionStart - distance) / MathF.Max(0.001f, transitionStart - transitionEnd);
         t = Mathf.Clamp(t, 0.0f, 1.0f);
         return t * t * (3.0f - 2.0f * t);
+    }
+
+    private float SurfaceRadiusAlong(Vector3 radial)
+    {
+        float maxAbs = MathF.Max(MathF.Abs(radial.X), MathF.Max(MathF.Abs(radial.Y), MathF.Abs(radial.Z)));
+        return _worldRadius / MathF.Max(0.0001f, maxAbs);
+    }
+
+    private float MinimumSurfaceClearance()
+        => MathF.Max(0.45f, MathF.Min(1.5f, MinDistance * 0.30f));
+
+    private static float DistanceToExitCube(Vector3 origin, Vector3 direction, float halfExtent)
+    {
+        if (MathF.Max(MathF.Abs(origin.X), MathF.Max(MathF.Abs(origin.Y), MathF.Abs(origin.Z))) >= halfExtent)
+        {
+            return 0.0f;
+        }
+
+        float best = float.PositiveInfinity;
+        ConsiderAxis(origin.X, direction.X, halfExtent, ref best);
+        ConsiderAxis(origin.Y, direction.Y, halfExtent, ref best);
+        ConsiderAxis(origin.Z, direction.Z, halfExtent, ref best);
+        return float.IsPositiveInfinity(best) ? 0.0f : MathF.Max(0.0f, best);
+    }
+
+    private static void ConsiderAxis(float origin, float direction, float halfExtent, ref float best)
+    {
+        if (MathF.Abs(direction) < 0.00001f) return;
+        float boundary = direction > 0.0f ? halfExtent : -halfExtent;
+        float distance = (boundary - origin) / direction;
+        if (distance >= 0.0f && distance < best)
+        {
+            best = distance;
+        }
+    }
+
+    private float EstimateCubeClearance(Vector3 worldPosition)
+    {
+        float outside = MathF.Max(MathF.Abs(worldPosition.X), MathF.Max(MathF.Abs(worldPosition.Y), MathF.Abs(worldPosition.Z)));
+        return MathF.Max(0.0f, outside - _worldRadius);
     }
 }
