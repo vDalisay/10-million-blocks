@@ -72,7 +72,34 @@ public sealed class VirtualWorld
             return false;
         }
 
-        return State.MarkMined(coordinate);
+        RegionCoord region = RegionForVoxel(coordinate);
+        long regionQuota = Profile.TargetMineableBlocks > 0 ? GetRegionQuota(region) : 0L;
+        long beforeInRegion = 0L;
+        if (regionQuota > 0)
+        {
+            beforeInRegion = State.GetSparseMinedCountInRegion(region);
+            if (beforeInRegion >= regionQuota)
+            {
+                State.MarkRegionExhausted(region, regionQuota);
+                mined = BlockSample.Empty;
+                return false;
+            }
+        }
+
+        if (!State.MarkMined(coordinate))
+        {
+            mined = BlockSample.Empty;
+            return false;
+        }
+
+        // Once a large-world region reaches its authored quota, compact it immediately to a single
+        // aggregate marker. The global count does not change during compaction.
+        if (regionQuota > 0 && beforeInRegion + 1L >= regionQuota)
+        {
+            State.MarkRegionExhausted(region, regionQuota);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -115,6 +142,9 @@ public sealed class VirtualWorld
         InitialMineableBlocks = count;
         return count;
     }
+
+    public RegionCoord RegionForVoxel(Vector3I voxel)
+        => RegionCoord.FromChunk(ChunkCoord.FromVoxel(voxel, Profile.ChunkSize), Profile.RegionSizeInChunks);
 
     public bool IsRegionInBounds(RegionCoord region)
         => region.X >= MinRegionCoordinate && region.X <= MaxRegionCoordinate
