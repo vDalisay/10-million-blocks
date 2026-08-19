@@ -83,10 +83,10 @@ public partial class OrbitCameraController : Node3D
         Rotation = new Vector3(_pitch, _yaw, 0.0f);
 
         // A centre-orbit camera cannot safely use the cube half-extent as though it were a sphere:
-        // along a diagonal the actual cube surface is much farther from the centre. The previous
-        // surface-focus implementation did exactly that, so even Medium/Near could land inside a huge
-        // cube. Compute the ray/cube support distance for the current view and then enforce an expanded
-        // cube as a hard camera barrier. This remains true while panning and during the focus blend.
+        // along a diagonal the actual cube surface is much farther from the centre. Compute the exact
+        // support distance for the current view, then enforce an expanded cube as a hard final-position
+        // barrier. The final-position check matters after panning because the pivot itself may already
+        // be outside one face while the requested camera point has rotated back through the cube.
         _surfaceFocusBlend = CalculateSurfaceFocusBlend(_distance);
         Vector3 radial = Transform.Basis.Z.Normalized();
         float supportRadius = SurfaceRadiusAlong(radial);
@@ -97,7 +97,11 @@ public partial class OrbitCameraController : Node3D
         if (_surfaceFocusEnabled)
         {
             float safeExtent = _worldRadius + MinimumSurfaceClearance();
-            localDistance = MathF.Max(localDistance, DistanceToExitCube(pivot, radial, safeExtent));
+            Vector3 requestedPosition = pivot + radial * localDistance;
+            if (IsInsideCube(requestedPosition, safeExtent))
+            {
+                localDistance += DistanceToExitCubeFromInside(requestedPosition, radial, safeExtent);
+            }
         }
 
         _camera.Position = new Vector3(0.0f, 0.0f, localDistance);
@@ -358,13 +362,13 @@ public partial class OrbitCameraController : Node3D
     private float MinimumSurfaceClearance()
         => MathF.Max(0.45f, MathF.Min(1.5f, MinDistance * 0.30f));
 
-    private static float DistanceToExitCube(Vector3 origin, Vector3 direction, float halfExtent)
-    {
-        if (MathF.Max(MathF.Abs(origin.X), MathF.Max(MathF.Abs(origin.Y), MathF.Abs(origin.Z))) >= halfExtent)
-        {
-            return 0.0f;
-        }
+    private static bool IsInsideCube(Vector3 point, float halfExtent)
+        => MathF.Abs(point.X) < halfExtent
+            && MathF.Abs(point.Y) < halfExtent
+            && MathF.Abs(point.Z) < halfExtent;
 
+    private static float DistanceToExitCubeFromInside(Vector3 origin, Vector3 direction, float halfExtent)
+    {
         float best = float.PositiveInfinity;
         ConsiderAxis(origin.X, direction.X, halfExtent, ref best);
         ConsiderAxis(origin.Y, direction.Y, halfExtent, ref best);
