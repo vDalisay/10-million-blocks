@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 3,
+  "content_version": 4,
   "nodes": [
     {
       "id": "manual_2x",
@@ -117,7 +117,7 @@
     {
       "id": "shovel_unlock",
       "display_name": "Powered Shovel",
-      "description": "Unlock a surface-sweeping shovel that moves tangentially and works fastest on dirt and sand.",
+      "description": "Unlock a surface crawler that searches neighboring dirt/sand tiles instead of boring inward.",
       "grid_x": 2,
       "grid_y": 4,
       "category": "automation",
@@ -134,6 +134,27 @@
       "effects": [
         { "type": "unlock_miner", "string_value": "shovel_miner" },
         { "type": "unlock_pattern", "string_value": "surface_strip" }
+      ]
+    },
+    {
+      "id": "shovel_search_upgrade",
+      "display_name": "Terrain Scout",
+      "description": "When a shovel runs out of adjacent terrain, search up to 5 tiles away for another valid surface patch and jump to it.",
+      "grid_x": 2,
+      "grid_y": 6,
+      "category": "automation",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1,
+          "route": [{ "grid_x": 2, "grid_y": 5 }]
+        }
+      ],
+      "cost": 320,
+      "max_rank": 1,
+      "effects": [
+        { "type": "set_shovel_search_radius", "value": 5.0 }
       ]
     }
   ]
