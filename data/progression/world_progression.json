@@ -2,6 +2,7 @@
   "schema_version": 1,
   "world_ids": [
     "tutorial_single_block",
+    "tutorial_dirt_5",
     "reference_natural",
     "reference_lakes",
     "reference_ridges",
