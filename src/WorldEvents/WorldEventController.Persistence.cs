@@ -1,4 +1,5 @@
 using System;
+using Godot;
 
 namespace TenMillionBlocks.WorldEvents;
 
@@ -12,6 +13,8 @@ public readonly record struct WorldEventSnapshot(
 
 public partial class WorldEventController
 {
+    private double _persistencePulse;
+
     public event Action? PersistentStateChanged;
 
     public WorldEventSnapshot CreateSnapshot()
@@ -52,11 +55,15 @@ public partial class WorldEventController
         RefreshStatus();
     }
 
-    /// <summary>
-    /// Called by the gameplay host after a player-visible event transition (charge/catch/strike) to
-    /// request an ordinary autosave. Keeping the event state in the world save prevents save/load
-    /// from rerolling a meteor opportunity or resetting a partially charged cloud.
-    /// </summary>
+    public override void _PhysicsProcess(double delta)
+    {
+        if (!_cloudEnabled && !_meteorEnabled) return;
+        _persistencePulse += Math.Max(0.0, delta);
+        if (_persistencePulse < 5.0) return;
+        _persistencePulse %= 5.0;
+        PersistentStateChanged?.Invoke();
+    }
+
     public void RequestPersistence()
         => PersistentStateChanged?.Invoke();
 }
