@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.World.Generation;
 
 namespace TenMillionBlocks.Automation;
 
@@ -45,8 +46,6 @@ public partial class MinerSimulationService
 
     public Vector3I AttentionFocusVoxel(MinerInstance miner)
     {
-        // A material blocker can be deep inside the cube. Focusing the surface entry keeps the user on
-        // a visible, useful location; the alert text still reports the exact material that blocked it.
         if (miner.StopReason == MinerStopReason.BlockedMaterial)
         {
             return miner.Origin;
@@ -106,8 +105,6 @@ public partial class MinerSimulationService
 
     private bool CanPrimaryDrillMine(string blockId, BlockDefinition block)
     {
-        // Unstable blocks intentionally remain blockers: a normal drill should never detonate one as a
-        // side effect. Gems remain a later capability; the current ore bit only covers normal ores.
         if (block.Tags.Contains("bomb", StringComparer.Ordinal)) return false;
         if (blockId == _world.Profile.StoneBlock) return true;
         if (_skills.Derived.DrillMaterialTier >= 1 && blockId == _world.Profile.DarkStoneBlock) return true;
@@ -128,7 +125,6 @@ public partial class MinerSimulationService
         }
 
         BlockSample sample = _world.SampleVoxel(miner.BlockedVoxel);
-        // If another tool already removed the blocker, the drill may also resume.
         return !sample.Present || CanPrimaryDrillMine(sample);
     }
 
