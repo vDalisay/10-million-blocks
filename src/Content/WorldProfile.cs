@@ -14,6 +14,7 @@ public sealed class WorldProfile
     public int GenerationVersion { get; set; } = 1;
     public string GenerationMode { get; set; } = "procedural";
     public string OverrideFile { get; set; } = string.Empty;
+    public string CurrencyScope { get; set; } = "persistent_main";
     public bool SkillTreeAvailable { get; set; } = true;
     public bool AutomationAvailable { get; set; } = true;
     public List<string> VisibleSkillCategories { get; set; } = new();
@@ -80,6 +81,9 @@ public sealed class WorldProfile
 
     public bool UsesStreamingRenderer
         => UsesFullSurfaceRenderer || MaxCoordinate > StreamingThresholdMaxCoordinate;
+
+    public bool UsesTutorialLocalWallet
+        => CurrencyScope.Equals("tutorial_local", StringComparison.OrdinalIgnoreCase);
 
     public bool IsSkillCategoryVisible(string category)
         => VisibleSkillCategories.Count == 0 || VisibleSkillCategories.Contains(category, StringComparer.Ordinal);
@@ -198,6 +202,12 @@ public sealed class WorldCatalog
             && !string.Equals(profile.GenerationMode, "solid_cube", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add($"World '{profile.Id}' has unknown generation mode '{profile.GenerationMode}'.");
+        }
+
+        if (!profile.CurrencyScope.Equals("tutorial_local", StringComparison.OrdinalIgnoreCase)
+            && !profile.CurrencyScope.Equals("persistent_main", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"World '{profile.Id}' has unknown currency scope '{profile.CurrencyScope}'.");
         }
 
         if (!string.IsNullOrWhiteSpace(profile.OverrideFile))
