@@ -11,6 +11,7 @@ public sealed class WorldProfile
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string IntroText { get; set; } = string.Empty;
+    public int WorldVersion { get; set; } = 1;
     public int GenerationVersion { get; set; } = 1;
     public string GenerationMode { get; set; } = "procedural";
     public string OverrideFile { get; set; } = string.Empty;
@@ -190,6 +191,11 @@ public sealed class WorldCatalog
         if (string.IsNullOrWhiteSpace(profile.DisplayName))
         {
             errors.Add($"World '{profile.Id}' has an empty display name.");
+        }
+
+        if (profile.WorldVersion <= 0)
+        {
+            errors.Add($"World '{profile.Id}' must have a positive world version.");
         }
 
         if (profile.GenerationVersion <= 0)
