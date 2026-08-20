@@ -6,6 +6,7 @@ using Godot;
 using TenMillionBlocks.Automation;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.World.Storage;
+using TenMillionBlocks.WorldEvents;
 
 namespace TenMillionBlocks.Save;
 
@@ -22,6 +23,7 @@ public sealed class WorldSaveData
     public long FirstStartedUnixSeconds { get; set; }
     public long CompletedUnixSeconds { get; set; }
     public string ReplayFile { get; set; } = string.Empty;
+    public WorldEventSnapshot? WorldEvents { get; set; }
     public List<MinedChunkSnapshot> MinedChunks { get; set; } = new();
     public List<ExhaustedRegionSnapshot> ExhaustedRegions { get; set; } = new();
     public List<MinerSnapshot> Miners { get; set; } = new();
@@ -34,8 +36,6 @@ public sealed class GameSaveData
     public string CurrentWorldId { get; set; } = string.Empty;
     public long PersistentMainCurrency { get; set; }
 
-    // Kept only so schema-2 development saves can be read and migrated without losing the active
-    // wallet. It is reset to zero during migration and omitted from all new schema-3 saves.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public long Currency { get; set; }
 
@@ -77,10 +77,7 @@ public sealed class SaveService
 
         string json = Godot.FileAccess.GetFileAsString(sourcePath);
         GameSaveData? data = JsonSerializer.Deserialize<GameSaveData>(json, _jsonOptions);
-        if (data is null)
-        {
-            throw new InvalidOperationException("Save file parsed to null.");
-        }
+        if (data is null) throw new InvalidOperationException("Save file parsed to null.");
 
         bool migrated = false;
         if (data.SchemaVersion == 2)
@@ -95,14 +92,10 @@ public sealed class SaveService
         }
 
         Normalize(data, worlds);
-
-        // When the default schema-3 file does not exist, migrate the old development save forward
-        // once and leave the old file untouched as a rollback copy.
         if (migrated || !string.Equals(sourcePath, path, StringComparison.Ordinal))
         {
             Save(data, path);
         }
-
         return data;
     }
 
@@ -116,10 +109,7 @@ public sealed class SaveService
         string tempPath = path + ".tmp";
         using (Godot.FileAccess file = Godot.FileAccess.Open(tempPath, Godot.FileAccess.ModeFlags.Write))
         {
-            if (file is null)
-            {
-                throw new InvalidOperationException($"Could not open temporary save file '{tempPath}'.");
-            }
+            if (file is null) throw new InvalidOperationException($"Could not open temporary save file '{tempPath}'.");
             file.StoreString(json);
         }
 
@@ -179,9 +169,6 @@ public sealed class SaveService
             world.WorldId = string.IsNullOrWhiteSpace(world.WorldId) ? worldId : world.WorldId;
             if (worlds.Worlds.TryGetValue(world.WorldId, out WorldProfile? profile))
             {
-                // Schema 2 and the earliest schema-3 development saves did not store WorldVersion.
-                // Adopt the currently authored v1 identity once; subsequent mismatches are rejected by
-                // GameRoot rather than silently moving a run onto a changed frozen definition.
                 if (world.WorldVersion <= 0) world.WorldVersion = profile.WorldVersion;
                 if (world.GenerationVersion <= 0) world.GenerationVersion = profile.GenerationVersion;
             }
