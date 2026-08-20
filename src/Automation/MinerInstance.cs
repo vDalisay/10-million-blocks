@@ -15,8 +15,11 @@ public sealed class MinerInstance
 {
     public long InstanceId { get; init; }
     public string DefinitionId { get; init; } = string.Empty;
-    public Vector3I Origin { get; init; }
-    public Vector3I Direction { get; init; }
+
+    // Origin/direction are mutable because a stopped automation can be picked up and moved to a new
+    // surface. Instance identity is preserved so save/HUD references continue to refer to the same unit.
+    public Vector3I Origin { get; set; }
+    public Vector3I Direction { get; set; }
     public Vector3I LastMinedVoxel { get; set; }
     public int CandidateIndex { get; set; }
     public long BlocksMined { get; set; }
