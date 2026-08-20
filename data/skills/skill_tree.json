@@ -1,11 +1,11 @@
 {
   "schema_version": 2,
-  "content_version": 9,
+  "content_version": 10,
   "nodes": [
     {
       "id": "manual_2x",
-      "display_name": "Two-Handed Mining",
-      "description": "Mine one additional nearby block per click.",
+      "display_name": "Broad Swing",
+      "description": "Expand manual mining into a 3x3 plus-shaped footprint. Only the highest outward layer in the footprint receives damage each tick.",
       "grid_x": 0,
       "grid_y": 0,
       "category": "manual",
@@ -13,12 +13,12 @@
       "prerequisites": [],
       "cost": 20,
       "max_rank": 1,
-      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
+      "effects": [{ "type": "set_manual_footprint", "string_value": "plus_3" }]
     },
     {
       "id": "manual_3x",
-      "display_name": "Rapid Chipping",
-      "description": "Mine one more nearby block per click.",
+      "display_name": "Full Sweep",
+      "description": "Upgrade the manual footprint from the plus shape to the complete 3x3 surface square.",
       "grid_x": 0,
       "grid_y": 2,
       "category": "manual",
@@ -28,7 +28,35 @@
       ],
       "cost": 60,
       "max_rank": 1,
-      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
+      "effects": [{ "type": "set_manual_footprint", "string_value": "square_3" }]
+    },
+    {
+      "id": "hover_mining_unlock",
+      "display_name": "Hover Mining",
+      "description": "Unlock a UI toggle that repeatedly applies manual mining while the cursor rests on a valid block. It pauses during camera movement and placement.",
+      "grid_x": -2,
+      "grid_y": 0,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [],
+      "cost": 15,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_hover_mining" }]
+    },
+    {
+      "id": "manual_hover_speed",
+      "display_name": "Steady Hands",
+      "description": "Repeatable manual cadence upgrade. Each rank makes Hover Mining apply its next mining tick 25% faster.",
+      "grid_x": -2,
+      "grid_y": 2,
+      "category": "manual",
+      "purchase_mode": "repeatable",
+      "prerequisites": [
+        { "node_id": "hover_mining_unlock", "required_rank": 1, "route": [{ "grid_x": -2, "grid_y": 1 }] }
+      ],
+      "cost": 30,
+      "max_rank": 4,
+      "effects": [{ "type": "multiply_manual_mining_rate", "value": 1.25 }]
     },
     {
       "id": "automation_unlock",
@@ -91,7 +119,7 @@
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Upgrade the placed drill to a slower 3x3 bore.",
+      "description": "Transform the Drill into a slower 3x3 bore. The future progression adds a red-gem special-resource cost to this transformation.",
       "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
