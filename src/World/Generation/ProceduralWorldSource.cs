@@ -13,14 +13,10 @@ public readonly record struct BlockSample(bool Present, string BlockId, bool Min
 public readonly record struct FeatureSample(string BlockId, Vector3I AnchorVoxel, Vector3I OutwardNormal);
 
 /// <summary>
-/// Deterministic cube-world generator.
-///
-/// Procedural terrain deliberately follows a Minecraft-like surface contract rather than treating
-/// every 3D voxel as an unrelated noise sample: each of the six cube faces owns a stable 2D height
-/// column, and every accepted terrain column is filled continuously inward. This rules out floating
-/// dirt/grass shelves by construction while still allowing authored caves/features to be layered in
-/// later. Water is also column-based, with a smoothed shoreline mask, shallow edge cells and deeper
-/// center cells.
+/// Deterministic cube-world generator. Procedural terrain follows a Minecraft-like column contract:
+/// each of the six cube faces owns stable 2D height columns and accepted terrain is filled inward.
+/// Water is a coherent face-column system with explicit shoreline and depth rules rather than an
+/// independent per-voxel noise material.
 /// </summary>
 public sealed class ProceduralWorldSource
 {
@@ -87,8 +83,6 @@ public sealed class ProceduralWorldSource
 
     public BlockSample SampleVoxel(Vector3I coordinate)
     {
-        // Sparse authored overrides win before base bounds/generation are evaluated. This lets the
-        // authoring workflow replace, carve or coherently extend a frozen deterministic candidate.
         if (_overrides is not null && _overrides.TryGet(coordinate, out BlockSample authored))
         {
             return authored;
@@ -128,10 +122,7 @@ public sealed class ProceduralWorldSource
     {
         voxel = default;
         sample = BlockSample.Empty;
-        if (!IsCardinal(outwardNormal))
-        {
-            return false;
-        }
+        if (!IsCardinal(outwardNormal)) return false;
 
         if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
         {
@@ -152,14 +143,11 @@ public sealed class ProceduralWorldSource
             return false;
         }
 
-        // Quantization and overlap with an adjacent face can make the estimated outer coordinate one
-        // cell too high. Search inward a few cells rather than fabricating a detached surface block.
         for (int inward = 0; inward <= 4 && radial - inward >= 0; inward++)
         {
             Vector3I candidate = FaceVoxel(outwardNormal, radial - inward, tangentU, tangentV);
             BlockSample candidateSample = SampleVoxel(candidate);
             if (!candidateSample.Present) continue;
-
             voxel = candidate;
             sample = candidateSample;
             return true;
@@ -172,7 +160,6 @@ public sealed class ProceduralWorldSource
     {
         if (_profile.UsesSingleBlockGenerator) return 0.0f;
         if (_profile.UsesSolidCubeGenerator) return MaxAbs(coordinate);
-
         Vector3I normal = GetDominantNormal(coordinate);
         GetFaceTangents(coordinate, normal, out int u, out int v, out _);
         return SampleTerrain(normal, u, v).GroundRadius;
@@ -199,22 +186,13 @@ public sealed class ProceduralWorldSource
 
         if (_overrides is not null && _overrides.TryGetFeature(surfaceVoxel, out FeatureSample authoredFeature))
         {
-            // Authored features remain support-owned: once the supporting terrain cell is removed the
-            // feature disappears automatically, and a block occupying its outward cell invalidates it.
             BlockSample support = SampleVoxel(surfaceVoxel);
-            if (!support.Present || SampleVoxel(surfaceVoxel + authoredFeature.OutwardNormal).Present)
-            {
-                return false;
-            }
-
+            if (!support.Present || SampleVoxel(surfaceVoxel + authoredFeature.OutwardNormal).Present) return false;
             feature = authoredFeature;
             return string.Equals(feature.BlockId, "tree", StringComparison.Ordinal);
         }
 
-        if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
-        {
-            return false;
-        }
+        if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator) return false;
 
         BlockSample sample = SampleVoxel(surfaceVoxel);
         if (!sample.Present
@@ -230,31 +208,19 @@ public sealed class ProceduralWorldSource
         }
 
         Vector3I normal = controlling.Normal;
-        if (SampleVoxel(surfaceVoxel + normal).Present)
-        {
-            return false;
-        }
+        if (SampleVoxel(surfaceVoxel + normal).Present) return false;
 
         TerrainContext terrain = controlling.Terrain;
-        if (terrain.HasWater || terrain.ShoreFactor > 0.22f || terrain.Cliffiness > 0.52f)
-        {
-            return false;
-        }
+        if (terrain.HasWater || terrain.ShoreFactor > 0.22f || terrain.Cliffiness > 0.52f) return false;
 
         float temperate = 1.0f - MathF.Min(1.0f, MathF.Abs(terrain.Temperature) * 0.82f);
         float suitability = terrain.ForestField * 0.48f + terrain.Humidity * 0.40f + temperate * 0.22f;
-        if (suitability < _profile.ForestThreshold)
-        {
-            return false;
-        }
+        if (suitability < _profile.ForestThreshold) return false;
 
         float densityBoost = 0.55f + Smooth01((suitability - _profile.ForestThreshold) / 0.75f) * 1.35f;
         float chance = MathF.Min(0.42f, _profile.TreeDensity * densityBoost);
         float hash = DeterministicNoise.Hash01(surfaceVoxel.X, surfaceVoxel.Y, surfaceVoxel.Z, _profile.Seed + 22003);
-        if (hash >= chance)
-        {
-            return false;
-        }
+        if (hash >= chance) return false;
 
         feature = new FeatureSample("tree", surfaceVoxel, normal);
         return true;
@@ -281,8 +247,6 @@ public sealed class ProceduralWorldSource
             }
         }
 
-        // Terrain always wins where two face columns overlap. This keeps cube corners watertight and
-        // prevents a lake on one face from cutting a blue seam through solid terrain on another face.
         if (bestSolid is SurfaceCandidate solid)
         {
             float depth = MathF.Max(0.0f, solid.Terrain.GroundRadius - solid.Radial);
@@ -291,7 +255,7 @@ public sealed class ProceduralWorldSource
 
         if (bestWater is SurfaceCandidate water)
         {
-            return ClassifyWater(water.Terrain);
+            return ClassifyWater(water.Normal, water.U, water.V, water.Terrain);
         }
 
         return BlockSample.Empty;
@@ -304,40 +268,20 @@ public sealed class ProceduralWorldSource
         if (radial < -0.001f) return false;
 
         TerrainContext terrain = SampleTerrain(normal, u, v);
-        float outer = terrain.HasWater
-            ? MathF.Max(terrain.GroundRadius, terrain.WaterRadius)
-            : terrain.GroundRadius;
-
-        // A face column cannot create a diagonal shelf whose tangential coordinates already sit
-        // outside that column's own cube extent.
-        if (Math.Abs(u) > outer + 0.001f || Math.Abs(v) > outer + 0.001f)
-        {
-            return false;
-        }
+        float outer = terrain.HasWater ? MathF.Max(terrain.GroundRadius, terrain.WaterRadius) : terrain.GroundRadius;
+        if (Math.Abs(u) > outer + 0.001f || Math.Abs(v) > outer + 0.001f) return false;
 
         bool solid = radial <= terrain.GroundRadius + 0.001f;
-        bool water = !solid
-            && terrain.HasWater
-            && radial <= terrain.WaterRadius + 0.001f;
+        bool water = !solid && terrain.HasWater && radial <= terrain.WaterRadius + 0.001f;
         if (!solid && !water) return false;
 
         float surface = solid ? terrain.GroundRadius : terrain.WaterRadius;
         candidate = new SurfaceCandidate(
-            normal,
-            u,
-            v,
-            radial,
-            terrain,
-            solid,
-            water,
-            MathF.Max(0.0f, surface - radial));
+            normal, u, v, radial, terrain, solid, water, MathF.Max(0.0f, surface - radial));
         return true;
     }
 
-    private bool TryFindControllingCandidate(
-        Vector3I coordinate,
-        bool preferSolid,
-        out SurfaceCandidate best)
+    private bool TryFindControllingCandidate(Vector3I coordinate, bool preferSolid, out SurfaceCandidate best)
     {
         best = default;
         bool found = false;
@@ -348,14 +292,12 @@ public sealed class ProceduralWorldSource
         {
             if (!TryBuildCandidate(coordinate, normal, out SurfaceCandidate candidate)) continue;
             bool preferred = preferSolid ? candidate.IsSolid : candidate.IsWater;
-
             if (foundPreferred && !preferred) continue;
             if (preferred && !foundPreferred)
             {
                 foundPreferred = true;
                 bestDistance = float.MaxValue;
             }
-
             if (candidate.SurfaceDistance >= bestDistance) continue;
             best = candidate;
             bestDistance = candidate.SurfaceDistance;
@@ -365,21 +307,35 @@ public sealed class ProceduralWorldSource
         return found;
     }
 
-    private BlockSample ClassifyWater(TerrainContext terrain)
+    private BlockSample ClassifyWater(Vector3I normal, int u, int v, TerrainContext terrain)
     {
-        // Depth is a property of the whole water column. Edge columns remain shallow, normal water
-        // occupies the transition, and the darker material appears only in deeper interior columns.
         if (terrain.WaterDepth <= 1.60f)
         {
             return new BlockSample(true, _profile.ShallowWaterBlock, true);
         }
 
-        if (terrain.WaterDepth >= 2.85f)
+        // Dark/deep water is reserved for the interior of a coherent body. A deep basin cell next to
+        // any dry/shallow cardinal column is still rendered as normal water so the shoreline never
+        // gets a dark rim merely because the floor drops quickly at that point.
+        if (terrain.WaterDepth >= 2.85f && IsDeepWaterInterior(normal, u, v))
         {
             return new BlockSample(true, _profile.DeepWaterBlock, true);
         }
 
         return new BlockSample(true, _profile.WaterBlock, true);
+    }
+
+    private bool IsDeepWaterInterior(Vector3I normal, int u, int v)
+    {
+        TerrainContext a = SampleTerrain(normal, u + 1, v);
+        TerrainContext b = SampleTerrain(normal, u - 1, v);
+        TerrainContext c = SampleTerrain(normal, u, v + 1);
+        TerrainContext d = SampleTerrain(normal, u, v - 1);
+        return a.HasWater && b.HasWater && c.HasWater && d.HasWater
+            && a.WaterDepth >= 1.60f
+            && b.WaterDepth >= 1.60f
+            && c.WaterDepth >= 1.60f
+            && d.WaterDepth >= 1.60f;
     }
 
     private BlockSample ClassifySolid(
@@ -405,8 +361,6 @@ public sealed class ProceduralWorldSource
                     true);
             }
 
-            // The literal outer cube seam is the visual silhouette. Keep it fully green instead of
-            // exposing the dirt-sided grass model around the corner line.
             if (IsCubeOuterSeam(coordinate))
             {
                 return new BlockSample(true, _profile.SurfaceBlock, true);
@@ -420,11 +374,7 @@ public sealed class ProceduralWorldSource
 
         if (depth <= 2.85f)
         {
-            if (terrain.HasWater && depth < 1.85f)
-            {
-                return new BlockSample(true, _profile.SandBlock, true);
-            }
-
+            if (terrain.HasWater && depth < 1.85f) return new BlockSample(true, _profile.SandBlock, true);
             return new BlockSample(true, _profile.SoilBlock, true);
         }
 
@@ -434,21 +384,9 @@ public sealed class ProceduralWorldSource
             coordinate.Z * 0.19f,
             _profile.Seed + 7001,
             3);
-
-        if (oreNoise > 0.77f)
-        {
-            return new BlockSample(true, _profile.GoldBlock, true);
-        }
-
-        if (oreNoise > 0.67f)
-        {
-            return new BlockSample(true, _profile.SilverBlock, true);
-        }
-
-        if (oreNoise > 0.56f)
-        {
-            return new BlockSample(true, _profile.CopperBlock, true);
-        }
+        if (oreNoise > 0.77f) return new BlockSample(true, _profile.GoldBlock, true);
+        if (oreNoise > 0.67f) return new BlockSample(true, _profile.SilverBlock, true);
+        if (oreNoise > 0.56f) return new BlockSample(true, _profile.CopperBlock, true);
 
         float stoneMix = DeterministicNoise.Fractal3D(
             coordinate.X * 0.11f,
@@ -456,19 +394,13 @@ public sealed class ProceduralWorldSource
             coordinate.Z * 0.11f,
             _profile.Seed + 9901,
             2);
-        return new BlockSample(
-            true,
-            stoneMix < -0.12f ? _profile.DarkStoneBlock : _profile.StoneBlock,
-            true);
+        return new BlockSample(true, stoneMix < -0.12f ? _profile.DarkStoneBlock : _profile.StoneBlock, true);
     }
 
     private TerrainContext SampleTerrain(Vector3I normal, int u, int v)
     {
         ColumnKey key = MakeColumnKey(normal, u, v);
-        if (_columnCache.TryGetValue(key, out TerrainContext cached))
-        {
-            return cached;
-        }
+        if (_columnCache.TryGetValue(key, out TerrainContext cached)) return cached;
 
         RawTerrain center = SampleRawTerrain(normal, u, v);
         RawTerrain n1 = SampleRawTerrain(normal, u + 1, v);
@@ -482,14 +414,8 @@ public sealed class ProceduralWorldSource
             n2.GroundRadius,
             n3.GroundRadius,
             n4.GroundRadius);
-
-        // A local median clamp keeps the blocky Minecraft-like silhouette while removing isolated
-        // one-column spikes. Relief can still form cliffs, but a single dirt cube cannot float above
-        // an otherwise lower neighborhood.
         float clampedCenter = Math.Clamp(center.GroundRadius, median - 1.0f, median + 1.0f);
-        float groundRadius = Quantize(
-            clampedCenter * 0.68f + median * 0.32f,
-            _profile.PlateauStep);
+        float groundRadius = Quantize(clampedCenter * 0.68f + median * 0.32f, _profile.PlateauStep);
 
         int waterVotes = 0;
         if (IsWaterCandidate(center)) waterVotes++;
@@ -507,19 +433,12 @@ public sealed class ProceduralWorldSource
 
         if (hasWater)
         {
-            // Boundary columns are deliberately shallow; stronger interior hydrology carves the bowl
-            // deeper. Because water needs a 3/5 local vote, isolated one-cell blue lines disappear.
             float neighborhoodStrength = (
-                center.WaterStrength
-                + n1.WaterStrength
-                + n2.WaterStrength
-                + n3.WaterStrength
-                + n4.WaterStrength) / 5.0f;
+                center.WaterStrength + n1.WaterStrength + n2.WaterStrength + n3.WaterStrength + n4.WaterStrength) / 5.0f;
             float strength = Math.Clamp(center.WaterStrength * 0.72f + neighborhoodStrength * 0.28f, 0.0f, 1.0f);
-            float minimumDepth = 1.0f;
             float maximumExtraDepth = center.OceanCandidate ? 3.5f : 2.5f;
             float bowl = strength * strength * (3.0f - 2.0f * strength);
-            float desiredFloor = waterRadius - minimumDepth - maximumExtraDepth * bowl;
+            float desiredFloor = waterRadius - 1.0f - maximumExtraDepth * bowl;
             groundRadius = MathF.Min(groundRadius, Quantize(desiredFloor, _profile.PlateauStep));
             waterDepth = MathF.Max(0.0f, waterRadius - groundRadius);
         }
@@ -530,20 +449,14 @@ public sealed class ProceduralWorldSource
         float shoreFactor = hasWater
             ? 1.0f
             : 1.0f - Smooth01(thresholdDistance / MathF.Max(0.001f, _profile.ShoreBand));
-
-        // A dry column touching a likely water column is explicitly beach material. This is stronger
-        // than relying on a tiny scalar threshold and makes a readable sand ring around lakes.
-        if (!hasWater && (centerWater || waterVotes > 0))
-        {
-            shoreFactor = MathF.Max(shoreFactor, 0.78f);
-        }
+        if (!hasWater && (centerWater || waterVotes > 0)) shoreFactor = MathF.Max(shoreFactor, 0.78f);
 
         TerrainContext result = new(
             groundRadius,
             waterRadius,
             hasWater,
             waterDepth,
-            center.GroundRadius == 0.0f ? 0.0f : center.Hydrology,
+            center.Hydrology,
             center.Erosion,
             center.Humidity,
             center.Temperature,
@@ -564,7 +477,6 @@ public sealed class ProceduralWorldSource
             point.Z * _profile.ClimateFrequency,
             _profile.Seed + 101,
             4);
-
         float erosionSigned = DeterministicNoise.Fractal3D(
             point.X * _profile.ErosionFrequency,
             point.Y * _profile.ErosionFrequency,
@@ -572,7 +484,6 @@ public sealed class ProceduralWorldSource
             _profile.Seed + 503,
             4);
         float erosion = (erosionSigned + 1.0f) * 0.5f;
-
         float ridgeSigned = DeterministicNoise.Fractal3D(
             point.X * _profile.RidgeFrequency,
             point.Y * _profile.RidgeFrequency,
@@ -580,14 +491,12 @@ public sealed class ProceduralWorldSource
             _profile.Seed + 907,
             3);
         float ridge = 1.0f - MathF.Abs(ridgeSigned);
-
         float weirdness = DeterministicNoise.Fractal3D(
             point.X * _profile.MacroFrequency * 1.55f,
             point.Y * _profile.MacroFrequency * 1.55f,
             point.Z * _profile.MacroFrequency * 1.55f,
             _profile.Seed + 1301,
             3);
-
         float detail = DeterministicNoise.Fractal3D(
             point.X * _profile.DetailFrequency,
             point.Y * _profile.DetailFrequency,
@@ -599,8 +508,7 @@ public sealed class ProceduralWorldSource
             * Smooth01((0.76f - erosion) / 0.58f);
         float broadRelief = continentalness * _profile.TerrainAmplitude * 0.52f;
         float mountainRelief = ridge * mountainMask * _profile.TerrainAmplitude * 0.92f;
-        float valleyRelief = -Smooth01((-continentalness - 0.08f) / 0.55f)
-            * _profile.TerrainAmplitude * 0.38f;
+        float valleyRelief = -Smooth01((-continentalness - 0.08f) / 0.55f) * _profile.TerrainAmplitude * 0.38f;
         float detailStrength = 0.18f + (1.0f - erosion) * 0.82f;
         float localDetail = detail * _profile.DetailAmplitude * detailStrength;
         float plateauBias = weirdness * _profile.TerrainAmplitude * 0.12f;
@@ -638,9 +546,7 @@ public sealed class ProceduralWorldSource
         float lakeSignal = basin - continentalness * 0.38f + humidity * 0.10f;
         float waterRadius = _profile.BaseRadius + _profile.SeaLevelOffset;
         bool lowEnoughForWater = rawGroundRadius <= waterRadius + 0.75f;
-        bool oceanCandidate = edgeFade > 0.42f
-            && lowEnoughForWater
-            && hydrology < _profile.OceanThreshold;
+        bool oceanCandidate = edgeFade > 0.42f && lowEnoughForWater && hydrology < _profile.OceanThreshold;
         bool lakeCandidate = edgeFade > 0.42f
             && lowEnoughForWater
             && !oceanCandidate
@@ -673,7 +579,7 @@ public sealed class ProceduralWorldSource
 
     private bool IsNaturalLedge(Vector3I normal, int u, int v, TerrainContext terrain)
     {
-        float ledgeDrop = 0.85f;
+        const float ledgeDrop = 0.85f;
         return SampleTerrain(normal, u + 1, v).GroundRadius < terrain.GroundRadius - ledgeDrop
             || SampleTerrain(normal, u - 1, v).GroundRadius < terrain.GroundRadius - ledgeDrop
             || SampleTerrain(normal, u, v + 1).GroundRadius < terrain.GroundRadius - ledgeDrop
@@ -687,9 +593,6 @@ public sealed class ProceduralWorldSource
     {
         float distanceToSeam = _profile.BaseRadius - Math.Max(Math.Abs(u), Math.Abs(v));
         if (distanceToSeam <= -0.001f) return 0.0f;
-
-        // Terrain relief eases back to the base cube over roughly the outer two cells. The silhouette
-        // therefore stays a supported green seam rather than producing thin dirt overhangs at corners.
         return Smooth01((distanceToSeam + 0.20f) / 1.70f);
     }
 
@@ -698,7 +601,6 @@ public sealed class ProceduralWorldSource
         float radius = MathF.Max(1.0f, _profile.BaseRadius);
         float a = u / radius;
         float b = v / radius;
-
         if (normal == Vector3I.Right) return new Vector3(1.0f, a, b);
         if (normal == Vector3I.Left) return new Vector3(-1.0f, a, b);
         if (normal == Vector3I.Up) return new Vector3(a, 1.0f, b);
@@ -728,7 +630,6 @@ public sealed class ProceduralWorldSource
             radial = coordinate.X * normal.X;
             return;
         }
-
         if (normal.Y != 0)
         {
             u = coordinate.X;
@@ -736,7 +637,6 @@ public sealed class ProceduralWorldSource
             radial = coordinate.Y * normal.Y;
             return;
         }
-
         u = coordinate.X;
         v = coordinate.Y;
         radial = coordinate.Z * normal.Z;
@@ -762,9 +662,7 @@ public sealed class ProceduralWorldSource
                 ? _profile.LogicalHeight
                 : _profile.LogicalDepth;
         int minimum = -(size / 2);
-        return normal.X < 0 || normal.Y < 0 || normal.Z < 0
-            ? -minimum
-            : minimum + size - 1;
+        return normal.X < 0 || normal.Y < 0 || normal.Z < 0 ? -minimum : minimum + size - 1;
     }
 
     private static Vector3I FaceVoxel(Vector3I normal, int radial, int u, int v)
@@ -782,17 +680,8 @@ public sealed class ProceduralWorldSource
         int ax = Math.Abs(coordinate.X);
         int ay = Math.Abs(coordinate.Y);
         int az = Math.Abs(coordinate.Z);
-
-        if (ax >= ay && ax >= az)
-        {
-            return coordinate.X >= 0 ? Vector3I.Right : Vector3I.Left;
-        }
-
-        if (ay >= ax && ay >= az)
-        {
-            return coordinate.Y >= 0 ? Vector3I.Up : Vector3I.Down;
-        }
-
+        if (ax >= ay && ax >= az) return coordinate.X >= 0 ? Vector3I.Right : Vector3I.Left;
+        if (ay >= ax && ay >= az) return coordinate.Y >= 0 ? Vector3I.Up : Vector3I.Down;
         return coordinate.Z >= 0 ? Vector3I.Back : Vector3I.Forward;
     }
 
