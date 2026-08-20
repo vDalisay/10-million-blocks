@@ -89,8 +89,6 @@ public partial class GameRoot : Node3D
             return;
         }
 
-        // Development-only shortcut so completion/Continue can be exercised without manually
-        // removing several thousand blocks. It does not alter world state or count as a real clear.
         if (key.Keycode == Key.F10 && OS.IsDebugBuild() && _sessionPersists && !_completionShown && _world is not null)
         {
             ShowCompletion(debugPreview: true);
@@ -98,8 +96,6 @@ public partial class GameRoot : Node3D
             return;
         }
 
-        // The stress profile deliberately sits outside authored progression. F8 toggles it without
-        // polluting the player's sparse save or progression index.
         if (key.Keycode == Key.F8 && OS.IsDebugBuild() && _world is not null)
         {
             if (_world.Profile.Id == "stress_1000")
@@ -230,6 +226,10 @@ public partial class GameRoot : Node3D
         var hud = new MiningHud { Name = "MiningHud" };
         hud.Initialize(_world, _mining, _worldView, _skills, _miners, _manualMining, _placement);
         _sessionRoot.AddChild(hud);
+
+        var automationAttention = new AutomationAttentionView { Name = "AutomationAttentionView" };
+        automationAttention.Initialize(_miners, _worldView);
+        _sessionRoot.AddChild(automationAttention);
 
         _performanceHud = new PerformanceHud { Name = "PerformanceHud" };
         _performanceHud.Initialize(_world, _worldView, _camera);
