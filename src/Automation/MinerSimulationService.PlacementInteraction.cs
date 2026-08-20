@@ -9,14 +9,12 @@ public partial class MinerSimulationService
     private const long PlacementPreviewRotorId = long.MinValue;
 
     private Node3D? _attentionOutline;
-    private Node3D? _attentionFill;
     private long? _attentionHighlightedMinerId;
     private bool _attentionHighlightHovered;
 
     private ShaderMaterial? _ghostValidMaterial;
     private ShaderMaterial? _ghostInvalidMaterial;
     private ShaderMaterial? _attentionOutlineMaterial;
-    private ShaderMaterial? _attentionFillMaterial;
 
     public MinerInstance? HighlightedAttentionMiner
     {
@@ -59,7 +57,12 @@ public partial class MinerSimulationService
             }
         }
 
-        if (IsShovel(definition) && !IsShovelMaterial(placementSample)) return false;
+        Vector3I outward = _world.Source.GetOutwardNormal(surfaceVoxel);
+        if (IsShovel(definition)
+            && (!IsShovelMaterial(placementSample) || HasBlockingShovelSurfaceFeature(surfaceVoxel, outward)))
+        {
+            return false;
+        }
         if (IsAxe(definition) && !IsTreeAnchor(surfaceVoxel)) return false;
         return true;
     }
@@ -187,7 +190,8 @@ public partial class MinerSimulationService
     /// <summary>
     /// Selects one stopped automation for the attention workflow. The overlay is rendered with depth
     /// testing disabled, so a stopped machine can still be located through surface blocks or tunnel
-    /// walls after the camera focuses its area.
+    /// walls after the camera focuses its area. Only an inverted-hull outline is drawn; the source
+    /// model is never replaced by a solid orange x-ray fill.
     /// </summary>
     public void SetAttentionHighlight(MinerInstance? miner)
     {
@@ -199,15 +203,18 @@ public partial class MinerSimulationService
         if (!_visuals.TryGetValue(miner.InstanceId, out Node3D? source)) return;
 
         _attentionHighlightedMinerId = miner.InstanceId;
-        _attentionOutline = BuildGeometryOverlay(source, $"AutomationOutline_{miner.InstanceId}", AttentionOutlineMaterial());
-        _attentionFill = BuildGeometryOverlay(source, $"AutomationFill_{miner.InstanceId}", AttentionFillMaterial());
-        _attentionFill.Visible = false;
+        _attentionOutline = BuildGeometryOverlay(
+            source,
+            $"AutomationOutline_{miner.InstanceId}",
+            AttentionOutlineMaterial());
         RefreshAttentionOverlayTransform();
+        SetAttentionHoverState(false);
     }
 
     /// <summary>
-    /// Screen-space hit testing deliberately ignores world occlusion. The x-ray shader shows where the
-    /// stopped machine is; this test lets the player interact with that same silhouette through blocks.
+    /// Screen-space hit testing deliberately ignores world occlusion. The x-ray outline shows where
+    /// the stopped machine is; this test lets the player interact with that same silhouette through
+    /// blocks. Hovering strengthens the outline instead of filling the model.
     /// </summary>
     public bool UpdateAttentionHover(Vector2 mousePosition, Camera3D camera)
     {
@@ -255,6 +262,7 @@ public partial class MinerSimulationService
                     Mesh = meshInstance.Mesh,
                     Transform = transform,
                     MaterialOverride = material,
+                    CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
                 });
             }
 
@@ -267,60 +275,88 @@ public partial class MinerSimulationService
         MinerInstance? miner = HighlightedAttentionMiner;
         if (miner is null || !_visuals.TryGetValue(miner.InstanceId, out Node3D? source)) return;
         if (_attentionOutline is not null) _attentionOutline.Transform = source.Transform;
-        if (_attentionFill is not null) _attentionFill.Transform = source.Transform;
     }
 
     private void SetAttentionHoverState(bool hovered)
     {
         _attentionHighlightHovered = hovered;
-        if (_attentionFill is not null) _attentionFill.Visible = hovered;
+        if (_attentionOutlineMaterial is null) return;
+
+        _attentionOutlineMaterial.SetShaderParameter(
+            "outline_color",
+            hovered
+                ? new Color(1.0f, 0.58f, 0.04f, 1.0f)
+                : new Color(1.0f, 0.72f, 0.18f, 0.94f));
+        _attentionOutlineMaterial.SetShaderParameter("outline_width", hovered ? 6.0f : 4.25f);
     }
 
     private void ClearAttentionOverlay()
     {
         if (_attentionOutline is not null && GodotObject.IsInstanceValid(_attentionOutline)) _attentionOutline.QueueFree();
-        if (_attentionFill is not null && GodotObject.IsInstanceValid(_attentionFill)) _attentionFill.QueueFree();
         _attentionOutline = null;
-        _attentionFill = null;
     }
 
     private Material GhostMaterial(bool valid)
     {
         if (valid)
         {
-            return _ghostValidMaterial ??= CreateTintShaderMaterial(new Color(0.18f, 1.0f, 0.30f, 0.52f), xray: false, outline: false);
+            return _ghostValidMaterial ??= CreateGhostTintShaderMaterial(new Color(0.18f, 1.0f, 0.30f, 0.52f));
         }
-        return _ghostInvalidMaterial ??= CreateTintShaderMaterial(new Color(1.0f, 0.18f, 0.16f, 0.55f), xray: false, outline: false);
+        return _ghostInvalidMaterial ??= CreateGhostTintShaderMaterial(new Color(1.0f, 0.18f, 0.16f, 0.55f));
     }
 
     private Material AttentionOutlineMaterial()
-        => _attentionOutlineMaterial ??= CreateTintShaderMaterial(new Color(1.0f, 0.56f, 0.05f, 0.96f), xray: true, outline: true);
+        => _attentionOutlineMaterial ??= CreatePixelStableXrayOutlineMaterial();
 
-    private Material AttentionFillMaterial()
-        => _attentionFillMaterial ??= CreateTintShaderMaterial(new Color(1.0f, 0.42f, 0.02f, 0.38f), xray: true, outline: false);
-
-    private static ShaderMaterial CreateTintShaderMaterial(Color color, bool xray, bool outline)
+    private static ShaderMaterial CreateGhostTintShaderMaterial(Color color)
     {
-        string renderMode = xray
-            ? outline
-                ? "unshaded, cull_front, depth_test_disabled, blend_mix"
-                : "unshaded, cull_disabled, depth_test_disabled, blend_mix"
-            : "unshaded, cull_back, blend_mix";
-        string grow = outline ? "VERTEX += NORMAL * grow;" : string.Empty;
         var shader = new Shader
         {
-            Code = $@"shader_type spatial;
-render_mode {renderMode};
+            Code = @"shader_type spatial;
+render_mode unshaded, cull_back, blend_mix, shadows_disabled;
 uniform vec4 tint : source_color = vec4(1.0);
-uniform float grow = 0.065;
-void vertex() {{ {grow} }}
-void fragment() {{
+void fragment() {
     ALBEDO = tint.rgb;
     ALPHA = tint.a;
-}}",
+}",
         };
         var material = new ShaderMaterial { Shader = shader };
         material.SetShaderParameter("tint", color);
+        return material;
+    }
+
+    /// <summary>
+    /// Pixel-stable inverted-hull silhouette. This follows the common Godot outline technique of
+    /// rendering only expanded back faces (cull_front) and offsets the hull in clip space so the
+    /// border remains readable from different zoom levels. Depth testing is disabled specifically for
+    /// the stopped-automation locator, allowing only the outline to remain visible through terrain.
+    /// </summary>
+    private static ShaderMaterial CreatePixelStableXrayOutlineMaterial()
+    {
+        var shader = new Shader
+        {
+            Code = @"shader_type spatial;
+render_mode unshaded, cull_front, depth_test_disabled, blend_mix, shadows_disabled;
+uniform vec4 outline_color : source_color = vec4(1.0, 0.72, 0.18, 0.94);
+uniform float outline_width = 4.25;
+void vertex() {
+    vec4 clip_position = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
+    vec3 clip_normal = mat3(PROJECTION_MATRIX) * (mat3(MODELVIEW_MATRIX) * NORMAL);
+    vec2 normal_xy = clip_normal.xy;
+    if (length(normal_xy) > 0.0001) {
+        vec2 offset = normalize(normal_xy) / VIEWPORT_SIZE * clip_position.w * outline_width * 2.0;
+        clip_position.xy += offset;
+    }
+    POSITION = clip_position;
+}
+void fragment() {
+    ALBEDO = outline_color.rgb;
+    ALPHA = outline_color.a;
+}",
+        };
+        var material = new ShaderMaterial { Shader = shader };
+        material.SetShaderParameter("outline_color", new Color(1.0f, 0.72f, 0.18f, 0.94f));
+        material.SetShaderParameter("outline_width", 4.25f);
         return material;
     }
 
