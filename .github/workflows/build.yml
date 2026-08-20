@@ -31,3 +31,6 @@ jobs:
 
       - name: Build
         run: dotnet build TenMillionBlocks.csproj --configuration Release --no-restore
+
+      - name: Validate deterministic generation
+        run: dotnet run --project tools/generation_contract/GenerationContract.csproj --configuration Release
