@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
 
@@ -11,12 +12,23 @@ public readonly record struct BlockSample(bool Present, string BlockId, bool Min
 
 public readonly record struct FeatureSample(string BlockId, Vector3I AnchorVoxel, Vector3I OutwardNormal);
 
+/// <summary>
+/// Deterministic cube-world generator.
+///
+/// Procedural terrain deliberately follows a Minecraft-like surface contract rather than treating
+/// every 3D voxel as an unrelated noise sample: each of the six cube faces owns a stable 2D height
+/// column, and every accepted terrain column is filled continuously inward. This rules out floating
+/// dirt/grass shelves by construction while still allowing authored caves/features to be layered in
+/// later. Water is also column-based, with a smoothed shoreline mask, shallow edge cells and deeper
+/// center cells.
+/// </summary>
 public sealed class ProceduralWorldSource
 {
     private readonly record struct TerrainContext(
         float GroundRadius,
         float WaterRadius,
         bool HasWater,
+        float WaterDepth,
         float Continentalness,
         float Erosion,
         float Humidity,
@@ -25,8 +37,45 @@ public sealed class ProceduralWorldSource
         float ShoreFactor,
         float ForestField);
 
+    private readonly record struct RawTerrain(
+        float GroundRadius,
+        float Hydrology,
+        float LakeSignal,
+        float Humidity,
+        float Temperature,
+        float Erosion,
+        float Cliffiness,
+        float ForestField,
+        float EdgeFade,
+        bool OceanCandidate,
+        bool LakeCandidate,
+        float WaterStrength);
+
+    private readonly record struct ColumnKey(int Axis, int Sign, int U, int V);
+
+    private readonly record struct SurfaceCandidate(
+        Vector3I Normal,
+        int U,
+        int V,
+        float Radial,
+        TerrainContext Terrain,
+        bool IsSolid,
+        bool IsWater,
+        float SurfaceDistance);
+
+    private static readonly Vector3I[] FaceNormals =
+    [
+        Vector3I.Right,
+        Vector3I.Left,
+        Vector3I.Up,
+        Vector3I.Down,
+        Vector3I.Back,
+        Vector3I.Forward,
+    ];
+
     private readonly WorldProfile _profile;
     private readonly WorldOverrideSet? _overrides;
+    private readonly Dictionary<ColumnKey, TerrainContext> _columnCache = new();
 
     public ProceduralWorldSource(WorldProfile profile)
     {
@@ -60,13 +109,14 @@ public sealed class ProceduralWorldSource
         }
 
         int maxCoordinate = _profile.MaxCoordinate;
-        if (Math.Abs(coordinate.X) > maxCoordinate || Math.Abs(coordinate.Y) > maxCoordinate || Math.Abs(coordinate.Z) > maxCoordinate)
+        if (Math.Abs(coordinate.X) > maxCoordinate
+            || Math.Abs(coordinate.Y) > maxCoordinate
+            || Math.Abs(coordinate.Z) > maxCoordinate)
         {
             return BlockSample.Empty;
         }
 
-        TerrainContext terrain = SampleTerrain(coordinate);
-        return SampleVoxelFromTerrain(coordinate, terrain);
+        return SampleProceduralVoxel(coordinate);
     }
 
     public bool TrySampleOutermostSurfaceVoxel(
@@ -91,34 +141,25 @@ public sealed class ProceduralWorldSource
             return sample.Present;
         }
 
-        int referenceRadius = Math.Max(1, (int)MathF.Round(_profile.BaseRadius));
-        referenceRadius = Math.Max(referenceRadius, Math.Max(Math.Abs(tangentU), Math.Abs(tangentV)));
-        Vector3I reference = FaceVoxel(outwardNormal, referenceRadius, tangentU, tangentV);
-        TerrainContext terrain = SampleTerrain(reference);
+        TerrainContext terrain = SampleTerrain(outwardNormal, tangentU, tangentV);
         float outerRadius = terrain.HasWater
             ? MathF.Max(terrain.GroundRadius, terrain.WaterRadius)
             : terrain.GroundRadius;
         int radial = Math.Max(0, Mathf.FloorToInt(outerRadius + 0.001f));
 
-        if (Math.Abs(tangentU) > radial || Math.Abs(tangentV) > radial)
+        if (Math.Abs(tangentU) > outerRadius + 0.001f || Math.Abs(tangentV) > outerRadius + 0.001f)
         {
             return false;
         }
 
-        voxel = FaceVoxel(outwardNormal, radial, tangentU, tangentV);
-        sample = SampleVoxel(voxel);
-        if (sample.Present)
+        // Quantization and overlap with an adjacent face can make the estimated outer coordinate one
+        // cell too high. Search inward a few cells rather than fabricating a detached surface block.
+        for (int inward = 0; inward <= 4 && radial - inward >= 0; inward++)
         {
-            return true;
-        }
-
-        for (int inward = 1; inward <= 2; inward++)
-        {
-            int candidateRadial = radial - inward;
-            if (candidateRadial < 0) break;
-            Vector3I candidate = FaceVoxel(outwardNormal, candidateRadial, tangentU, tangentV);
+            Vector3I candidate = FaceVoxel(outwardNormal, radial - inward, tangentU, tangentV);
             BlockSample candidateSample = SampleVoxel(candidate);
             if (!candidateSample.Present) continue;
+
             voxel = candidate;
             sample = candidateSample;
             return true;
@@ -127,57 +168,254 @@ public sealed class ProceduralWorldSource
         return false;
     }
 
-    private BlockSample SampleVoxelFromTerrain(Vector3I coordinate, TerrainContext terrain)
+    public float SampleSurfaceRadius(Vector3I coordinate)
     {
-        float radius = MaxAbs(coordinate);
-        float outerRadius = terrain.HasWater
+        if (_profile.UsesSingleBlockGenerator) return 0.0f;
+        if (_profile.UsesSolidCubeGenerator) return MaxAbs(coordinate);
+
+        Vector3I normal = GetDominantNormal(coordinate);
+        GetFaceTangents(coordinate, normal, out int u, out int v, out _);
+        return SampleTerrain(normal, u, v).GroundRadius;
+    }
+
+    public Vector3I GetOutwardNormal(Vector3I coordinate)
+    {
+        if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
+        {
+            return GetDominantNormal(coordinate);
+        }
+
+        if (TryFindControllingCandidate(coordinate, preferSolid: true, out SurfaceCandidate candidate))
+        {
+            return candidate.Normal;
+        }
+
+        return GetDominantNormal(coordinate);
+    }
+
+    public bool TrySampleTree(Vector3I surfaceVoxel, out FeatureSample feature)
+    {
+        feature = default;
+
+        if (_overrides is not null && _overrides.TryGetFeature(surfaceVoxel, out FeatureSample authoredFeature))
+        {
+            // Authored features remain support-owned: once the supporting terrain cell is removed the
+            // feature disappears automatically, and a block occupying its outward cell invalidates it.
+            BlockSample support = SampleVoxel(surfaceVoxel);
+            if (!support.Present || SampleVoxel(surfaceVoxel + authoredFeature.OutwardNormal).Present)
+            {
+                return false;
+            }
+
+            feature = authoredFeature;
+            return string.Equals(feature.BlockId, "tree", StringComparison.Ordinal);
+        }
+
+        if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
+        {
+            return false;
+        }
+
+        BlockSample sample = SampleVoxel(surfaceVoxel);
+        if (!sample.Present
+            || (sample.BlockId != _profile.SurfaceBlock && sample.BlockId != _profile.SurfaceEdgeBlock))
+        {
+            return false;
+        }
+
+        if (!TryFindControllingCandidate(surfaceVoxel, preferSolid: true, out SurfaceCandidate controlling)
+            || !controlling.IsSolid)
+        {
+            return false;
+        }
+
+        Vector3I normal = controlling.Normal;
+        if (SampleVoxel(surfaceVoxel + normal).Present)
+        {
+            return false;
+        }
+
+        TerrainContext terrain = controlling.Terrain;
+        if (terrain.HasWater || terrain.ShoreFactor > 0.22f || terrain.Cliffiness > 0.52f)
+        {
+            return false;
+        }
+
+        float temperate = 1.0f - MathF.Min(1.0f, MathF.Abs(terrain.Temperature) * 0.82f);
+        float suitability = terrain.ForestField * 0.48f + terrain.Humidity * 0.40f + temperate * 0.22f;
+        if (suitability < _profile.ForestThreshold)
+        {
+            return false;
+        }
+
+        float densityBoost = 0.55f + Smooth01((suitability - _profile.ForestThreshold) / 0.75f) * 1.35f;
+        float chance = MathF.Min(0.42f, _profile.TreeDensity * densityBoost);
+        float hash = DeterministicNoise.Hash01(surfaceVoxel.X, surfaceVoxel.Y, surfaceVoxel.Z, _profile.Seed + 22003);
+        if (hash >= chance)
+        {
+            return false;
+        }
+
+        feature = new FeatureSample("tree", surfaceVoxel, normal);
+        return true;
+    }
+
+    private BlockSample SampleProceduralVoxel(Vector3I coordinate)
+    {
+        SurfaceCandidate? bestSolid = null;
+        SurfaceCandidate? bestWater = null;
+
+        foreach (Vector3I normal in FaceNormals)
+        {
+            if (!TryBuildCandidate(coordinate, normal, out SurfaceCandidate candidate)) continue;
+
+            if (candidate.IsSolid
+                && (bestSolid is null || candidate.SurfaceDistance < bestSolid.Value.SurfaceDistance))
+            {
+                bestSolid = candidate;
+            }
+            else if (candidate.IsWater
+                && (bestWater is null || candidate.SurfaceDistance < bestWater.Value.SurfaceDistance))
+            {
+                bestWater = candidate;
+            }
+        }
+
+        // Terrain always wins where two face columns overlap. This keeps cube corners watertight and
+        // prevents a lake on one face from cutting a blue seam through solid terrain on another face.
+        if (bestSolid is SurfaceCandidate solid)
+        {
+            float depth = MathF.Max(0.0f, solid.Terrain.GroundRadius - solid.Radial);
+            return ClassifySolid(coordinate, solid.Normal, solid.U, solid.V, solid.Terrain, depth);
+        }
+
+        if (bestWater is SurfaceCandidate water)
+        {
+            return ClassifyWater(water.Terrain);
+        }
+
+        return BlockSample.Empty;
+    }
+
+    private bool TryBuildCandidate(Vector3I coordinate, Vector3I normal, out SurfaceCandidate candidate)
+    {
+        candidate = default;
+        GetFaceTangents(coordinate, normal, out int u, out int v, out float radial);
+        if (radial < -0.001f) return false;
+
+        TerrainContext terrain = SampleTerrain(normal, u, v);
+        float outer = terrain.HasWater
             ? MathF.Max(terrain.GroundRadius, terrain.WaterRadius)
             : terrain.GroundRadius;
 
-        if (radius > outerRadius + 0.001f)
+        // A face column cannot create a diagonal shelf whose tangential coordinates already sit
+        // outside that column's own cube extent.
+        if (Math.Abs(u) > outer + 0.001f || Math.Abs(v) > outer + 0.001f)
         {
-            return BlockSample.Empty;
+            return false;
         }
 
-        if (terrain.HasWater && radius > terrain.GroundRadius + 0.001f && radius <= terrain.WaterRadius + 0.001f)
-        {
-            float totalDepth = MathF.Max(0.0f, terrain.WaterRadius - terrain.GroundRadius);
+        bool solid = radial <= terrain.GroundRadius + 0.001f;
+        bool water = !solid
+            && terrain.HasWater
+            && radial <= terrain.WaterRadius + 0.001f;
+        if (!solid && !water) return false;
 
-            if (totalDepth <= 1.60f)
+        float surface = solid ? terrain.GroundRadius : terrain.WaterRadius;
+        candidate = new SurfaceCandidate(
+            normal,
+            u,
+            v,
+            radial,
+            terrain,
+            solid,
+            water,
+            MathF.Max(0.0f, surface - radial));
+        return true;
+    }
+
+    private bool TryFindControllingCandidate(
+        Vector3I coordinate,
+        bool preferSolid,
+        out SurfaceCandidate best)
+    {
+        best = default;
+        bool found = false;
+        bool foundPreferred = false;
+        float bestDistance = float.MaxValue;
+
+        foreach (Vector3I normal in FaceNormals)
+        {
+            if (!TryBuildCandidate(coordinate, normal, out SurfaceCandidate candidate)) continue;
+            bool preferred = preferSolid ? candidate.IsSolid : candidate.IsWater;
+
+            if (foundPreferred && !preferred) continue;
+            if (preferred && !foundPreferred)
             {
-                return new BlockSample(true, _profile.ShallowWaterBlock, true);
+                foundPreferred = true;
+                bestDistance = float.MaxValue;
             }
 
-            if (totalDepth > 2.60f)
-            {
-                return new BlockSample(true, _profile.DeepWaterBlock, true);
-            }
-
-            return new BlockSample(true, _profile.WaterBlock, true);
+            if (candidate.SurfaceDistance >= bestDistance) continue;
+            best = candidate;
+            bestDistance = candidate.SurfaceDistance;
+            found = true;
         }
 
-        float depth = terrain.GroundRadius - radius;
-        if (depth < -0.001f)
+        return found;
+    }
+
+    private BlockSample ClassifyWater(TerrainContext terrain)
+    {
+        // Depth is a property of the whole water column. Edge columns remain shallow, normal water
+        // occupies the transition, and the darker material appears only in deeper interior columns.
+        if (terrain.WaterDepth <= 1.60f)
         {
-            return BlockSample.Empty;
+            return new BlockSample(true, _profile.ShallowWaterBlock, true);
         }
 
+        if (terrain.WaterDepth >= 2.85f)
+        {
+            return new BlockSample(true, _profile.DeepWaterBlock, true);
+        }
+
+        return new BlockSample(true, _profile.WaterBlock, true);
+    }
+
+    private BlockSample ClassifySolid(
+        Vector3I coordinate,
+        Vector3I normal,
+        int u,
+        int v,
+        TerrainContext terrain,
+        float depth)
+    {
         if (depth <= 0.78f)
         {
-            if (terrain.HasWater || terrain.ShoreFactor > 0.43f)
+            if (terrain.HasWater || terrain.ShoreFactor > 0.38f)
             {
                 return new BlockSample(true, _profile.SandBlock, true);
             }
 
-            if (terrain.Cliffiness > 0.62f)
+            if (terrain.Cliffiness > 0.68f)
             {
-                return new BlockSample(true,
-                    terrain.Cliffiness > 0.82f ? _profile.DarkStoneBlock : _profile.StoneBlock,
+                return new BlockSample(
+                    true,
+                    terrain.Cliffiness > 0.86f ? _profile.DarkStoneBlock : _profile.StoneBlock,
                     true);
             }
 
-            float edgeVariation = DeterministicNoise.Hash01(coordinate.X, coordinate.Y, coordinate.Z, _profile.Seed + 3011);
-            return new BlockSample(true, edgeVariation > 0.80f ? _profile.SurfaceEdgeBlock : _profile.SurfaceBlock, true);
+            // The literal outer cube seam is the visual silhouette. Keep it fully green instead of
+            // exposing the dirt-sided grass model around the corner line.
+            if (IsCubeOuterSeam(coordinate))
+            {
+                return new BlockSample(true, _profile.SurfaceBlock, true);
+            }
+
+            return new BlockSample(
+                true,
+                IsNaturalLedge(normal, u, v, terrain) ? _profile.SurfaceEdgeBlock : _profile.SurfaceBlock,
+                true);
         }
 
         if (depth <= 2.85f)
@@ -218,98 +456,107 @@ public sealed class ProceduralWorldSource
             coordinate.Z * 0.11f,
             _profile.Seed + 9901,
             2);
-        return new BlockSample(true, stoneMix < -0.12f ? _profile.DarkStoneBlock : _profile.StoneBlock, true);
+        return new BlockSample(
+            true,
+            stoneMix < -0.12f ? _profile.DarkStoneBlock : _profile.StoneBlock,
+            true);
     }
 
-    public float SampleSurfaceRadius(Vector3I coordinate)
+    private TerrainContext SampleTerrain(Vector3I normal, int u, int v)
     {
-        if (_profile.UsesSingleBlockGenerator) return 0.0f;
-        if (_profile.UsesSolidCubeGenerator) return MaxAbs(coordinate);
-        return SampleTerrain(coordinate).GroundRadius;
+        ColumnKey key = MakeColumnKey(normal, u, v);
+        if (_columnCache.TryGetValue(key, out TerrainContext cached))
+        {
+            return cached;
+        }
+
+        RawTerrain center = SampleRawTerrain(normal, u, v);
+        RawTerrain n1 = SampleRawTerrain(normal, u + 1, v);
+        RawTerrain n2 = SampleRawTerrain(normal, u - 1, v);
+        RawTerrain n3 = SampleRawTerrain(normal, u, v + 1);
+        RawTerrain n4 = SampleRawTerrain(normal, u, v - 1);
+
+        float median = Median5(
+            center.GroundRadius,
+            n1.GroundRadius,
+            n2.GroundRadius,
+            n3.GroundRadius,
+            n4.GroundRadius);
+
+        // A local median clamp keeps the blocky Minecraft-like silhouette while removing isolated
+        // one-column spikes. Relief can still form cliffs, but a single dirt cube cannot float above
+        // an otherwise lower neighborhood.
+        float clampedCenter = Math.Clamp(center.GroundRadius, median - 1.0f, median + 1.0f);
+        float groundRadius = Quantize(
+            clampedCenter * 0.68f + median * 0.32f,
+            _profile.PlateauStep);
+
+        int waterVotes = 0;
+        if (IsWaterCandidate(center)) waterVotes++;
+        if (IsWaterCandidate(n1)) waterVotes++;
+        if (IsWaterCandidate(n2)) waterVotes++;
+        if (IsWaterCandidate(n3)) waterVotes++;
+        if (IsWaterCandidate(n4)) waterVotes++;
+
+        bool centerWater = IsWaterCandidate(center);
+        bool hasWater = centerWater && waterVotes >= 3;
+        float waterRadius = Quantize(
+            _profile.BaseRadius + _profile.SeaLevelOffset,
+            MathF.Max(0.5f, _profile.PlateauStep));
+        float waterDepth = 0.0f;
+
+        if (hasWater)
+        {
+            // Boundary columns are deliberately shallow; stronger interior hydrology carves the bowl
+            // deeper. Because water needs a 3/5 local vote, isolated one-cell blue lines disappear.
+            float neighborhoodStrength = (
+                center.WaterStrength
+                + n1.WaterStrength
+                + n2.WaterStrength
+                + n3.WaterStrength
+                + n4.WaterStrength) / 5.0f;
+            float strength = Math.Clamp(center.WaterStrength * 0.72f + neighborhoodStrength * 0.28f, 0.0f, 1.0f);
+            float minimumDepth = 1.0f;
+            float maximumExtraDepth = center.OceanCandidate ? 3.5f : 2.5f;
+            float bowl = strength * strength * (3.0f - 2.0f * strength);
+            float desiredFloor = waterRadius - minimumDepth - maximumExtraDepth * bowl;
+            groundRadius = MathF.Min(groundRadius, Quantize(desiredFloor, _profile.PlateauStep));
+            waterDepth = MathF.Max(0.0f, waterRadius - groundRadius);
+        }
+
+        float thresholdDistance = center.OceanCandidate
+            ? MathF.Abs(center.Hydrology - _profile.OceanThreshold)
+            : MathF.Abs(center.LakeSignal - _profile.WaterThreshold);
+        float shoreFactor = hasWater
+            ? 1.0f
+            : 1.0f - Smooth01(thresholdDistance / MathF.Max(0.001f, _profile.ShoreBand));
+
+        // A dry column touching a likely water column is explicitly beach material. This is stronger
+        // than relying on a tiny scalar threshold and makes a readable sand ring around lakes.
+        if (!hasWater && (centerWater || waterVotes > 0))
+        {
+            shoreFactor = MathF.Max(shoreFactor, 0.78f);
+        }
+
+        TerrainContext result = new(
+            groundRadius,
+            waterRadius,
+            hasWater,
+            waterDepth,
+            center.GroundRadius == 0.0f ? 0.0f : center.Hydrology,
+            center.Erosion,
+            center.Humidity,
+            center.Temperature,
+            center.Cliffiness,
+            shoreFactor,
+            center.ForestField);
+        _columnCache[key] = result;
+        return result;
     }
 
-    public Vector3I GetOutwardNormal(Vector3I coordinate)
+    private RawTerrain SampleRawTerrain(Vector3I normal, int u, int v)
     {
-        int ax = Math.Abs(coordinate.X);
-        int ay = Math.Abs(coordinate.Y);
-        int az = Math.Abs(coordinate.Z);
-
-        if (ax >= ay && ax >= az)
-        {
-            return coordinate.X >= 0 ? Vector3I.Right : Vector3I.Left;
-        }
-
-        if (ay >= ax && ay >= az)
-        {
-            return coordinate.Y >= 0 ? Vector3I.Up : Vector3I.Down;
-        }
-
-        return coordinate.Z >= 0 ? Vector3I.Back : Vector3I.Forward;
-    }
-
-    public bool TrySampleTree(Vector3I surfaceVoxel, out FeatureSample feature)
-    {
-        feature = default;
-
-        if (_overrides is not null && _overrides.TryGetFeature(surfaceVoxel, out FeatureSample authoredFeature))
-        {
-            // Authored features remain support-owned: once the supporting terrain cell is removed the
-            // feature disappears automatically, and a block occupying its outward cell invalidates it.
-            BlockSample support = SampleVoxel(surfaceVoxel);
-            if (!support.Present || SampleVoxel(surfaceVoxel + authoredFeature.OutwardNormal).Present)
-            {
-                return false;
-            }
-
-            feature = authoredFeature;
-            return string.Equals(feature.BlockId, "tree", StringComparison.Ordinal);
-        }
-
-        if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
-        {
-            return false;
-        }
-
-        BlockSample sample = SampleVoxel(surfaceVoxel);
-        if (!sample.Present || (sample.BlockId != _profile.SurfaceBlock && sample.BlockId != _profile.SurfaceEdgeBlock))
-        {
-            return false;
-        }
-
-        Vector3I normal = GetOutwardNormal(surfaceVoxel);
-        if (SampleVoxel(surfaceVoxel + normal).Present)
-        {
-            return false;
-        }
-
-        TerrainContext terrain = SampleTerrain(surfaceVoxel);
-        if (terrain.HasWater || terrain.ShoreFactor > 0.22f || terrain.Cliffiness > 0.52f)
-        {
-            return false;
-        }
-
-        float temperate = 1.0f - MathF.Min(1.0f, MathF.Abs(terrain.Temperature) * 0.82f);
-        float suitability = terrain.ForestField * 0.48f + terrain.Humidity * 0.40f + temperate * 0.22f;
-        if (suitability < _profile.ForestThreshold)
-        {
-            return false;
-        }
-
-        float densityBoost = 0.55f + Smooth01((suitability - _profile.ForestThreshold) / 0.75f) * 1.35f;
-        float chance = MathF.Min(0.42f, _profile.TreeDensity * densityBoost);
-        float hash = DeterministicNoise.Hash01(surfaceVoxel.X, surfaceVoxel.Y, surfaceVoxel.Z, _profile.Seed + 22003);
-        if (hash >= chance)
-        {
-            return false;
-        }
-
-        feature = new FeatureSample("tree", surfaceVoxel, normal);
-        return true;
-    }
-
-    private TerrainContext SampleTerrain(Vector3I coordinate)
-    {
-        Vector3 point = ToCubeSurfacePoint(coordinate);
+        Vector3 point = ToFacePoint(normal, u, v);
 
         float continentalness = DeterministicNoise.Fractal3D(
             point.X * _profile.ClimateFrequency,
@@ -352,18 +599,15 @@ public sealed class ProceduralWorldSource
             * Smooth01((0.76f - erosion) / 0.58f);
         float broadRelief = continentalness * _profile.TerrainAmplitude * 0.52f;
         float mountainRelief = ridge * mountainMask * _profile.TerrainAmplitude * 0.92f;
-        float valleyRelief = -Smooth01((-continentalness - 0.08f) / 0.55f) * _profile.TerrainAmplitude * 0.38f;
+        float valleyRelief = -Smooth01((-continentalness - 0.08f) / 0.55f)
+            * _profile.TerrainAmplitude * 0.38f;
         float detailStrength = 0.18f + (1.0f - erosion) * 0.82f;
         float localDetail = detail * _profile.DetailAmplitude * detailStrength;
         float plateauBias = weirdness * _profile.TerrainAmplitude * 0.12f;
 
-        float rawGroundRadius = _profile.BaseRadius
-            + broadRelief
-            + mountainRelief
-            + valleyRelief
-            + localDetail
-            + plateauBias;
-        float groundRadius = Quantize(rawGroundRadius, _profile.PlateauStep);
+        float edgeFade = SurfaceEdgeFade(u, v);
+        float relief = broadRelief + mountainRelief + valleyRelief + localDetail + plateauBias;
+        float rawGroundRadius = _profile.BaseRadius + relief * edgeFade;
 
         float humidity = DeterministicNoise.Fractal3D(
             point.X * _profile.ClimateFrequency * 1.42f,
@@ -391,46 +635,111 @@ public sealed class ProceduralWorldSource
             3);
 
         float hydrology = continentalness * 0.72f + basin * 0.28f;
-        bool ocean = hydrology < _profile.OceanThreshold;
         float lakeSignal = basin - continentalness * 0.38f + humidity * 0.10f;
-        bool inlandLake = !ocean && lakeSignal > _profile.WaterThreshold;
-        bool hasWater = ocean || inlandLake;
         float waterRadius = _profile.BaseRadius + _profile.SeaLevelOffset;
-
-        float waterStrength = ocean
+        bool lowEnoughForWater = rawGroundRadius <= waterRadius + 0.75f;
+        bool oceanCandidate = edgeFade > 0.42f
+            && lowEnoughForWater
+            && hydrology < _profile.OceanThreshold;
+        bool lakeCandidate = edgeFade > 0.42f
+            && lowEnoughForWater
+            && !oceanCandidate
+            && lakeSignal > _profile.WaterThreshold;
+        float waterStrength = oceanCandidate
             ? Smooth01((_profile.OceanThreshold - hydrology) / 0.30f)
-            : Smooth01((lakeSignal - _profile.WaterThreshold) / 0.26f);
-        if (hasWater)
-        {
-            float minimumDepth = ocean ? 1.60f : 1.40f;
-            float maximumExtraDepth = ocean ? 3.60f : 2.60f;
-            float bowl = waterStrength * waterStrength * (3.0f - 2.0f * waterStrength);
-            float desiredFloor = waterRadius - minimumDepth - maximumExtraDepth * bowl;
-            groundRadius = MathF.Min(groundRadius, Quantize(desiredFloor, _profile.PlateauStep));
-        }
+            : lakeCandidate
+                ? Smooth01((lakeSignal - _profile.WaterThreshold) / 0.26f)
+                : 0.0f;
 
-        float shoreDistance = ocean
-            ? MathF.Abs(hydrology - _profile.OceanThreshold)
-            : MathF.Abs(lakeSignal - _profile.WaterThreshold);
-        float shoreFactor = hasWater
-            ? 1.0f
-            : 1.0f - Smooth01(shoreDistance / MathF.Max(0.001f, _profile.ShoreBand));
-
-        float cliffiness = MathF.Min(1.0f,
+        float cliffiness = MathF.Min(
+            1.0f,
             mountainMask * (0.48f + ridge * 0.52f)
             + MathF.Abs(detail) * (1.0f - erosion) * 0.34f);
 
-        return new TerrainContext(
-            groundRadius,
-            waterRadius,
-            hasWater,
-            continentalness,
-            erosion,
+        return new RawTerrain(
+            rawGroundRadius,
+            hydrology,
+            lakeSignal,
             humidity,
             temperature,
+            erosion,
             cliffiness,
-            shoreFactor,
-            forestField);
+            forestField,
+            edgeFade,
+            oceanCandidate,
+            lakeCandidate,
+            waterStrength);
+    }
+
+    private bool IsNaturalLedge(Vector3I normal, int u, int v, TerrainContext terrain)
+    {
+        float ledgeDrop = 0.85f;
+        return SampleTerrain(normal, u + 1, v).GroundRadius < terrain.GroundRadius - ledgeDrop
+            || SampleTerrain(normal, u - 1, v).GroundRadius < terrain.GroundRadius - ledgeDrop
+            || SampleTerrain(normal, u, v + 1).GroundRadius < terrain.GroundRadius - ledgeDrop
+            || SampleTerrain(normal, u, v - 1).GroundRadius < terrain.GroundRadius - ledgeDrop;
+    }
+
+    private static bool IsWaterCandidate(RawTerrain terrain)
+        => terrain.OceanCandidate || terrain.LakeCandidate;
+
+    private float SurfaceEdgeFade(int u, int v)
+    {
+        float distanceToSeam = _profile.BaseRadius - Math.Max(Math.Abs(u), Math.Abs(v));
+        if (distanceToSeam <= -0.001f) return 0.0f;
+
+        // Terrain relief eases back to the base cube over roughly the outer two cells. The silhouette
+        // therefore stays a supported green seam rather than producing thin dirt overhangs at corners.
+        return Smooth01((distanceToSeam + 0.20f) / 1.70f);
+    }
+
+    private Vector3 ToFacePoint(Vector3I normal, int u, int v)
+    {
+        float radius = MathF.Max(1.0f, _profile.BaseRadius);
+        float a = u / radius;
+        float b = v / radius;
+
+        if (normal == Vector3I.Right) return new Vector3(1.0f, a, b);
+        if (normal == Vector3I.Left) return new Vector3(-1.0f, a, b);
+        if (normal == Vector3I.Up) return new Vector3(a, 1.0f, b);
+        if (normal == Vector3I.Down) return new Vector3(a, -1.0f, b);
+        if (normal == Vector3I.Back) return new Vector3(a, b, 1.0f);
+        return new Vector3(a, b, -1.0f);
+    }
+
+    private static ColumnKey MakeColumnKey(Vector3I normal, int u, int v)
+    {
+        if (normal.X != 0) return new ColumnKey(0, Math.Sign(normal.X), u, v);
+        if (normal.Y != 0) return new ColumnKey(1, Math.Sign(normal.Y), u, v);
+        return new ColumnKey(2, Math.Sign(normal.Z), u, v);
+    }
+
+    private static void GetFaceTangents(
+        Vector3I coordinate,
+        Vector3I normal,
+        out int u,
+        out int v,
+        out float radial)
+    {
+        if (normal.X != 0)
+        {
+            u = coordinate.Y;
+            v = coordinate.Z;
+            radial = coordinate.X * normal.X;
+            return;
+        }
+
+        if (normal.Y != 0)
+        {
+            u = coordinate.X;
+            v = coordinate.Z;
+            radial = coordinate.Y * normal.Y;
+            return;
+        }
+
+        u = coordinate.X;
+        v = coordinate.Y;
+        radial = coordinate.Z * normal.Z;
     }
 
     private bool IsInsideAuthoredBox(Vector3I coordinate)
@@ -468,25 +777,50 @@ public sealed class ProceduralWorldSource
         return new Vector3I(u, v, -radial);
     }
 
+    private static Vector3I GetDominantNormal(Vector3I coordinate)
+    {
+        int ax = Math.Abs(coordinate.X);
+        int ay = Math.Abs(coordinate.Y);
+        int az = Math.Abs(coordinate.Z);
+
+        if (ax >= ay && ax >= az)
+        {
+            return coordinate.X >= 0 ? Vector3I.Right : Vector3I.Left;
+        }
+
+        if (ay >= ax && ay >= az)
+        {
+            return coordinate.Y >= 0 ? Vector3I.Up : Vector3I.Down;
+        }
+
+        return coordinate.Z >= 0 ? Vector3I.Back : Vector3I.Forward;
+    }
+
+    private static bool IsCubeOuterSeam(Vector3I coordinate)
+    {
+        int ax = Math.Abs(coordinate.X);
+        int ay = Math.Abs(coordinate.Y);
+        int az = Math.Abs(coordinate.Z);
+        int max = Math.Max(ax, Math.Max(ay, az));
+        int ties = (ax == max ? 1 : 0) + (ay == max ? 1 : 0) + (az == max ? 1 : 0);
+        return max > 0 && ties >= 2;
+    }
+
     private static bool IsCardinal(Vector3I normal)
         => Math.Abs(normal.X) + Math.Abs(normal.Y) + Math.Abs(normal.Z) == 1;
 
     private static float MaxAbs(Vector3I coordinate)
         => Math.Max(Math.Abs(coordinate.X), Math.Max(Math.Abs(coordinate.Y), Math.Abs(coordinate.Z)));
 
-    private static Vector3 ToCubeSurfacePoint(Vector3I coordinate)
-    {
-        float max = MaxAbs(coordinate);
-        if (max < 0.001f)
-        {
-            return Vector3.Zero;
-        }
-
-        return new Vector3(coordinate.X / max, coordinate.Y / max, coordinate.Z / max);
-    }
-
     private static float Quantize(float value, float step)
-        => MathF.Round(value / step) * step;
+        => MathF.Round(value / MathF.Max(0.001f, step)) * MathF.Max(0.001f, step);
+
+    private static float Median5(float a, float b, float c, float d, float e)
+    {
+        Span<float> values = stackalloc float[5] { a, b, c, d, e };
+        values.Sort();
+        return values[2];
+    }
 
     private static float Smooth01(float value)
     {
