@@ -349,7 +349,7 @@ public partial class MiningHud : CanvasLayer
             "shovel_miner",
             "shovel_unlock",
             "POWERED SHOVEL",
-            "Surface crawler for sand and grass-topped dirt terrain. Green/red placement preview is shared with moving stopped tools.");
+            "Surface crawler for sand, grass-topped dirt, and ordinary dirt terrain. Green/red placement preview is shared with moving stopped tools.");
         AddAutomationEntry(
             list,
             "pickaxe_miner",
@@ -421,7 +421,7 @@ public partial class MiningHud : CanvasLayer
         {
             if (_placement.BeginPlacement(minerId))
             {
-                ShowAutomationFeedback($"{entry.DisplayName} selected. Green = valid, red = blocked. LMB place; RMB/Esc cancel.");
+                ShowAutomationFeedback($"{entry.DisplayName} selected. Green = valid, red = blocked. LMB places; RMB orbits; Esc/Cancel exits placement.");
                 CloseAutomationMenu();
             }
             else
@@ -648,7 +648,7 @@ public partial class MiningHud : CanvasLayer
                 ? "\nResources are charged only after a valid placement is accepted."
                 : string.Empty;
             _placementHint.Text =
-                $"{action} {entry.DisplayName}\nGreen = valid · Red = blocked · LMB place · RMB/Esc cancel{payment}";
+                $"{action} {entry.DisplayName}\nGreen = valid · Red = blocked · LMB place · RMB orbit · Esc/Cancel button to cancel{payment}";
             _placementHint.Visible = true;
         }
         else
