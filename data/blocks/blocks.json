@@ -3,7 +3,7 @@
   "blocks": [
     { "id": "grass", "display_name": "Grass", "asset_path": "res://Assets/gltf/grass.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil"] },
     { "id": "dirt", "display_name": "Dirt", "asset_path": "res://Assets/gltf/dirt.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["soil"] },
-    { "id": "dirt_grass", "display_name": "Grass Edge", "asset_path": "res://Assets/gltf/dirt_with_grass.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil"] },
+    { "id": "dirt_grass", "display_name": "Grass Edge", "asset_path": "res://Assets/gltf/dirt_with_grass.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil", "sand"] },
     { "id": "stone", "display_name": "Stone", "asset_path": "res://Assets/gltf/stone.gltf", "hardness": 2.0, "base_value": 2, "render_class": "terrain", "tags": ["stone"] },
     { "id": "stone_dark", "display_name": "Dark Stone", "asset_path": "res://Assets/gltf/stone_dark.gltf", "hardness": 2.5, "base_value": 3, "render_class": "terrain", "tags": ["stone"] },
     { "id": "copper", "display_name": "Copper Ore", "asset_path": "res://Assets/gltf/stone_with_copper.gltf", "hardness": 2.5, "base_value": 5, "render_class": "terrain", "tags": ["stone", "ore", "copper"] },
