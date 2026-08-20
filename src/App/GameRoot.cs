@@ -252,6 +252,12 @@ public partial class GameRoot : Node3D
         hud.Initialize(_world, _mining, _worldView, _skills, _miners, _manualMining, _placement);
         _sessionRoot.AddChild(hud);
 
+        // Incremental-game feedback is a pure observer: state/currency/replay have already been
+        // committed by MiningService before any pickup model, number or counter pulse is emitted.
+        var incrementalFeedback = new IncrementalFeedbackView { Name = "IncrementalFeedbackView" };
+        incrementalFeedback.Initialize(_world, _worldView, _mining, _specialResources, _assets);
+        _sessionRoot.AddChild(incrementalFeedback);
+
         if (profile.AutomationAvailable)
         {
             var automationAttention = new AutomationAttentionView { Name = "AutomationAttentionView" };
