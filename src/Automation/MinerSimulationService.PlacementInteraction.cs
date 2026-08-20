@@ -14,6 +14,7 @@ public partial class MinerSimulationService
 
     private ShaderMaterial? _ghostValidMaterial;
     private ShaderMaterial? _ghostInvalidMaterial;
+    private ShaderMaterial? _attentionStencilMaterial;
     private ShaderMaterial? _attentionOutlineMaterial;
 
     public MinerInstance? HighlightedAttentionMiner
@@ -188,10 +189,10 @@ public partial class MinerSimulationService
     }
 
     /// <summary>
-    /// Selects one stopped automation for the attention workflow. The overlay is rendered with depth
-    /// testing disabled, so a stopped machine can still be located through surface blocks or tunnel
-    /// walls after the camera focuses its area. Only an inverted-hull outline is drawn; the source
-    /// model is never replaced by a solid orange x-ray fill.
+    /// Selects one stopped automation for the attention workflow. Godot 4.6's stencil buffer is used
+    /// to mask the original silhouette before the expanded x-ray pass is drawn. This avoids the classic
+    /// inverted-hull failure where a depth-disabled outline becomes a solid orange model when the real
+    /// automation is hidden behind terrain.
     /// </summary>
     public void SetAttentionHighlight(MinerInstance? miner)
     {
@@ -206,15 +207,15 @@ public partial class MinerSimulationService
         _attentionOutline = BuildGeometryOverlay(
             source,
             $"AutomationOutline_{miner.InstanceId}",
-            AttentionOutlineMaterial());
+            AttentionStencilMaterial());
         RefreshAttentionOverlayTransform();
         SetAttentionHoverState(false);
     }
 
     /// <summary>
-    /// Screen-space hit testing deliberately ignores world occlusion. The x-ray outline shows where
-    /// the stopped machine is; this test lets the player interact with that same silhouette through
-    /// blocks. Hovering strengthens the outline instead of filling the model.
+    /// Screen-space hit testing deliberately ignores world occlusion. The stencil-backed x-ray outline
+    /// shows where the stopped machine is; hovering only thickens/brightens that border and never fills
+    /// the model.
     /// </summary>
     public bool UpdateAttentionHover(Vector2 mousePosition, Camera3D camera)
     {
@@ -285,9 +286,9 @@ public partial class MinerSimulationService
         _attentionOutlineMaterial.SetShaderParameter(
             "outline_color",
             hovered
-                ? new Color(1.0f, 0.58f, 0.04f, 1.0f)
-                : new Color(1.0f, 0.72f, 0.18f, 0.94f));
-        _attentionOutlineMaterial.SetShaderParameter("outline_width", hovered ? 6.0f : 4.25f);
+                ? new Color(1.0f, 0.48f, 0.02f, 1.0f)
+                : new Color(1.0f, 0.72f, 0.18f, 0.96f));
+        _attentionOutlineMaterial.SetShaderParameter("outline_width", hovered ? 6.0f : 4.5f);
     }
 
     private void ClearAttentionOverlay()
@@ -305,8 +306,18 @@ public partial class MinerSimulationService
         return _ghostInvalidMaterial ??= CreateGhostTintShaderMaterial(new Color(1.0f, 0.18f, 0.16f, 0.55f));
     }
 
-    private Material AttentionOutlineMaterial()
-        => _attentionOutlineMaterial ??= CreatePixelStableXrayOutlineMaterial();
+    private Material AttentionStencilMaterial()
+    {
+        if (_attentionStencilMaterial is not null) return _attentionStencilMaterial;
+
+        _attentionOutlineMaterial = CreatePixelStableXrayOutlineMaterial();
+        _attentionOutlineMaterial.RenderPriority = 121;
+
+        _attentionStencilMaterial = CreateInvisibleStencilMaskMaterial();
+        _attentionStencilMaterial.RenderPriority = 120;
+        _attentionStencilMaterial.NextPass = _attentionOutlineMaterial;
+        return _attentionStencilMaterial;
+    }
 
     private static ShaderMaterial CreateGhostTintShaderMaterial(Color color)
     {
@@ -326,19 +337,39 @@ void fragment() {
     }
 
     /// <summary>
-    /// Pixel-stable inverted-hull silhouette. This follows the common Godot outline technique of
-    /// rendering only expanded back faces (cull_front) and offsets the hull in clip space so the
-    /// border remains readable from different zoom levels. Depth testing is disabled specifically for
-    /// the stopped-automation locator, allowing only the outline to remain visible through terrain.
+    /// First transparent pass: write the exact source silhouette into stencil without adding color.
+    /// Godot 4.6 explicitly supports stencil masks for outlines and x-ray effects. All automation
+    /// submeshes share reference value 1, so their union masks internal overlaps as well.
+    /// </summary>
+    private static ShaderMaterial CreateInvisibleStencilMaskMaterial()
+    {
+        var shader = new Shader
+        {
+            Code = @"shader_type spatial;
+render_mode unshaded, cull_back, depth_test_disabled, depth_draw_never, blend_mix, shadows_disabled;
+stencil_mode write, compare_always, 1;
+void fragment() {
+    ALBEDO = vec3(0.0);
+    ALPHA = 0.0;
+}",
+        };
+        return new ShaderMaterial { Shader = shader };
+    }
+
+    /// <summary>
+    /// Second transparent pass: a pixel-stable expanded hull is drawn only where stencil is not 1.
+    /// This is the common silhouette-outline pattern, adapted for an x-ray locator by disabling the
+    /// depth test while retaining the stencil exclusion of the model interior.
     /// </summary>
     private static ShaderMaterial CreatePixelStableXrayOutlineMaterial()
     {
         var shader = new Shader
         {
             Code = @"shader_type spatial;
-render_mode unshaded, cull_front, depth_test_disabled, blend_mix, shadows_disabled;
-uniform vec4 outline_color : source_color = vec4(1.0, 0.72, 0.18, 0.94);
-uniform float outline_width = 4.25;
+render_mode unshaded, cull_front, depth_test_disabled, depth_draw_never, blend_mix, shadows_disabled;
+stencil_mode read, write, compare_not_equal, 1;
+uniform vec4 outline_color : source_color = vec4(1.0, 0.72, 0.18, 0.96);
+uniform float outline_width = 4.5;
 void vertex() {
     vec4 clip_position = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
     vec3 clip_normal = mat3(PROJECTION_MATRIX) * (mat3(MODELVIEW_MATRIX) * NORMAL);
@@ -355,8 +386,8 @@ void fragment() {
 }",
         };
         var material = new ShaderMaterial { Shader = shader };
-        material.SetShaderParameter("outline_color", new Color(1.0f, 0.72f, 0.18f, 0.94f));
-        material.SetShaderParameter("outline_width", 4.25f);
+        material.SetShaderParameter("outline_color", new Color(1.0f, 0.72f, 0.18f, 0.96f));
+        material.SetShaderParameter("outline_width", 4.5f);
         return material;
     }
 
