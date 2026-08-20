@@ -11,10 +11,12 @@ public partial class WorldCompleteView : CanvasLayer
     private Label _title = null!;
     private Label _stats = null!;
     private Label _next = null!;
+    private Button _replay = null!;
     private Button _continue = null!;
     private Tween? _transition;
 
     public event Action? ContinueRequested;
+    public event Action? ReplayRequested;
     public bool IsOpen => _root is not null && _root.Visible;
 
     public override void _Ready()
@@ -44,10 +46,10 @@ public partial class WorldCompleteView : CanvasLayer
             AnchorRight = 0.5f,
             AnchorBottom = 0.5f,
             OffsetLeft = -270,
-            OffsetTop = -190,
+            OffsetTop = -215,
             OffsetRight = 270,
-            OffsetBottom = 190,
-            PivotOffset = new Vector2(270, 190),
+            OffsetBottom = 215,
+            PivotOffset = new Vector2(270, 215),
         };
         _root.AddChild(_panel);
 
@@ -59,7 +61,7 @@ public partial class WorldCompleteView : CanvasLayer
         _panel.AddChild(margin);
 
         var column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 16);
+        column.AddThemeConstantOverride("separation", 14);
         margin.AddChild(column);
 
         _title = new Label { Text = "WORLD CLEARED", HorizontalAlignment = HorizontalAlignment.Center };
@@ -80,6 +82,15 @@ public partial class WorldCompleteView : CanvasLayer
         };
         column.AddChild(_next);
 
+        _replay = new Button
+        {
+            Text = "Watch Replay",
+            CustomMinimumSize = new Vector2(0, 44),
+            Visible = false,
+        };
+        _replay.Pressed += OnReplayPressed;
+        column.AddChild(_replay);
+
         _continue = new Button
         {
             Text = "Continue",
@@ -95,7 +106,8 @@ public partial class WorldCompleteView : CanvasLayer
         long blocksMined,
         long resources,
         long manualBlocks,
-        long automatedBlocks)
+        long automatedBlocks,
+        bool replayAvailable)
     {
         _title.Text = $"{completed.DisplayName.ToUpperInvariant()} CLEARED";
         _stats.Text =
@@ -117,6 +129,8 @@ public partial class WorldCompleteView : CanvasLayer
             _continue.Text = "Continue";
         }
 
+        _replay.Visible = replayAvailable;
+        _replay.Disabled = false;
         _continue.Disabled = false;
         _transition?.Kill();
         _root.Visible = true;
@@ -144,6 +158,13 @@ public partial class WorldCompleteView : CanvasLayer
         {
             _panel.Scale = Vector2.One;
         }
+    }
+
+    private void OnReplayPressed()
+    {
+        if (_replay.Disabled) return;
+        _replay.Disabled = true;
+        ReplayRequested?.Invoke();
     }
 
     private void OnContinuePressed()
