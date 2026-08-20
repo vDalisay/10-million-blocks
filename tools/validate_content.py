@@ -110,7 +110,8 @@ for world_id in progression_doc["world_ids"]:
 
 # The product focus is now the opening ~2-hour arc. Keep three authored normal-scale worlds before the
 # one-million finale so later renderer work cannot accidentally collapse the playable introduction into
-# two tiny worlds followed immediately by the stress-scale target.
+# two tiny worlds followed immediately by the stress-scale target. The separate future progression plan
+# documents the intended tutorial-world replacement, but does not alter runtime progression yet.
 early_worlds = progression_doc["world_ids"][:3]
 assert early_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
     f"expected the three authored early worlds first, got {early_worlds}"
@@ -156,12 +157,16 @@ assert progression_doc["world_ids"][-1] == "final_target_1m", (
     "final_target_1m must remain the configured progression end goal"
 )
 
-# Surface art uses both a top-heavy grass model and a grass-edged dirt model for the same shovelable
-# terrain family. Selecting either visible part must remain valid placement/traversal data.
-for shovel_surface in ("grass", "dirt_grass"):
+# Grass, grass-edged dirt and plain brown dirt are one shovelable soft-terrain family. Selecting the
+# green presentation or exposed brown soil must remain valid placement/traversal data. Vegetated grass
+# intentionally uses the dirt-backed grass mesh so mined cliff/interior faces remain soil-colored.
+for shovel_surface in ("grass", "dirt_grass", "dirt"):
     assert "sand" in set(blocks[shovel_surface].get("tags", [])), (
         f"{shovel_surface} must remain valid shovel terrain via the sand tag"
     )
+assert blocks["grass"].get("asset_path") == blocks["dirt_grass"].get("asset_path"), (
+    "grass terrain should keep the dirt-backed grass mesh so exposed side/interior faces remain soil"
+)
 assert miners["line_miner"].get("tool_class") == "drill", "line_miner must remain the primary Drill"
 
 
