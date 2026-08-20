@@ -16,10 +16,21 @@ public sealed class WorldVoxelOverrideDefinition
     public bool Mineable { get; set; } = true;
 }
 
+public sealed class WorldFeatureOverrideDefinition
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Z { get; set; }
+    public string BlockId { get; set; } = "tree";
+    public int NormalX { get; set; }
+    public int NormalY { get; set; } = 1;
+    public int NormalZ { get; set; }
+}
+
 /// <summary>
-/// Sparse authored corrections layered over a deterministic base generator. This is the runtime half
-/// of the planned world-authoring workflow: approved worlds keep a compact set of hand-authored
-/// replacements/carves without materializing the untouched cube into save or content data.
+/// Sparse authored corrections layered over a deterministic base generator. Approved worlds keep a
+/// compact set of hand-authored replacements/carves plus support-owned surface features without
+/// materializing the untouched cube into save or content data.
 /// </summary>
 public sealed class WorldOverrideSet
 {
@@ -31,16 +42,22 @@ public sealed class WorldOverrideSet
         public string WorldId { get; set; } = string.Empty;
         public int GenerationVersion { get; set; }
         public List<WorldVoxelOverrideDefinition> Overrides { get; set; } = new();
+        public List<WorldFeatureOverrideDefinition> Features { get; set; } = new();
     }
 
     private readonly Dictionary<Vector3I, BlockSample> _voxels;
+    private readonly Dictionary<Vector3I, FeatureSample> _features;
 
-    private WorldOverrideSet(Dictionary<Vector3I, BlockSample> voxels)
+    private WorldOverrideSet(
+        Dictionary<Vector3I, BlockSample> voxels,
+        Dictionary<Vector3I, FeatureSample> features)
     {
         _voxels = voxels;
+        _features = features;
     }
 
     public int Count => _voxels.Count;
+    public int FeatureCount => _features.Count;
 
     public static WorldOverrideSet? Load(WorldProfile profile)
     {
@@ -60,6 +77,9 @@ public sealed class WorldOverrideSet
             throw new InvalidOperationException(
                 $"World override file '{profile.OverrideFile}' is unreadable or has an unsupported schema.");
         }
+
+        document.Overrides ??= new List<WorldVoxelOverrideDefinition>();
+        document.Features ??= new List<WorldFeatureOverrideDefinition>();
 
         if (!string.Equals(document.WorldId, profile.Id, StringComparison.Ordinal))
         {
@@ -93,8 +113,32 @@ public sealed class WorldOverrideSet
                 : BlockSample.Empty);
         }
 
-        GD.Print($"Loaded {voxels.Count} sparse authored voxel overrides for '{profile.Id}'.");
-        return new WorldOverrideSet(voxels);
+        var features = new Dictionary<Vector3I, FeatureSample>();
+        foreach (WorldFeatureOverrideDefinition item in document.Features)
+        {
+            var anchor = new Vector3I(item.X, item.Y, item.Z);
+            var normal = new Vector3I(item.NormalX, item.NormalY, item.NormalZ);
+            if (features.ContainsKey(anchor))
+            {
+                throw new InvalidOperationException(
+                    $"World override file '{profile.OverrideFile}' contains duplicate feature anchor {anchor}.");
+            }
+            if (string.IsNullOrWhiteSpace(item.BlockId))
+            {
+                throw new InvalidOperationException($"World feature {anchor} has no block id.");
+            }
+            if (Math.Abs(normal.X) + Math.Abs(normal.Y) + Math.Abs(normal.Z) != 1)
+            {
+                throw new InvalidOperationException(
+                    $"World feature {anchor} must use a cardinal outward normal, got {normal}.");
+            }
+
+            features.Add(anchor, new FeatureSample(item.BlockId, anchor, normal));
+        }
+
+        GD.Print(
+            $"Loaded {voxels.Count} sparse voxel overrides and {features.Count} authored features for '{profile.Id}'.");
+        return new WorldOverrideSet(voxels, features);
     }
 
     public BlockSample Apply(Vector3I coordinate, BlockSample generated)
@@ -102,4 +146,7 @@ public sealed class WorldOverrideSet
 
     public bool TryGet(Vector3I coordinate, out BlockSample sample)
         => _voxels.TryGetValue(coordinate, out sample);
+
+    public bool TryGetFeature(Vector3I anchor, out FeatureSample feature)
+        => _features.TryGetValue(anchor, out feature);
 }
