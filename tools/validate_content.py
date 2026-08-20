@@ -108,6 +108,24 @@ for skill_id in skills:
 for world_id in progression_doc["world_ids"]:
     assert world_id in worlds, f"progression references missing world {world_id}"
 
+# The product focus is now the opening ~2-hour arc. Keep three authored normal-scale worlds before the
+# one-million finale so later renderer work cannot accidentally collapse the playable introduction into
+# two tiny worlds followed immediately by the stress-scale target.
+early_worlds = progression_doc["world_ids"][:3]
+assert early_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
+    f"expected the three authored early worlds first, got {early_worlds}"
+)
+for world_id in early_worlds:
+    profile = worlds[world_id]
+    assert profile.get("rendererMode", "eager") != "full_surface", (
+        f"early-game world {world_id} must stay on the normal authored-scale renderer"
+    )
+    assert max(
+        int(profile.get("logicalWidth", 0)),
+        int(profile.get("logicalHeight", 0)),
+        int(profile.get("logicalDepth", 0)),
+    ) <= 48, f"early-game world {world_id} unexpectedly grew into a stress-scale profile"
+
 # Product-direction guardrail: future refactors must not silently put the final million-block world
 # back onto the old macro-cell presentation.
 for world_id in ("stress_1000", "final_target_1m"):
