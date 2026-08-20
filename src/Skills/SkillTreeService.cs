@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using TenMillionBlocks.Economy;
 using TenMillionBlocks.Mining;
 
 namespace TenMillionBlocks.Skills;
@@ -40,6 +41,7 @@ public enum SkillPurchaseFailure
     MaxRank,
     MissingPrerequisite,
     InsufficientResources,
+    InsufficientSpecialResources,
     CommitRejected,
 }
 
@@ -53,12 +55,22 @@ public sealed class SkillTreeService
 {
     private readonly SkillTreeCatalog _catalog;
     private readonly MiningService _mining;
+    private readonly SpecialResourceInventory _specialResources;
     private readonly Dictionary<string, int> _ranks = new(StringComparer.Ordinal);
 
     public SkillTreeService(SkillTreeCatalog catalog, MiningService mining)
+        : this(catalog, mining, new SpecialResourceInventory())
     {
-        _catalog = catalog;
-        _mining = mining;
+    }
+
+    public SkillTreeService(
+        SkillTreeCatalog catalog,
+        MiningService mining,
+        SpecialResourceInventory specialResources)
+    {
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _mining = mining ?? throw new ArgumentNullException(nameof(mining));
+        _specialResources = specialResources ?? throw new ArgumentNullException(nameof(specialResources));
         Derived = new SkillDerivedStats();
         RebuildDerivedStats();
     }
@@ -68,11 +80,15 @@ public sealed class SkillTreeService
     public SkillTreeCatalog Catalog => _catalog;
     public SkillDerivedStats Derived { get; private set; }
     public IReadOnlyDictionary<string, int> Ranks => _ranks;
+    public SpecialResourceInventory SpecialResources => _specialResources;
 
     public int GetRank(string skillId) => _ranks.GetValueOrDefault(skillId);
 
     public bool PrerequisitesMet(SkillNodeDefinition node)
         => node.Prerequisites.All(prerequisite => GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank);
+
+    public bool SpecialCostsAffordable(SkillNodeDefinition node)
+        => node.SpecialCosts.All(cost => _specialResources.CanAfford(cost.ResourceId, cost.Amount));
 
     public SkillPurchaseResult Purchase(string skillId)
     {
@@ -82,7 +98,7 @@ public sealed class SkillTreeService
             return validation;
         }
 
-        if (!_mining.TrySpend(cost))
+        if (!TryCommitCosts(node, cost))
         {
             return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientResources);
         }
@@ -95,7 +111,7 @@ public sealed class SkillTreeService
 
     /// <summary>
     /// Transaction used by buy-and-place automation UI. The prospective rank is applied temporarily so
-    /// the placement callback sees the miner as unlocked, but no resources are deducted until that
+    /// the placement callback sees the miner as unlocked, but no currency is deducted until that
     /// callback has successfully created the accepted placement. Cancelled/red previews therefore cost
     /// nothing and a failed commit rolls the temporary unlock back.
     /// </summary>
@@ -128,12 +144,11 @@ public sealed class SkillTreeService
             return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.CommitRejected);
         }
 
-        // ValidatePurchase checked the same currency value immediately before the synchronous callback;
-        // placement itself never spends currency, so this is an invariant rather than an expected fail.
-        if (!_mining.TrySpend(cost))
+        if (!TryCommitCosts(node, cost))
         {
             RestorePurchaseRank(skillId, currentRank);
-            throw new InvalidOperationException($"Deferred purchase '{skillId}' lost its reserved affordability during placement commit.");
+            throw new InvalidOperationException(
+                $"Deferred purchase '{skillId}' lost its validated affordability during placement commit.");
         }
 
         Changed?.Invoke();
@@ -188,7 +203,39 @@ public sealed class SkillTreeService
             return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientResources);
         }
 
+        if (!SpecialCostsAffordable(node))
+        {
+            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientSpecialResources);
+        }
+
         return new SkillPurchaseResult(true, skillId, currentRank + 1, SkillPurchaseFailure.None);
+    }
+
+    private bool TryCommitCosts(SkillNodeDefinition node, long ordinaryCost)
+    {
+        // Validation happens immediately before this synchronous commit. Still keep the operation
+        // rollback-safe so future UI/event hooks cannot turn a transformation into a partial purchase.
+        if (_mining.Currency < ordinaryCost || !SpecialCostsAffordable(node)) return false;
+        if (!_mining.TrySpend(ordinaryCost)) return false;
+
+        var spentSpecial = new List<SkillSpecialCostDefinition>();
+        foreach (SkillSpecialCostDefinition specialCost in node.SpecialCosts)
+        {
+            if (_specialResources.TrySpend(specialCost.ResourceId, specialCost.Amount))
+            {
+                spentSpecial.Add(specialCost);
+                continue;
+            }
+
+            _mining.GrantCurrency(ordinaryCost);
+            foreach (SkillSpecialCostDefinition spent in spentSpecial)
+            {
+                _specialResources.Grant(spent.ResourceId, spent.Amount);
+            }
+            return false;
+        }
+
+        return true;
     }
 
     private void RestorePurchaseRank(string skillId, int previousRank)
