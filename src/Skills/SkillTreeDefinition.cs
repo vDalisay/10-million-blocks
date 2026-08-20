@@ -60,6 +60,7 @@ public sealed class SkillTreeCatalog
         "unlock_miner",
         "unlock_pattern",
         "set_drill_pattern",
+        "set_drill_material_tier",
         "set_miner_pattern_width",
         "set_shovel_height_tolerance",
         "set_shovel_search_radius",
