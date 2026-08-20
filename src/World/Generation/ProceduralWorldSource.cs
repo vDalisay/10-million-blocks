@@ -489,9 +489,6 @@ public sealed class ProceduralWorldSource
             + (waterUp ? 1 : 0)
             + (waterDown ? 1 : 0);
 
-        // Morphological opening for water: a cell needs broad two-dimensional local support, not just
-        // two neighbours along one axis. This deliberately erodes one-cell tendrils and isolated
-        // puddles before they ever become materialized water voxels.
         bool twoDimensionalSupport = (waterRight || waterLeft) && (waterUp || waterDown);
         bool hasWater = centerWater && waterVotes >= 4 && twoDimensionalSupport;
         float waterRadius = Quantize(
@@ -614,8 +611,17 @@ public sealed class ProceduralWorldSource
         float lakeSignal = basin - continentalness * 0.38f + humidity * 0.10f;
         float waterRadius = _profile.BaseRadius + _profile.SeaLevelOffset;
         bool lowEnoughForWater = rawGroundRadius <= waterRadius + 0.75f;
-        bool oceanCandidate = edgeFade > 0.42f && lowEnoughForWater && hydrology < _profile.OceanThreshold;
-        bool lakeCandidate = edgeFade > 0.42f
+
+        // Keep lakes/oceans away from the cube-face seam transition. Near a seam the same visible
+        // terrain can be owned by two faces, and a valid broad mask on one face collapses into ugly
+        // one/two-cell water ribbons on the adjacent face. Minecraft-like water reads as a basin, not
+        // a stripe wrapped over a cube edge, so require a stable interior face band before hydrology
+        // is allowed to materialize at all.
+        const float MinimumWaterEdgeFade = 0.85f;
+        bool oceanCandidate = edgeFade > MinimumWaterEdgeFade
+            && lowEnoughForWater
+            && hydrology < _profile.OceanThreshold;
+        bool lakeCandidate = edgeFade > MinimumWaterEdgeFade
             && lowEnoughForWater
             && !oceanCandidate
             && lakeSignal > _profile.WaterThreshold;
