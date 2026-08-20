@@ -122,10 +122,34 @@ for world_id, profile in worlds.items():
         f"world {world_id} has an unknown generationMode"
     )
 
-tutorial_ids = progression_doc["world_ids"][:2]
-assert tutorial_ids == ["tutorial_single_block", "tutorial_dirt_5"], (
-    f"expected the first two tutorial worlds, got {tutorial_ids}"
-)
+    override_file = str(profile.get("overrideFile", "")).strip()
+    if override_file:
+        assert override_file.startswith("res://"), f"world {world_id} overrideFile must be a res:// path"
+        override_path = ROOT / override_file.removeprefix("res://")
+        assert override_path.exists(), f"world {world_id} references missing override file {override_file}"
+        override_doc = load(str(override_path.relative_to(ROOT)))
+        assert int(override_doc.get("schemaVersion", 0)) == 1, f"world {world_id} override schema must be 1"
+        assert override_doc.get("worldId") == world_id, f"world {world_id} override targets another world"
+        assert int(override_doc.get("generationVersion", 0)) == int(profile.get("generationVersion", 0)), (
+            f"world {world_id} override generation version does not match its profile"
+        )
+        seen_coordinates = set()
+        for item in override_doc.get("overrides", []):
+            coordinate = (int(item.get("x", 0)), int(item.get("y", 0)), int(item.get("z", 0)))
+            assert coordinate not in seen_coordinates, f"world {world_id} has duplicate override at {coordinate}"
+            seen_coordinates.add(coordinate)
+            if item.get("present", True):
+                assert item.get("blockId") in blocks, (
+                    f"world {world_id} override {coordinate} references missing block {item.get('blockId')}"
+                )
+
+tutorial_ids = progression_doc["world_ids"][:3]
+expected_tutorial_ids = ["tutorial_single_block", "tutorial_dirt_5", "tutorial_lake_core_10"]
+if len(tutorial_ids) >= 3:
+    assert tutorial_ids == expected_tutorial_ids, f"expected first three tutorial worlds, got {tutorial_ids}"
+else:
+    # During the two-commit rollout, the new profile can exist before it is inserted into progression.
+    assert tutorial_ids[:2] == expected_tutorial_ids[:2], f"unexpected opening tutorial sequence {tutorial_ids}"
 
 single = worlds["tutorial_single_block"]
 assert single.get("generationMode") == "single_block", "opening tutorial must use single_block generation"
@@ -146,9 +170,28 @@ assert manual.get("automationAvailable") is False, "manual tutorial must hide au
 assert manual.get("visibleSkillCategories") == ["manual"], "manual tutorial must expose only the manual skill branch"
 assert manual.get("surfaceBlock") == "dirt", "manual tutorial must remain a dirt practice cube"
 
-# Provisional authored worlds stay available after the two implemented tutorial slices until their
-# reviewed replacements are authored. Keeping them explicit avoids accidentally jumping to the finale.
-early_worlds = progression_doc["world_ids"][2:5]
+lake = worlds["tutorial_lake_core_10"]
+assert lake.get("generationMode") == "solid_cube", "10x10 tutorial must use an authored solid base"
+assert [int(lake.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")] == [10, 10, 10], (
+    "lake/core tutorial must remain 10 x 10 x 10"
+)
+assert int(lake.get("targetMineableBlocks", 0)) == 1000, "10x10 tutorial must retain 1000 physical mineable cells"
+assert lake.get("automationAvailable") is True, "lake/core tutorial must introduce Powered Shovel automation"
+assert lake.get("visibleSkillCategories") == ["manual", "shovel"], (
+    "lake/core tutorial must reveal only manual and shovel branches"
+)
+lake_overrides = load(lake["overrideFile"].removeprefix("res://"))["overrides"]
+lake_water = [item for item in lake_overrides if item.get("blockId") in {"water", "water_shallow", "water_deep"}]
+lake_stone = [item for item in lake_overrides if item.get("blockId") in {"stone", "stone_dark"}]
+assert len(lake_water) == 16, f"lake/core tutorial must keep one authored 4x4 lake surface, got {len(lake_water)} water cells"
+assert len(lake_stone) == 64, f"lake/core tutorial must keep the authored 4x4x4 stone core, got {len(lake_stone)} stone cells"
+
+# Provisional authored worlds stay available after implemented tutorial slices until their reviewed
+# replacements are authored. Keeping them explicit avoids accidentally jumping to the finale.
+if "tutorial_lake_core_10" in progression_doc["world_ids"]:
+    early_worlds = progression_doc["world_ids"][3:6]
+else:
+    early_worlds = progression_doc["world_ids"][2:5]
 assert early_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
     f"expected provisional authored bridge worlds after tutorials, got {early_worlds}"
 )
