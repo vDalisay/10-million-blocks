@@ -7,7 +7,13 @@ namespace TenMillionBlocks.Skills;
 
 public sealed class SkillDerivedStats
 {
+    // Legacy count remains for compatibility with existing saves/data while the future progression
+    // moves manual area mining onto explicit footprint strategies.
     public int ManualBlocksPerClick { get; internal set; } = 1;
+    public ManualMiningFootprintKind ManualFootprint { get; internal set; } = ManualMiningFootprintKind.Single;
+    public bool HoverMiningUnlocked { get; internal set; }
+    public double ManualMiningRateMultiplier { get; internal set; } = 1.0;
+
     public double MinerRateMultiplier { get; internal set; } = 1.0;
     public int MinerPatternWidth { get; internal set; } = 1;
     public string DrillPatternId { get; internal set; } = "line";
@@ -218,6 +224,15 @@ public sealed class SkillTreeService
         {
             case "add_manual_blocks_per_click":
                 stats.ManualBlocksPerClick = checked(stats.ManualBlocksPerClick + Math.Max(0, (int)Math.Round(effect.Value)));
+                break;
+            case "multiply_manual_mining_rate":
+                stats.ManualMiningRateMultiplier *= Math.Max(0.01, effect.Value);
+                break;
+            case "set_manual_footprint":
+                stats.ManualFootprint = ManualMiningFootprint.Parse(effect.StringValue);
+                break;
+            case "unlock_hover_mining":
+                stats.HoverMiningUnlocked = true;
                 break;
             case "multiply_miner_rate":
                 stats.MinerRateMultiplier *= Math.Max(0.01, effect.Value);
