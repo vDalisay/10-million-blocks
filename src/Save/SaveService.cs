@@ -13,6 +13,10 @@ public sealed class WorldSaveData
     public int GenerationVersion { get; set; }
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
+    public bool Completed { get; set; }
+    public long FirstStartedUnixSeconds { get; set; }
+    public long CompletedUnixSeconds { get; set; }
+    public string ReplayFile { get; set; } = string.Empty;
     public List<MinedChunkSnapshot> MinedChunks { get; set; } = new();
     public List<ExhaustedRegionSnapshot> ExhaustedRegions { get; set; } = new();
     public List<MinerSnapshot> Miners { get; set; } = new();
@@ -24,7 +28,10 @@ public sealed class GameSaveData
     public long SavedAtUnixSeconds { get; set; }
     public string CurrentWorldId { get; set; } = string.Empty;
     public long Currency { get; set; }
+    public Dictionary<string, long> SpecialResources { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> SkillRanks { get; set; } = new(StringComparer.Ordinal);
+    public HashSet<string> UnlockedWorldIds { get; set; } = new(StringComparer.Ordinal);
+    public HashSet<string> CompletedWorldIds { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, WorldSaveData> Worlds { get; set; } = new(StringComparer.Ordinal);
 }
 
@@ -60,13 +67,18 @@ public sealed class SaveService
                 $"Unsupported save schema {data.SchemaVersion}; expected {SupportedSchemaVersion}.");
         }
 
+        data.SpecialResources ??= new Dictionary<string, long>(StringComparer.Ordinal);
         data.SkillRanks ??= new Dictionary<string, int>(StringComparer.Ordinal);
+        data.UnlockedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
+        data.CompletedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
         data.Worlds ??= new Dictionary<string, WorldSaveData>(StringComparer.Ordinal);
-        foreach (WorldSaveData world in data.Worlds.Values)
+        foreach ((string worldId, WorldSaveData world) in data.Worlds)
         {
+            world.WorldId = string.IsNullOrWhiteSpace(world.WorldId) ? worldId : world.WorldId;
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
             world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
             world.Miners ??= new List<MinerSnapshot>();
+            if (world.Completed) data.CompletedWorldIds.Add(world.WorldId);
         }
         return data;
     }
