@@ -1,0 +1,242 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace TenMillionBlocks.Replay;
+
+/// <summary>
+/// Compact replay codec. The event payload uses tick deltas and ZigZag-varint linear-index deltas,
+/// then Brotli-compresses the stream. The header stays small and self-describing so future schema
+/// versions can reject incompatible files before touching the payload.
+/// </summary>
+public static class ReplayBinaryCodec
+{
+    private static readonly byte[] Magic = Encoding.ASCII.GetBytes("CMBR");
+
+    public static void Write(string absolutePath, ReplayHeader header, IReadOnlyList<ReplayRemovalEvent> events)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(absolutePath);
+        ArgumentNullException.ThrowIfNull(header);
+        ArgumentNullException.ThrowIfNull(events);
+
+        byte[] eventBytes = EncodeEvents(events);
+        byte[] checksum = SHA256.HashData(eventBytes);
+        byte[] compressed = Compress(eventBytes);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath) ?? ".");
+        string temp = absolutePath + ".tmp";
+        using (FileStream stream = File.Create(temp))
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: false))
+        {
+            writer.Write(Magic);
+            writer.Write(ReplayHeader.CurrentSchemaVersion);
+            WriteString(writer, header.WorldId);
+            writer.Write(header.GenerationVersion);
+            writer.Write(header.MinCoordinate);
+            writer.Write(header.AxisSize);
+            writer.Write(header.TickRate);
+            writer.Write((long)events.Count);
+            writer.Write(header.FinalMinedCount);
+            writer.Write(eventBytes.Length);
+            writer.Write(compressed.Length);
+            writer.Write(checksum.Length);
+            writer.Write(checksum);
+            writer.Write(compressed);
+        }
+
+        File.Move(temp, absolutePath, overwrite: true);
+    }
+
+    public static ReplayData Read(string absolutePath)
+    {
+        using FileStream stream = File.OpenRead(absolutePath);
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
+
+        byte[] magic = reader.ReadBytes(Magic.Length);
+        if (!magic.AsSpan().SequenceEqual(Magic))
+        {
+            throw new InvalidDataException("Replay has invalid magic bytes.");
+        }
+
+        int schema = reader.ReadInt32();
+        if (schema != ReplayHeader.CurrentSchemaVersion)
+        {
+            throw new InvalidDataException($"Unsupported replay schema {schema}.");
+        }
+
+        string worldId = ReadString(reader);
+        int generationVersion = reader.ReadInt32();
+        int minCoordinate = reader.ReadInt32();
+        int axisSize = reader.ReadInt32();
+        int tickRate = reader.ReadInt32();
+        long eventCount = reader.ReadInt64();
+        long finalMinedCount = reader.ReadInt64();
+        int rawLength = reader.ReadInt32();
+        int compressedLength = reader.ReadInt32();
+        int checksumLength = reader.ReadInt32();
+        byte[] checksum = reader.ReadBytes(checksumLength);
+        byte[] compressed = reader.ReadBytes(compressedLength);
+
+        if (rawLength < 0 || compressedLength < 0 || eventCount < 0 || axisSize <= 0 || tickRate <= 0)
+        {
+            throw new InvalidDataException("Replay header contains invalid sizes.");
+        }
+        if (compressed.Length != compressedLength || checksum.Length != checksumLength)
+        {
+            throw new EndOfStreamException("Replay ended before its declared payload completed.");
+        }
+
+        byte[] eventBytes = Decompress(compressed, rawLength);
+        byte[] actualChecksum = SHA256.HashData(eventBytes);
+        if (!CryptographicOperations.FixedTimeEquals(checksum, actualChecksum))
+        {
+            throw new InvalidDataException("Replay event checksum mismatch.");
+        }
+
+        List<ReplayRemovalEvent> events = DecodeEvents(eventBytes, eventCount);
+        return new ReplayData
+        {
+            Header = new ReplayHeader
+            {
+                SchemaVersion = schema,
+                WorldId = worldId,
+                GenerationVersion = generationVersion,
+                MinCoordinate = minCoordinate,
+                AxisSize = axisSize,
+                TickRate = tickRate,
+                EventCount = eventCount,
+                FinalMinedCount = finalMinedCount,
+                EventChecksum = checksum,
+            },
+            Events = events,
+        };
+    }
+
+    public static byte[] EncodeEvents(IReadOnlyList<ReplayRemovalEvent> events)
+    {
+        using var stream = new MemoryStream();
+        uint previousTick = 0;
+        long previousIndex = 0;
+
+        foreach (ReplayRemovalEvent item in events)
+        {
+            if (item.Tick < previousTick)
+            {
+                throw new InvalidDataException("Replay events must be ordered by nondecreasing tick.");
+            }
+
+            stream.WriteByte((byte)ReplayEventKind.RemoveVoxel);
+            WriteVarUInt(stream, item.Tick - previousTick);
+            WriteVarUInt(stream, ZigZag(item.LinearIndex - previousIndex));
+            stream.WriteByte((byte)item.Source);
+            previousTick = item.Tick;
+            previousIndex = item.LinearIndex;
+        }
+
+        return stream.ToArray();
+    }
+
+    public static List<ReplayRemovalEvent> DecodeEvents(ReadOnlySpan<byte> bytes, long expectedCount)
+    {
+        var result = new List<ReplayRemovalEvent>(expectedCount > int.MaxValue ? 0 : (int)expectedCount);
+        int offset = 0;
+        uint tick = 0;
+        long index = 0;
+
+        while (offset < bytes.Length)
+        {
+            ReplayEventKind kind = (ReplayEventKind)bytes[offset++];
+            if (kind != ReplayEventKind.RemoveVoxel)
+            {
+                throw new InvalidDataException($"Unknown replay event kind {(byte)kind}.");
+            }
+
+            tick = checked(tick + (uint)ReadVarUInt(bytes, ref offset));
+            index = checked(index + UnZigZag(ReadVarUInt(bytes, ref offset)));
+            if (offset >= bytes.Length) throw new EndOfStreamException("Replay source byte is missing.");
+            ReplayMiningSource source = (ReplayMiningSource)bytes[offset++];
+            result.Add(new ReplayRemovalEvent(tick, index, source));
+        }
+
+        if (result.Count != expectedCount)
+        {
+            throw new InvalidDataException($"Replay decoded {result.Count} events; header declared {expectedCount}.");
+        }
+
+        return result;
+    }
+
+    private static byte[] Compress(byte[] raw)
+    {
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            brotli.Write(raw, 0, raw.Length);
+        }
+        return output.ToArray();
+    }
+
+    private static byte[] Decompress(byte[] compressed, int expectedLength)
+    {
+        using var input = new MemoryStream(compressed, writable: false);
+        using var brotli = new BrotliStream(input, CompressionMode.Decompress);
+        using var output = expectedLength > 0 ? new MemoryStream(expectedLength) : new MemoryStream();
+        brotli.CopyTo(output);
+        byte[] raw = output.ToArray();
+        if (raw.Length != expectedLength)
+        {
+            throw new InvalidDataException($"Replay decompressed to {raw.Length} bytes; header declared {expectedLength}.");
+        }
+        return raw;
+    }
+
+    private static ulong ZigZag(long value)
+        => unchecked((ulong)((value << 1) ^ (value >> 63)));
+
+    private static long UnZigZag(ulong value)
+        => unchecked((long)(value >> 1) ^ -((long)value & 1L));
+
+    private static void WriteVarUInt(Stream stream, ulong value)
+    {
+        while (value >= 0x80)
+        {
+            stream.WriteByte((byte)((value & 0x7F) | 0x80));
+            value >>= 7;
+        }
+        stream.WriteByte((byte)value);
+    }
+
+    private static ulong ReadVarUInt(ReadOnlySpan<byte> bytes, ref int offset)
+    {
+        ulong value = 0;
+        int shift = 0;
+        while (true)
+        {
+            if (offset >= bytes.Length) throw new EndOfStreamException("Replay varint was truncated.");
+            byte current = bytes[offset++];
+            value |= (ulong)(current & 0x7F) << shift;
+            if ((current & 0x80) == 0) return value;
+            shift += 7;
+            if (shift >= 64) throw new InvalidDataException("Replay varint is too long.");
+        }
+    }
+
+    private static void WriteString(BinaryWriter writer, string value)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+        writer.Write(bytes.Length);
+        writer.Write(bytes);
+    }
+
+    private static string ReadString(BinaryReader reader)
+    {
+        int length = reader.ReadInt32();
+        if (length < 0 || length > 1_048_576) throw new InvalidDataException("Replay string length is invalid.");
+        byte[] bytes = reader.ReadBytes(length);
+        if (bytes.Length != length) throw new EndOfStreamException("Replay string was truncated.");
+        return Encoding.UTF8.GetString(bytes);
+    }
+}
