@@ -60,12 +60,6 @@ public sealed class ProceduralWorldSource
         return SampleVoxelFromTerrain(coordinate, terrain);
     }
 
-    /// <summary>
-    /// Fast path for the large-world renderer. Terrain noise is evaluated once for one tangential
-    /// surface column and the outermost logical block is classified from that same context. This is
-    /// intentionally a presentation sampler: the exact small-world voxel sampler remains unchanged.
-    /// It avoids the old 32^3 chunk scan plus six neighbour samples per voxel.
-    /// </summary>
     public bool TrySampleOutermostSurfaceVoxel(
         Vector3I outwardNormal,
         int tangentU,
@@ -82,16 +76,12 @@ public sealed class ProceduralWorldSource
 
         if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
         {
-            // These authored tutorial modes use the eager exact renderer. Keep this method predictable
-            // for diagnostics without routing them through procedural terrain noise.
-            int radial = AuthoredBoxSurfaceRadius(outwardNormal);
-            voxel = FaceVoxel(outwardNormal, radial, tangentU, tangentV);
+            int authoredRadial = AuthoredBoxSurfaceRadius(outwardNormal);
+            voxel = FaceVoxel(outwardNormal, authoredRadial, tangentU, tangentV);
             sample = SampleVoxel(voxel);
             return sample.Present;
         }
 
-        // Terrain fields are functions of cube-surface direction. Build one stable reference point
-        // on that face, then use its resulting radial height to address the actual surface block.
         int referenceRadius = Math.Max(1, (int)MathF.Round(_profile.BaseRadius));
         referenceRadius = Math.Max(referenceRadius, Math.Max(Math.Abs(tangentU), Math.Abs(tangentV)));
         Vector3I reference = FaceVoxel(outwardNormal, referenceRadius, tangentU, tangentV);
@@ -101,8 +91,6 @@ public sealed class ProceduralWorldSource
             : terrain.GroundRadius;
         int radial = Math.Max(0, Mathf.FloorToInt(outerRadius + 0.001f));
 
-        // At cube edges a tangent can become the dominant axis. That column belongs to an adjacent
-        // face and is deliberately left to that face's proxy/detail patch rather than duplicated.
         if (Math.Abs(tangentU) > radial || Math.Abs(tangentV) > radial)
         {
             return false;
@@ -115,8 +103,6 @@ public sealed class ProceduralWorldSource
             return true;
         }
 
-        // Quantization can put the mathematical surface directly between two integer shells. A tiny
-        // bounded inward fallback handles that without turning this back into a depth scan.
         for (int inward = 1; inward <= 2; inward++)
         {
             int candidateRadial = radial - inward;
@@ -144,9 +130,6 @@ public sealed class ProceduralWorldSource
             return BlockSample.Empty;
         }
 
-        // Hydrology is a real second layer above the generated landform. We no longer randomly
-        // replace the outer grass shell with blue blocks. Low terrain is carved below a stable sea
-        // surface, which naturally creates contiguous lakes/oceans and visible depth.
         if (terrain.HasWater && radius > terrain.GroundRadius + 0.001f && radius <= terrain.WaterRadius + 0.001f)
         {
             float totalDepth = MathF.Max(0.0f, terrain.WaterRadius - terrain.GroundRadius);
