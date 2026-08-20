@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Godot;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Presentation;
@@ -243,16 +244,21 @@ public partial class MinerPlacementController : Node
 
         if (_pendingPurchaseSkillId is string purchaseSkillId)
         {
-            // No currency is touched before this point. The green ghost has been accepted by the
-            // player and the spatial placement has already passed exactly the same validation used by
-            // PlaceMiner, so cancel/invalid previews are always free.
-            SkillPurchaseResult purchase = _skills.Purchase(purchaseSkillId);
+            // Temporarily expose the unlock to PlaceMiner, create the accepted unit, then charge only
+            // after that callback succeeds. A cancel/red placement never reaches this transaction.
+            SkillPurchaseResult purchase = _skills.PurchaseAfterCommit(
+                purchaseSkillId,
+                () => _miners.PlaceMiner(minerId, voxel) is not null);
             if (!purchase.Success)
             {
                 Feedback?.Invoke(PurchaseFailureText(purchase));
                 GetViewport().SetInputAsHandled();
                 return;
             }
+
+            CompletePlacement($"Bought and placed {minerId}.");
+            GetViewport().SetInputAsHandled();
+            return;
         }
 
         if (_miners.PlaceMiner(minerId, voxel) is null)
@@ -310,6 +316,7 @@ public partial class MinerPlacementController : Node
             SkillPurchaseFailure.InsufficientResources => "Not enough resources to complete this placement.",
             SkillPurchaseFailure.MissingPrerequisite => "Automation prerequisites are no longer met.",
             SkillPurchaseFailure.MaxRank => "Automation is already owned; select it again to place it.",
+            SkillPurchaseFailure.CommitRejected => "The placement could not be committed; no resources were spent.",
             _ => "Automation purchase could not be completed.",
         };
 }
