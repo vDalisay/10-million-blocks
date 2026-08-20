@@ -32,10 +32,10 @@ public partial class PerformanceHud : CanvasLayer
             Visible = false,
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -470.0f,
+            OffsetLeft = -500.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 326.0f,
+            OffsetBottom = 370.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -96,7 +96,8 @@ public partial class PerformanceHud : CanvasLayer
             $"fps: {Engine.GetFramesPerSecond():0}  managed: {memoryMb:0.0} MB  GC: {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}\n" +
             $"renderer: {renderer}  camera: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
             $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
-            $"chunks loaded: {_view.VisibleChunkCount}  load queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
+            $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
+            $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred chunks: {_view.DeferredAutomationChunkCount:N0}\n" +
             $"chunk build ms last/avg: {_view.LastChunkBuildMilliseconds:0.00} / {_view.AverageChunkBuildMilliseconds:0.00}\n" +
             $"chunk builds: {_view.TotalChunkBuilds:N0}  samples: {_view.TotalVoxelCandidatesScanned:N0}\n" +
             $"stream load/unload: {_view.StreamedChunkLoads:N0}/{_view.StreamedChunkUnloads:N0}  macro cells: {_view.MacroInstanceCount:N0} ({_view.MacroBuildMilliseconds:0.0} ms)\n" +
