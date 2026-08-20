@@ -28,16 +28,12 @@ public partial class MinerPlacementController : Node
     public event Action? Changed;
     public event Action<string>? Feedback;
 
-    public void Initialize(
-        ManualMiningController manual,
-        MinerSimulationService miners,
-        SkillTreeService skills,
-        OrbitCameraController camera)
+    public void Initialize(ManualMiningController manual, MinerSimulationService miners)
     {
         _manual = manual;
         _miners = miners;
-        _skills = skills;
-        _camera = camera;
+        _skills = manual.SkillTree;
+        _camera = manual.CameraController;
     }
 
     public override void _Process(double delta)
