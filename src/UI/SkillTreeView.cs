@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using TenMillionBlocks.Automation;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Skills;
@@ -186,10 +185,6 @@ public partial class SkillTreeView : CanvasLayer
     private string BuildTooltip(SkillNodeDefinition node)
     {
         string description = node.Description;
-        if (TryGetMinerUnlock(node, out _))
-        {
-            description += "\nPlacement is previewed before payment; green commits, red is invalid, Esc/Cancel aborts.";
-        }
         if (node.SpecialCosts.Count > 0)
         {
             description += "\nSpecial cost: " + string.Join(", ", node.SpecialCosts.Select(FormatSpecialCost));
@@ -212,12 +207,8 @@ public partial class SkillTreeView : CanvasLayer
         SkillNodeDefinition node = _skills.Catalog.Get(skillId);
         if (!_profile.IsSkillCategoryVisible(node.Category)) return;
 
-        if (TryGetMinerUnlock(node, out string minerId) && _skills.GetRank(skillId) < node.MaxRank)
-        {
-            BeginAutomationPurchasePlacement(node, minerId);
-            return;
-        }
-
+        // Automation skills now buy permanent class capability only. Physical units are a separate,
+        // fixed-price world-local purchase in the Automation drawer.
         SkillPurchaseResult result = _skills.Purchase(skillId);
         if (result.Success)
         {
@@ -249,51 +240,6 @@ public partial class SkillTreeView : CanvasLayer
         Refresh();
     }
 
-    private void BeginAutomationPurchasePlacement(SkillNodeDefinition node, string minerId)
-    {
-        int rank = _skills.GetRank(node.Id);
-        long cost = checked(node.Cost * (rank + 1L));
-        if (!_skills.PrerequisitesMet(node))
-        {
-            _feedback.Text = "Required prerequisite rank has not been reached.";
-            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
-            _feedbackTimer = 2.0;
-            return;
-        }
-        if (_mining.Currency < cost)
-        {
-            _feedback.Text = $"Not enough ordinary resources. Need {cost:N0}.";
-            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
-            _feedbackTimer = 2.0;
-            return;
-        }
-        if (!_skills.SpecialCostsAffordable(node))
-        {
-            _feedback.Text = MissingSpecialResources(node);
-            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
-            _feedbackTimer = 2.0;
-            return;
-        }
-
-        MinerPlacementController? placement = GetParent()?.GetNodeOrNull<MinerPlacementController>("MinerPlacement");
-        if (placement is null || !placement.BeginPurchasePlacement(minerId, node.Id))
-        {
-            _feedback.Text = "Automation placement could not be started.";
-            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
-            _feedbackTimer = 2.0;
-            return;
-        }
-
-        Close();
-    }
-
-    private static bool TryGetMinerUnlock(SkillNodeDefinition node, out string minerId)
-    {
-        SkillEffectDefinition? effect = node.Effects.FirstOrDefault(candidate => candidate.Type == "unlock_miner");
-        minerId = effect?.StringValue ?? string.Empty;
-        return !string.IsNullOrWhiteSpace(minerId);
-    }
-
     private void Refresh()
     {
         if (_resources is null) return;
@@ -315,7 +261,6 @@ public partial class SkillTreeView : CanvasLayer
             bool prerequisites = _skills.PrerequisitesMet(node);
             long cost = checked(node.Cost * (rank + 1L));
             bool affordable = _mining.Currency >= cost && _skills.SpecialCostsAffordable(node);
-            bool automationUnlock = TryGetMinerUnlock(node, out _);
             string costText = FormatCost(node, cost);
 
             if (maxed)
@@ -324,13 +269,6 @@ public partial class SkillTreeView : CanvasLayer
                     ? $"{node.DisplayName}\nMAX {rank}/{node.MaxRank}"
                     : $"{node.DisplayName}\nOWNED";
                 button.Modulate = new Color(0.70f, 1.0f, 0.78f);
-            }
-            else if (automationUnlock)
-            {
-                button.Text = $"{node.DisplayName}\nBUY & PLACE  |  {costText}";
-                button.Modulate = prerequisites
-                    ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
-                    : new Color(0.52f, 0.55f, 0.62f);
             }
             else if (node.PurchaseMode == "repeatable")
             {
@@ -444,8 +382,6 @@ public partial class SkillGraphCanvas : Control
         }
     }
 
-    // Reserve two columns to the left so authored negative grid coordinates can be used for early
-    // tutorial branches without placing buttons outside the canvas.
     private const float GridOriginX = 424.0f;
 
     public static Vector2 NodePosition(SkillNodeDefinition node)
@@ -455,18 +391,15 @@ public partial class SkillGraphCanvas : Control
     {
         int maxX = 0;
         int maxY = 0;
-        int minX = 0;
         foreach (SkillNodeDefinition node in catalog.Nodes.Values)
         {
             if (!profile.IsSkillCategoryVisible(node.Category)) continue;
             maxX = Math.Max(maxX, node.GridX);
-            minX = Math.Min(minX, node.GridX);
             maxY = Math.Max(maxY, node.GridY);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             foreach (SkillRoutePoint point in prerequisite.Route)
             {
                 maxX = Math.Max(maxX, point.GridX);
-                minX = Math.Min(minX, point.GridX);
                 maxY = Math.Max(maxY, point.GridY);
             }
         }
