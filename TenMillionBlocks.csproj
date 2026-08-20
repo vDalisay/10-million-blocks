@@ -7,4 +7,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tools/generation_contract/**/*.cs" />
+  </ItemGroup>
 </Project>
