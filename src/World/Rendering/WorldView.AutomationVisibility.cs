@@ -1,13 +1,15 @@
-using System;
 using Godot;
 
 namespace TenMillionBlocks.World.Rendering;
 
 public partial class WorldView
 {
+    public long AutomationPresentationUpdatesQueued { get; private set; }
+    public long AutomationPresentationUpdatesSuppressed { get; private set; }
+
     /// <summary>
     /// Automation simulation is authoritative regardless of camera position, but presentation work is
-    /// only useful when the automation is in the currently streamed detail set and on the camera-facing
+    /// only useful when the automation is in the currently observed detail set and on the camera-facing
     /// side of the cube. Hidden/back-side/deep automations can therefore stay computational-only.
     /// Small authored worlds retain their eager behavior.
     /// </summary>
@@ -35,14 +37,25 @@ public partial class WorldView
     }
 
     /// <summary>
-    /// Dirty only render chunks that can currently contribute pixels. World state is already updated
-    /// independently, so an off-screen mined area needs no mesh rebuild until streaming later visits it.
+    /// World state is already authoritative before this method is called. For large worlds, only queue
+    /// exact mesh rebuilds when the changed area can contribute pixels now. A drill on the far side or
+    /// deep inside the cube therefore keeps mining computationally without forcing hidden chunk scans.
+    /// When the player later brings that side into view, normal deterministic chunk construction reads
+    /// the accumulated sparse state and presents the latest result in one catch-up build.
     /// </summary>
     public void MarkAutomationDirty(Vector3I voxel)
     {
         if (!StreamingEnabled)
         {
             MarkDirtyAround(voxel);
+            AutomationPresentationUpdatesQueued++;
+            return;
+        }
+
+        Vector3I outward = _world.Source.GetOutwardNormal(voxel);
+        if (!ShouldPresentAutomation(voxel, outward))
+        {
+            AutomationPresentationUpdatesSuppressed++;
             return;
         }
 
@@ -52,6 +65,7 @@ public partial class WorldView
         {
             MarkAutomationChunkIfObserved(ChunkCoord.FromVoxel(voxel + direction, chunkSize));
         }
+        AutomationPresentationUpdatesQueued++;
     }
 
     public void FocusAutomationVoxel(Vector3I voxel)
@@ -63,7 +77,9 @@ public partial class WorldView
     {
         if (_desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk))
         {
-            _dirtyChunks.Add(chunk);
+            // Use the normal dirty path so visible full-surface chunks switch to exact exposed-voxel
+            // rebuilding. Suppressed chunks deliberately never enter this path until viewed later.
+            MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
         }
     }
 }
