@@ -137,6 +137,7 @@ public partial class MinerSimulationService
         }
 
         _visualVisibilityRefreshTimer = 0.0;
+        _view.RefreshDeferredAutomationPresentation();
         foreach (MinerInstance miner in _miners)
         {
             RefreshVisualVisibility(miner);
