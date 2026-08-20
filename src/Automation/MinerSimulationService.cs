@@ -128,7 +128,9 @@ public partial class MinerSimulationService : Node3D
                 $"Miner '{definition.Id}' references unknown effective pattern '{patternId}'.");
         }
 
-        if (IsShovel(definition) && !IsShovelMaterial(placementSample))
+        if (IsShovel(definition)
+            && (!IsShovelMaterial(placementSample)
+                || HasBlockingShovelSurfaceFeature(surfaceVoxel, _world.Source.GetOutwardNormal(surfaceVoxel))))
         {
             return null;
         }
@@ -506,7 +508,20 @@ public partial class MinerSimulationService : Node3D
         BlockSample sample = _world.SampleVoxel(candidate);
         if (!sample.Present || !_world.IsExposed(candidate) || !IsShovelMaterial(sample)) return false;
         if (enforceFace && _world.Source.GetOutwardNormal(candidate) != outward) return false;
+        if (HasBlockingShovelSurfaceFeature(candidate, outward)) return false;
         return true;
+    }
+
+    /// <summary>
+    /// The base shovel only removes an unobstructed terrain tile. Decorative trees are generated as a
+    /// separate feature pass rather than voxels, so they must be checked explicitly. A real voxel in
+    /// the outward cell also counts as an obstruction. Future decorative rocks/props should join this
+    /// single policy instead of teaching the shovel about each renderer separately.
+    /// </summary>
+    private bool HasBlockingShovelSurfaceFeature(Vector3I candidate, Vector3I outward)
+    {
+        if (_world.Source.TrySampleTree(candidate, out _)) return true;
+        return _world.SampleVoxel(candidate + outward).Present;
     }
 
     private bool IsShovelMaterial(BlockSample sample)
