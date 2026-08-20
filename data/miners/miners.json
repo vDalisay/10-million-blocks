@@ -7,11 +7,11 @@
       "tool_class": "drill",
       "base_rate": 1.0,
       "pattern_id": "line",
-      "range": 96,
+      "range": 256,
       "power": 1.0,
       "allowed_block_tags": [],
       "tag_rate_multipliers": {},
-      "description": "Advances one block of depth per second and starts with ordinary-stone capability only. Unsupported material stops the drill until the blocker is removed or an appropriate drill-bit skill is bought."
+      "description": "Advances one block of depth per second and starts with ordinary-stone capability only. Unsupported material stops the drill until the blocker is removed or an appropriate drill-bit skill is bought; otherwise it runs until it physically exits the current world."
     },
     {
       "id": "wide_bore_miner",
