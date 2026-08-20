@@ -125,6 +125,9 @@ for world_id in early_worlds:
         int(profile.get("logicalHeight", 0)),
         int(profile.get("logicalDepth", 0)),
     ) <= 48, f"early-game world {world_id} unexpectedly grew into a stress-scale profile"
+    assert str(profile.get("introText", "")).strip(), (
+        f"early-game world {world_id} needs authored introText explaining its gameplay role"
+    )
 
 # Product-direction guardrail: future refactors must not silently put the final million-block world
 # back onto the old macro-cell presentation.
