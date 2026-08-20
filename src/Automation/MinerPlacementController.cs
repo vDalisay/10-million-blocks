@@ -16,6 +16,7 @@ public partial class MinerPlacementController : Node
 
     private Node3D? _ghost;
     private string? _pendingPurchaseSkillId;
+    private bool _pendingUnitPurchase;
     private MinerInstance? _movingMiner;
     private MinerInstance? _ambientHoveredMiner;
     private bool _movingFromAmbientHover;
@@ -27,7 +28,8 @@ public partial class MinerPlacementController : Node
     public string? PendingMinerId { get; private set; }
     public bool IsPlacing => PendingMinerId is not null;
     public bool IsMoving => _movingMiner is not null;
-    public bool IsDeferredPurchase => _pendingPurchaseSkillId is not null;
+    public bool IsDeferredPurchase => _pendingPurchaseSkillId is not null || _pendingUnitPurchase;
+    public bool IsUnitPurchase => _pendingUnitPurchase;
 
     public event Action? Changed;
     public event Action<string>? Feedback;
@@ -79,8 +81,6 @@ public partial class MinerPlacementController : Node
 
         Vector2 mouse = GetViewport().GetMousePosition();
 
-        // If an ambient hover was active but another system (the explicit attention-cycle popup)
-        // selected a different miner, relinquish ambient ownership without clearing that selection.
         if (_ambientHoveredMiner is not null
             && _miners.HighlightedAttentionMiner?.InstanceId != _ambientHoveredMiner.InstanceId)
         {
@@ -103,16 +103,12 @@ public partial class MinerPlacementController : Node
             return;
         }
 
-        // Explicit attention focus remains visible even when not hovered so it can locate a buried
-        // stopped machine. Hover simply reserves LMB for selecting that machine instead of mining.
         if (_miners.HighlightedAttentionMiner is not null)
         {
             _manual.PlacementMode = _miners.UpdateAttentionHover(mouse, _camera.Camera);
             return;
         }
 
-        // Normal world browsing can discover any visible stopped automation without first entering
-        // the attention/cycle flow. Its orange outline exists only while directly hovered.
         MinerInstance? ambient = _miners.FindVisibleStoppedMinerUnderMouse(mouse, _camera.Camera);
         if (ambient is not null)
         {
@@ -126,6 +122,10 @@ public partial class MinerPlacementController : Node
         }
     }
 
+    /// <summary>
+    /// Free placement is retained for explicit debug/internal callers. Player-facing automation uses
+    /// BeginUnitPurchasePlacement so each physical instance has its fixed world-local price.
+    /// </summary>
     public bool BeginPlacement(string minerId)
     {
         if (!InputEnabled || !_miners.IsMinerUnlocked(minerId))
@@ -133,13 +133,25 @@ public partial class MinerPlacementController : Node
             return false;
         }
 
-        StartPlacement(minerId, purchaseSkillId: null, movingMiner: null);
+        StartPlacement(minerId, purchaseSkillId: null, unitPurchase: false, movingMiner: null);
+        return true;
+    }
+
+    public bool BeginUnitPurchasePlacement(string minerId)
+    {
+        if (!InputEnabled || !_miners.IsMinerUnlocked(minerId))
+        {
+            return false;
+        }
+
+        StartPlacement(minerId, purchaseSkillId: null, unitPurchase: true, movingMiner: null);
         return true;
     }
 
     /// <summary>
-    /// Starts a buy-and-place preview without spending anything. The skill purchase is committed only
-    /// after the player clicks a green placement ghost.
+    /// Legacy transactional unlock-and-place path retained for compatibility while authored content
+    /// migrates to capability-only skill effects. New progression content should unlock first and then
+    /// buy physical units through BeginUnitPurchasePlacement.
     /// </summary>
     public bool BeginPurchasePlacement(string minerId, string purchaseSkillId)
     {
@@ -150,7 +162,7 @@ public partial class MinerPlacementController : Node
             return false;
         }
 
-        StartPlacement(minerId, purchaseSkillId, movingMiner: null);
+        StartPlacement(minerId, purchaseSkillId, unitPurchase: false, movingMiner: null);
         return true;
     }
 
@@ -165,7 +177,7 @@ public partial class MinerPlacementController : Node
         _ambientHoveredMiner = null;
         _miners.SetMinerHiddenForMove(miner, hidden: true);
         _miners.SetAttentionHighlight(null);
-        StartPlacement(miner.DefinitionId, purchaseSkillId: null, movingMiner: miner);
+        StartPlacement(miner.DefinitionId, purchaseSkillId: null, unitPurchase: false, movingMiner: miner);
         _movingFromAmbientHover = fromAmbientHover;
         RefreshCancelUi();
         Feedback?.Invoke($"Moving {miner.DefinitionId}. RMB still orbits the camera; Esc or the Cancel button returns it to its original position.");
@@ -250,8 +262,6 @@ public partial class MinerPlacementController : Node
             return;
         }
 
-        // RMB deliberately remains unhandled while placing/moving so the normal orbit camera remains
-        // usable. Cancellation is explicit via Esc or the bottom-right Cancel button.
         if (button.ButtonIndex == MouseButton.Right)
         {
             return;
@@ -296,10 +306,23 @@ public partial class MinerPlacementController : Node
             return;
         }
 
+        if (_pendingUnitPurchase)
+        {
+            MinerDefinition definition = _miners.GetDefinition(minerId);
+            if (_miners.PurchaseAndPlaceMiner(minerId, voxel) is null)
+            {
+                Feedback?.Invoke($"Could not buy {definition.DisplayName}. Need {definition.UnitPrice:N0} resources and a valid placement.");
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            CompletePlacement($"Bought and placed {definition.DisplayName} for {definition.UnitPrice:N0} resources.");
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         if (_pendingPurchaseSkillId is string purchaseSkillId)
         {
-            // Temporarily expose the unlock to PlaceMiner, create the accepted unit, then charge only
-            // after that callback succeeds. A cancel/red placement never reaches this transaction.
             SkillPurchaseResult purchase = _skills.PurchaseAfterCommit(
                 purchaseSkillId,
                 () => _miners.PlaceMiner(minerId, voxel) is not null);
@@ -310,7 +333,7 @@ public partial class MinerPlacementController : Node
                 return;
             }
 
-            CompletePlacement($"Bought and placed {minerId}.");
+            CompletePlacement($"Unlocked and placed {minerId}.");
             GetViewport().SetInputAsHandled();
             return;
         }
@@ -326,11 +349,16 @@ public partial class MinerPlacementController : Node
         GetViewport().SetInputAsHandled();
     }
 
-    private void StartPlacement(string minerId, string? purchaseSkillId, MinerInstance? movingMiner)
+    private void StartPlacement(
+        string minerId,
+        string? purchaseSkillId,
+        bool unitPurchase,
+        MinerInstance? movingMiner)
     {
         ResetPlacementState();
         PendingMinerId = minerId;
         _pendingPurchaseSkillId = purchaseSkillId;
+        _pendingUnitPurchase = unitPurchase;
         _movingMiner = movingMiner;
         _manual.PlacementMode = true;
         EnsureGhost(minerId);
@@ -349,6 +377,7 @@ public partial class MinerPlacementController : Node
     {
         PendingMinerId = null;
         _pendingPurchaseSkillId = null;
+        _pendingUnitPurchase = false;
         _movingMiner = null;
         _movingFromAmbientHover = false;
         _attentionClickHeld = false;
@@ -424,8 +453,9 @@ public partial class MinerPlacementController : Node
         => result.Failure switch
         {
             SkillPurchaseFailure.InsufficientResources => "Not enough resources to complete this placement.",
+            SkillPurchaseFailure.InsufficientSpecialResources => "Missing special resources to complete this placement.",
             SkillPurchaseFailure.MissingPrerequisite => "Automation prerequisites are no longer met.",
-            SkillPurchaseFailure.MaxRank => "Automation is already owned; select it again to place it.",
+            SkillPurchaseFailure.MaxRank => "Automation capability is already owned.",
             SkillPurchaseFailure.CommitRejected => "The placement could not be committed; no resources were spent.",
             _ => "Automation purchase could not be completed.",
         };
