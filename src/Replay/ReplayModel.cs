@@ -56,6 +56,7 @@ public static class ReplaySourceMapper
         {
             MiningSource.Manual => ReplayMiningSource.Manual,
             MiningSource.Automated or MiningSource.Offline => ReplayMiningSource.Automation,
+            MiningSource.WorldEvent => ReplayMiningSource.WorldEvent,
             _ => ReplayMiningSource.Other,
         };
 }
