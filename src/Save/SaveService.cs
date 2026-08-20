@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Godot;
 using TenMillionBlocks.Automation;
+using TenMillionBlocks.Content;
 using TenMillionBlocks.World.Storage;
 
 namespace TenMillionBlocks.Save;
@@ -11,6 +13,7 @@ public sealed class WorldSaveData
 {
     public string WorldId { get; set; } = string.Empty;
     public int GenerationVersion { get; set; }
+    public long TutorialLocalCurrency { get; set; }
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
     public bool HoverMiningEnabled { get; set; }
@@ -28,7 +31,13 @@ public sealed class GameSaveData
     public int SchemaVersion { get; set; } = SaveService.SupportedSchemaVersion;
     public long SavedAtUnixSeconds { get; set; }
     public string CurrentWorldId { get; set; } = string.Empty;
+    public long PersistentMainCurrency { get; set; }
+
+    // Kept only so schema-2 development saves can be read and migrated without losing the active
+    // wallet. It is reset to zero during migration and omitted from all new schema-3 saves.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public long Currency { get; set; }
+
     public Dictionary<string, long> SpecialResources { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> SkillRanks { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> UnlockedWorldIds { get; set; } = new(StringComparer.Ordinal);
@@ -38,8 +47,9 @@ public sealed class GameSaveData
 
 public sealed class SaveService
 {
-    public const int SupportedSchemaVersion = 2;
-    public const string DefaultPath = "user://savegame_v2.json";
+    public const int SupportedSchemaVersion = 3;
+    public const string DefaultPath = "user://savegame_v3.json";
+    public const string LegacyV2Path = "user://savegame_v2.json";
 
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -48,45 +58,57 @@ public sealed class SaveService
         WriteIndented = false,
     };
 
-    public GameSaveData LoadOrCreate(string path = DefaultPath)
+    public GameSaveData LoadOrCreate(WorldCatalog worlds, string path = DefaultPath)
     {
-        if (!Godot.FileAccess.FileExists(path))
+        string sourcePath = path;
+        if (!Godot.FileAccess.FileExists(sourcePath))
         {
-            return NewSave();
+            if (string.Equals(path, DefaultPath, StringComparison.Ordinal)
+                && Godot.FileAccess.FileExists(LegacyV2Path))
+            {
+                sourcePath = LegacyV2Path;
+            }
+            else
+            {
+                return NewSave();
+            }
         }
 
-        string json = Godot.FileAccess.GetFileAsString(path);
+        string json = Godot.FileAccess.GetFileAsString(sourcePath);
         GameSaveData? data = JsonSerializer.Deserialize<GameSaveData>(json, _jsonOptions);
         if (data is null)
         {
             throw new InvalidOperationException("Save file parsed to null.");
         }
 
-        if (data.SchemaVersion != SupportedSchemaVersion)
+        bool migrated = false;
+        if (data.SchemaVersion == 2)
+        {
+            MigrateSchema2(data, worlds);
+            migrated = true;
+        }
+        else if (data.SchemaVersion != SupportedSchemaVersion)
         {
             throw new InvalidOperationException(
-                $"Unsupported save schema {data.SchemaVersion}; expected {SupportedSchemaVersion}.");
+                $"Unsupported save schema {data.SchemaVersion}; expected {SupportedSchemaVersion} or migratable schema 2.");
         }
 
-        data.SpecialResources ??= new Dictionary<string, long>(StringComparer.Ordinal);
-        data.SkillRanks ??= new Dictionary<string, int>(StringComparer.Ordinal);
-        data.UnlockedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
-        data.CompletedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
-        data.Worlds ??= new Dictionary<string, WorldSaveData>(StringComparer.Ordinal);
-        foreach ((string worldId, WorldSaveData world) in data.Worlds)
+        Normalize(data);
+
+        // When the default schema-3 file does not exist, migrate the old development save forward
+        // once and leave the old file untouched as a rollback copy.
+        if (migrated || !string.Equals(sourcePath, path, StringComparison.Ordinal))
         {
-            world.WorldId = string.IsNullOrWhiteSpace(world.WorldId) ? worldId : world.WorldId;
-            world.MinedChunks ??= new List<MinedChunkSnapshot>();
-            world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
-            world.Miners ??= new List<MinerSnapshot>();
-            if (world.Completed) data.CompletedWorldIds.Add(world.WorldId);
+            Save(data, path);
         }
+
         return data;
     }
 
     public void Save(GameSaveData data, string path = DefaultPath)
     {
         data.SchemaVersion = SupportedSchemaVersion;
+        data.Currency = 0L;
         data.SavedAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         string json = JsonSerializer.Serialize(data, _jsonOptions);
 
@@ -111,4 +133,53 @@ public sealed class SaveService
             SchemaVersion = SupportedSchemaVersion,
             SavedAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
         };
+
+    private static void MigrateSchema2(GameSaveData data, WorldCatalog worlds)
+    {
+        long legacyCurrency = Math.Max(0L, data.Currency);
+        if (legacyCurrency > 0L
+            && !string.IsNullOrWhiteSpace(data.CurrentWorldId)
+            && worlds.Worlds.TryGetValue(data.CurrentWorldId, out WorldProfile? active)
+            && active.UsesTutorialLocalWallet)
+        {
+            if (!data.Worlds.TryGetValue(active.Id, out WorldSaveData? world))
+            {
+                world = new WorldSaveData
+                {
+                    WorldId = active.Id,
+                    GenerationVersion = active.GenerationVersion,
+                };
+                data.Worlds[active.Id] = world;
+            }
+            world.TutorialLocalCurrency = Math.Max(world.TutorialLocalCurrency, legacyCurrency);
+        }
+        else
+        {
+            data.PersistentMainCurrency = Math.Max(data.PersistentMainCurrency, legacyCurrency);
+        }
+
+        data.Currency = 0L;
+        data.SchemaVersion = SupportedSchemaVersion;
+    }
+
+    private static void Normalize(GameSaveData data)
+    {
+        data.PersistentMainCurrency = Math.Max(0L, data.PersistentMainCurrency);
+        data.Currency = 0L;
+        data.SpecialResources ??= new Dictionary<string, long>(StringComparer.Ordinal);
+        data.SkillRanks ??= new Dictionary<string, int>(StringComparer.Ordinal);
+        data.UnlockedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
+        data.CompletedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
+        data.Worlds ??= new Dictionary<string, WorldSaveData>(StringComparer.Ordinal);
+
+        foreach ((string worldId, WorldSaveData world) in data.Worlds)
+        {
+            world.WorldId = string.IsNullOrWhiteSpace(world.WorldId) ? worldId : world.WorldId;
+            world.TutorialLocalCurrency = Math.Max(0L, world.TutorialLocalCurrency);
+            world.MinedChunks ??= new List<MinedChunkSnapshot>();
+            world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
+            world.Miners ??= new List<MinerSnapshot>();
+            if (world.Completed) data.CompletedWorldIds.Add(world.WorldId);
+        }
+    }
 }
