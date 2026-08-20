@@ -21,6 +21,7 @@ public sealed class ReplayRecorder : IDisposable
     private readonly ulong _startedUsec;
     private readonly int _minCoordinate;
     private readonly int _axisSize;
+    private readonly uint _tickOffset;
     private bool _disposed;
 
     public ReplayRecorder(VirtualWorld world, MiningService mining, string? existingAbsolutePath = null)
@@ -36,6 +37,9 @@ public sealed class ReplayRecorder : IDisposable
             ReplayData existing = ReplayBinaryCodec.Read(existingAbsolutePath);
             ValidateExisting(existing.Header);
             _events.AddRange(existing.Events);
+            _tickOffset = existing.Events.Count == 0
+                ? 0u
+                : checked(existing.Events[^1].Tick + 1u);
         }
 
         _mining.BlockMined += OnBlockMined;
@@ -78,7 +82,8 @@ public sealed class ReplayRecorder : IDisposable
         if (!result.Success || !result.Removed || result.BlocksRemoved <= 0) return;
 
         ulong elapsedUsec = Time.GetTicksUsec() - _startedUsec;
-        uint tick = checked((uint)Math.Min(uint.MaxValue, elapsedUsec * DefaultTickRate / 1_000_000UL));
+        ulong sessionTicks = elapsedUsec * DefaultTickRate / 1_000_000UL;
+        uint tick = checked((uint)Math.Min(uint.MaxValue, (ulong)_tickOffset + sessionTicks));
         long linearIndex = ToLinearIndex(result.Voxel);
         _events.Add(new ReplayRemovalEvent(tick, linearIndex, ReplaySourceMapper.FromMiningSource(result.Source)));
     }
