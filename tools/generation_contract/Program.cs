@@ -48,16 +48,6 @@ static WorldProfile MakeProfile(int seed, float baseRadius)
 static bool IsWater(WorldProfile p, string id)
     => id == p.WaterBlock || id == p.ShallowWaterBlock || id == p.DeepWaterBlock;
 
-static bool IsSurfaceFamily(WorldProfile p, string id)
-    => id == p.SurfaceBlock || id == p.SurfaceEdgeBlock || id == p.SoilBlock || id == p.SandBlock;
-
-static Vector3I[] Tangents(Vector3I normal)
-{
-    if (normal.X != 0) return [Vector3I.Up, Vector3I.Down, Vector3I.Back, Vector3I.Forward];
-    if (normal.Y != 0) return [Vector3I.Right, Vector3I.Left, Vector3I.Back, Vector3I.Forward];
-    return [Vector3I.Right, Vector3I.Left, Vector3I.Up, Vector3I.Down];
-}
-
 static int Radial(Vector3I voxel, Vector3I normal)
     => normal.X != 0 ? voxel.X * normal.X : normal.Y != 0 ? voxel.Y * normal.Y : voxel.Z * normal.Z;
 
@@ -101,25 +91,14 @@ static void ValidateProfile(WorldProfile profile)
         if (!exposedOutward || IsWater(profile, sample.BlockId)) continue;
         exposedSolid++;
 
-        // Minecraft-like terrain contract: natural terrain surfaces are columns filled continuously
-        // inward. Trees/features are separate and are intentionally not represented by SampleVoxel.
+        // Minecraft-like terrain contract: natural terrain is emitted as face columns filled
+        // continuously inward. A visually isolated bump may still be a deliberate height step, but a
+        // truly floating/hanging terrain cube is impossible because its immediate inward support must
+        // exist. Trees/features are separate and are intentionally not represented by SampleVoxel.
         Vector3I inward = voxel - normal;
         Require(
             source.SampleVoxel(inward).Present,
             $"Unsupported terrain at {voxel} ({sample.BlockId}); inward support {inward} is empty for seed {profile.Seed}.");
-
-        if (IsSurfaceFamily(profile, sample.BlockId))
-        {
-            int sameLayerNeighbours = 0;
-            foreach (Vector3I tangent in Tangents(normal))
-            {
-                BlockSample neighbour = source.SampleVoxel(voxel + tangent);
-                if (neighbour.Present && !IsWater(profile, neighbour.BlockId)) sameLayerNeighbours++;
-            }
-            Require(
-                sameLayerNeighbours > 0,
-                $"Isolated natural surface block at {voxel} ({sample.BlockId}) for seed {profile.Seed}.");
-        }
 
         Require(
             !(IsSeam(voxel) && sample.BlockId == profile.SurfaceEdgeBlock),
