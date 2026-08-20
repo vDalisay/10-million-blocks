@@ -123,6 +123,10 @@ public partial class ManualMiningController : Node3D
             MarkEffectDirty(result);
             if (presentationBursts < 3)
             {
+                // Keep the original block visible for a fraction of a second and scale it outward.
+                // This gives manual clicks a small tactile pop without turning voxels into persistent
+                // scene nodes or changing the authoritative mining timing.
+                _view.SpawnManualMinePop(result.Voxel, result.BlockId);
                 EmitDebris(result, presentationBursts++);
             }
 
