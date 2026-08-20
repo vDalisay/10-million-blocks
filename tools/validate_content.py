@@ -8,6 +8,7 @@ skill/miner references and accidental regressions of the one-million real-block 
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +40,19 @@ miners = unique_by_id(miners_doc["miners"], "miner")
 skills = unique_by_id(skills_doc["nodes"], "skill")
 worlds = unique_by_id(worlds_doc["worlds"], "world")
 patterns = {"line", "wide_line", "disc", "surface_strip"}
+known_effects = {
+    "add_manual_blocks_per_click",
+    "multiply_miner_rate",
+    "multiply_shovel_rate",
+    "unlock_miner",
+    "unlock_pattern",
+    "set_drill_pattern",
+    "set_drill_material_tier",
+    "set_miner_pattern_width",
+    "set_shovel_height_tolerance",
+    "set_shovel_search_radius",
+    "unlock_resource_filter",
+}
 
 # Asset existence is otherwise discovered only when BlockAssetRegistry preloads inside Godot.
 for ident, block in blocks.items():
@@ -66,6 +80,7 @@ for ident, skill in skills.items():
     for effect in skill.get("effects", []):
         effect_type = effect.get("type")
         string_value = effect.get("string_value", "")
+        assert effect_type in known_effects, f"skill {ident} references unknown effect {effect_type}"
         if effect_type == "unlock_miner":
             assert string_value in miners, f"skill {ident} unlocks missing miner {string_value}"
         elif effect_type in {"unlock_pattern", "set_drill_pattern"}:
@@ -104,8 +119,38 @@ for world_id in ("stress_1000", "final_target_1m"):
         f"{world_id} must render real block-scale surface geometry, not the macro proxy"
     )
 
+    max_coordinate = math.ceil(
+        float(profile.get("baseRadius", 0))
+        + float(profile.get("terrainAmplitude", 0))
+        + float(profile.get("detailAmplitude", 0))
+        + max(0.0, float(profile.get("seaLevelOffset", 0)))
+        + 3.0
+    )
+    assert int(miners["line_miner"].get("range", 0)) > max_coordinate * 2 + 1, (
+        "primary Drill safety range must exceed the full physical diameter so normal termination "
+        f"comes from the world boundary ({world_id} requires > {max_coordinate * 2 + 1})"
+    )
+
 assert progression_doc["world_ids"][-1] == "final_target_1m", (
     "final_target_1m must remain the configured progression end goal"
+)
+
+# Product rules added during the final automation pass should be visible in data and guarded by CI.
+assert "sand" in set(blocks["dirt_grass"].get("tags", [])), (
+    "grass-edged dirt must remain valid shovel terrain via the sand tag"
+)
+assert miners["line_miner"].get("tool_class") == "drill", "line_miner must remain the primary Drill"
+
+
+def effect_values(skill_id: str, effect_type: str):
+    return [effect.get("value") for effect in skills[skill_id].get("effects", []) if effect.get("type") == effect_type]
+
+
+assert effect_values("drill_hardened_bit", "set_drill_material_tier") == [1.0], (
+    "Hardened Bit must establish Drill material tier 1"
+)
+assert effect_values("drill_ore_bit", "set_drill_material_tier") == [2.0], (
+    "Ore-Cutting Bit must establish Drill material tier 2"
 )
 
 print(
