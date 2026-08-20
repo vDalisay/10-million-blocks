@@ -336,18 +336,11 @@ public sealed class ProceduralWorldSource
 
     private bool HasAdjacentResolvedWater(Vector3I coordinate)
     {
-        // First catch literal voxel-neighbour water.
         foreach (Vector3I direction in FaceNormals)
         {
             if (WouldResolveToWater(coordinate + direction)) return true;
         }
 
-        // A cube-face height field can step by one radial voxel between two adjacent 2D columns. In
-        // that case the visible shoreline neighbours are diagonally offset in XYZ (for example one
-        // tangent step plus one radial step) even though they are cardinal neighbours on the owning
-        // Minecraft-like face grid. Inspect every face capable of owning this surface/seam cell and
-        // classify the dry top as beach when one of those adjacent columns contains water at roughly
-        // the same visible level.
         float outer = MaxAbs(coordinate);
         foreach (Vector3I normal in FaceNormals)
         {
@@ -385,9 +378,6 @@ public sealed class ProceduralWorldSource
             return new BlockSample(true, _profile.ShallowWaterBlock, true);
         }
 
-        // Dark/deep water is reserved for the interior of a coherent body. A deep basin cell next to
-        // any dry/shallow cardinal column is still rendered as normal water so the shoreline never
-        // gets a dark rim merely because the floor drops quickly at that point.
         if (terrain.WaterDepth >= 2.85f && IsDeepWaterInterior(normal, u, v))
         {
             return new BlockSample(true, _profile.DeepWaterBlock, true);
@@ -419,8 +409,6 @@ public sealed class ProceduralWorldSource
     {
         if (depth <= 0.78f)
         {
-            // Shoreline classification follows final visible topology, including one-level face-grid
-            // steps and cube seams, rather than relying only on the controlling face's raw noise.
             if (terrain.HasWater || terrain.ShoreFactor > 0.38f || HasAdjacentResolvedWater(coordinate))
             {
                 return new BlockSample(true, _profile.SandBlock, true);
@@ -490,15 +478,22 @@ public sealed class ProceduralWorldSource
         float clampedCenter = Math.Clamp(center.GroundRadius, median - 1.0f, median + 1.0f);
         float groundRadius = Quantize(clampedCenter * 0.68f + median * 0.32f, _profile.PlateauStep);
 
-        int waterVotes = 0;
-        if (IsWaterCandidate(center)) waterVotes++;
-        if (IsWaterCandidate(n1)) waterVotes++;
-        if (IsWaterCandidate(n2)) waterVotes++;
-        if (IsWaterCandidate(n3)) waterVotes++;
-        if (IsWaterCandidate(n4)) waterVotes++;
-
         bool centerWater = IsWaterCandidate(center);
-        bool hasWater = centerWater && waterVotes >= 3;
+        bool waterRight = IsWaterCandidate(n1);
+        bool waterLeft = IsWaterCandidate(n2);
+        bool waterUp = IsWaterCandidate(n3);
+        bool waterDown = IsWaterCandidate(n4);
+        int waterVotes = (centerWater ? 1 : 0)
+            + (waterRight ? 1 : 0)
+            + (waterLeft ? 1 : 0)
+            + (waterUp ? 1 : 0)
+            + (waterDown ? 1 : 0);
+
+        // Morphological opening for water: a cell needs broad two-dimensional local support, not just
+        // two neighbours along one axis. This deliberately erodes one-cell tendrils and isolated
+        // puddles before they ever become materialized water voxels.
+        bool twoDimensionalSupport = (waterRight || waterLeft) && (waterUp || waterDown);
+        bool hasWater = centerWater && waterVotes >= 4 && twoDimensionalSupport;
         float waterRadius = Quantize(
             _profile.BaseRadius + _profile.SeaLevelOffset,
             MathF.Max(0.5f, _profile.PlateauStep));
