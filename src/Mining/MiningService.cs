@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Economy;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Generation;
 
@@ -48,9 +49,18 @@ public sealed class MiningService
     private readonly Dictionary<Vector3I, int> _bombHits = new();
 
     public MiningService(VirtualWorld world, ContentDatabase content)
+        : this(world, content, new SpecialResourceInventory())
     {
-        _world = world;
-        _content = content;
+    }
+
+    public MiningService(
+        VirtualWorld world,
+        ContentDatabase content,
+        SpecialResourceInventory specialResources)
+    {
+        _world = world ?? throw new ArgumentNullException(nameof(world));
+        _content = content ?? throw new ArgumentNullException(nameof(content));
+        SpecialResources = specialResources ?? throw new ArgumentNullException(nameof(specialResources));
     }
 
     public event Action<MiningResult>? BlockMined;
@@ -61,6 +71,7 @@ public sealed class MiningService
     public long TotalMined => _world.State.MinedVoxelCount;
     public long Remaining => _world.RemainingMineableBlocks;
     public long Currency { get; private set; }
+    public SpecialResourceInventory SpecialResources { get; }
 
     public BlockDefinition GetBlockDefinition(string blockId) => _content.GetBlock(blockId);
 
@@ -113,6 +124,7 @@ public sealed class MiningService
         BlockDefinition definition = _content.GetBlock(mined.BlockId);
         long reward = definition.BaseValue;
         Currency = checked(Currency + reward);
+        CreditSpecialResource(definition, mined.BlockId);
 
         var result = new MiningResult(
             true,
@@ -137,7 +149,8 @@ public sealed class MiningService
         int radiusSquared = BombBlastRadius * BombBlastRadius;
 
         // This is deliberately bounded (radius 2). We still mine through VirtualWorld so authored
-        // one-million counters, region quotas, sparse state and completion all remain authoritative.
+        // counters, region quotas, sparse state, special-resource credit and completion all remain
+        // authoritative. Every successfully removed voxel gets exactly one accounting pass here.
         for (int z = -BombBlastRadius; z <= BombBlastRadius; z++)
         for (int y = -BombBlastRadius; y <= BombBlastRadius; y++)
         for (int x = -BombBlastRadius; x <= BombBlastRadius; x++)
@@ -152,10 +165,9 @@ public sealed class MiningService
             long reward = definition.BaseValue;
             totalReward = checked(totalReward + reward);
             Currency = checked(Currency + reward);
+            CreditSpecialResource(definition, mined.BlockId);
             removed++;
 
-            // Emit normal per-block removal events so progression statistics and completion logic
-            // remain exact even though the player performed one blast action.
             BlockMined?.Invoke(new MiningResult(
                 true,
                 candidate,
@@ -196,6 +208,9 @@ public sealed class MiningService
             return new BulkMiningResult(false, region, 0L, 0L, TotalMined, Remaining, source);
         }
 
+        // Region aggregation is only a giant-world optimization. Demo worlds that contain authored
+        // special resources stay on exact voxel mining paths, because an aggregate region does not
+        // retain enough identity information to award a gem exactly once.
         long reward = checked(blocksMined * _world.Profile.AggregateRewardPerBlock);
         Currency = checked(Currency + reward);
         var result = new BulkMiningResult(true, region, blocksMined, reward, TotalMined, Remaining, source);
@@ -225,6 +240,12 @@ public sealed class MiningService
     {
         Currency = Math.Max(0L, amount);
         CurrencyChanged?.Invoke(Currency);
+    }
+
+    private void CreditSpecialResource(BlockDefinition definition, string blockId)
+    {
+        if (!definition.Tags.Contains("gem")) return;
+        SpecialResources.Grant(blockId, 1L);
     }
 
     private MiningResult Failure(Vector3I voxel, MiningSource source)
