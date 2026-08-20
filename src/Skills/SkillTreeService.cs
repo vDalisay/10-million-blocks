@@ -12,6 +12,10 @@ public sealed class SkillDerivedStats
     public int MinerPatternWidth { get; internal set; } = 1;
     public string DrillPatternId { get; internal set; } = "line";
 
+    // Tier 0 = basic stone only. Later drill-bit skills widen the material vocabulary without making
+    // the drill silently skip blockers it does not yet understand.
+    public int DrillMaterialTier { get; internal set; } = 0;
+
     // Powered Shovel deliberately starts primitive: one sand tile per second, adjacent cardinal tiles
     // only, and no ability to climb/drop. Separate skills make it faster and smarter.
     public double ShovelRateMultiplier { get; internal set; } = 1.0;
@@ -150,6 +154,9 @@ public sealed class SkillTreeService
                 break;
             case "set_drill_pattern":
                 if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.DrillPatternId = effect.StringValue;
+                break;
+            case "set_drill_material_tier":
+                stats.DrillMaterialTier = Math.Max(stats.DrillMaterialTier, (int)Math.Round(effect.Value));
                 break;
             case "set_miner_pattern_width":
                 stats.MinerPatternWidth = Math.Max(stats.MinerPatternWidth, (int)Math.Round(effect.Value));
