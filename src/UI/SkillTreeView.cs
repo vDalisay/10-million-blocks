@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using TenMillionBlocks.Automation;
+using TenMillionBlocks.Content;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Skills;
 
@@ -13,6 +14,7 @@ public partial class SkillTreeView : CanvasLayer
     private SkillTreeService _skills = null!;
     private MiningService _mining = null!;
     private ManualMiningController _manual = null!;
+    private WorldProfile _profile = null!;
     private Control _root = null!;
     private Label _resources = null!;
     private Label _feedback = null!;
@@ -29,6 +31,7 @@ public partial class SkillTreeView : CanvasLayer
         _skills = skills;
         _mining = mining;
         _manual = manual;
+        _profile = manual.WorldProfile;
         skills.Changed += Refresh;
         mining.CurrencyChanged += _ => Refresh();
     }
@@ -75,9 +78,6 @@ public partial class SkillTreeView : CanvasLayer
         close.Pressed += Close;
         _root.AddChild(close);
 
-        // The authored tree is no longer constrained to the first few grid rows. Keep the graph data
-        // coordinates exactly as authored and put the runtime canvas in a scroll container instead of
-        // silently clipping late-game branches off-screen.
         _scroll = new ScrollContainer
         {
             AnchorRight = 1.0f,
@@ -92,10 +92,10 @@ public partial class SkillTreeView : CanvasLayer
 
         _graph = new SkillGraphCanvas
         {
-            CustomMinimumSize = SkillGraphCanvas.RequiredSize(_skills.Catalog),
+            CustomMinimumSize = SkillGraphCanvas.RequiredSize(_skills.Catalog, _profile),
             MouseFilter = Control.MouseFilterEnum.Pass,
         };
-        _graph.Initialize(_skills);
+        _graph.Initialize(_skills, _profile);
         _scroll.AddChild(_graph);
 
         BuildButtons();
@@ -167,6 +167,8 @@ public partial class SkillTreeView : CanvasLayer
     {
         foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
+            if (!_profile.IsSkillCategoryVisible(node.Category)) continue;
+
             var button = new Button
             {
                 Position = SkillGraphCanvas.NodePosition(node),
@@ -185,21 +187,27 @@ public partial class SkillTreeView : CanvasLayer
         string description = node.Description;
         if (TryGetMinerUnlock(node, out _))
         {
-            description += "\nPlacement is previewed before payment; green commits, red is invalid, RMB/Esc cancels.";
+            description += "\nPlacement is previewed before payment; green commits, red is invalid, Esc/Cancel aborts.";
         }
 
         if (node.Prerequisites.Count == 0) return description;
         var requirements = new List<string>();
         foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
         {
-            requirements.Add($"{_skills.Catalog.Get(prerequisite.NodeId).DisplayName} rank {prerequisite.RequiredRank}");
+            SkillNodeDefinition source = _skills.Catalog.Get(prerequisite.NodeId);
+            if (!_profile.IsSkillCategoryVisible(source.Category)) continue;
+            requirements.Add($"{source.DisplayName} rank {prerequisite.RequiredRank}");
         }
-        return description + "\nRequires: " + string.Join(", ", requirements);
+        return requirements.Count == 0
+            ? description
+            : description + "\nRequires: " + string.Join(", ", requirements);
     }
 
     private void Purchase(string skillId)
     {
         SkillNodeDefinition node = _skills.Catalog.Get(skillId);
+        if (!_profile.IsSkillCategoryVisible(node.Category)) return;
+
         if (TryGetMinerUnlock(node, out string minerId) && _skills.GetRank(skillId) < node.MaxRank)
         {
             BeginAutomationPurchasePlacement(node, minerId);
@@ -264,8 +272,6 @@ public partial class SkillTreeView : CanvasLayer
             return;
         }
 
-        // Nothing has been spent yet. Closing restores world input; the placement controller owns the
-        // shared green/red ghost and commits the unlock+cost only after a valid LMB placement.
         Close();
     }
 
@@ -280,9 +286,9 @@ public partial class SkillTreeView : CanvasLayer
     {
         if (_resources is null) return;
         _resources.Text =
-            $"Resources: {_mining.Currency:N0}   |   Manual: {_skills.Derived.ManualBlocksPerClick}/click" +
-            $"   |   Drill speed: x{_skills.Derived.MinerRateMultiplier:0.##}" +
-            $"   |   Shovel speed: x{_skills.Derived.ShovelRateMultiplier:0.##}";
+            $"Resources: {_mining.Currency:N0}   |   Manual footprint: {_skills.Derived.ManualFootprint}" +
+            $"   |   Hover: {(_skills.Derived.HoverMiningUnlocked ? "unlocked" : "locked")}" +
+            $"   |   Drill speed: x{_skills.Derived.MinerRateMultiplier:0.##}";
 
         foreach ((string id, Button button) in _buttons)
         {
@@ -333,8 +339,13 @@ public partial class SkillTreeView : CanvasLayer
 public partial class SkillGraphCanvas : Control
 {
     private SkillTreeService _skills = null!;
+    private WorldProfile _profile = null!;
 
-    public void Initialize(SkillTreeService skills) => _skills = skills;
+    public void Initialize(SkillTreeService skills, WorldProfile profile)
+    {
+        _skills = skills;
+        _profile = profile;
+    }
 
     public override void _Draw()
     {
@@ -352,10 +363,13 @@ public partial class SkillGraphCanvas : Control
 
         foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
+            if (!_profile.IsSkillCategoryVisible(node.Category)) continue;
             Vector2 target = NodeCenter(node);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             {
                 SkillNodeDefinition sourceNode = _skills.Catalog.Get(prerequisite.NodeId);
+                if (!_profile.IsSkillCategoryVisible(sourceNode.Category)) continue;
+
                 Vector2 previous = NodeCenter(sourceNode);
                 bool requirementMet = _skills.GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank;
                 Color color = requirementMet
@@ -374,27 +388,35 @@ public partial class SkillGraphCanvas : Control
         }
     }
 
-    public static Vector2 NodePosition(SkillNodeDefinition node)
-        => new(24 + node.GridX * 200, 40 + node.GridY * 112);
+    // Reserve two columns to the left so authored negative grid coordinates can be used for early
+    // tutorial branches without placing buttons outside the canvas.
+    private const float GridOriginX = 424.0f;
 
-    public static Vector2 RequiredSize(SkillTreeCatalog catalog)
+    public static Vector2 NodePosition(SkillNodeDefinition node)
+        => new(GridOriginX + node.GridX * 200, 40 + node.GridY * 112);
+
+    public static Vector2 RequiredSize(SkillTreeCatalog catalog, WorldProfile profile)
     {
         int maxX = 0;
         int maxY = 0;
+        int minX = 0;
         foreach (SkillNodeDefinition node in catalog.Nodes.Values)
         {
+            if (!profile.IsSkillCategoryVisible(node.Category)) continue;
             maxX = Math.Max(maxX, node.GridX);
+            minX = Math.Min(minX, node.GridX);
             maxY = Math.Max(maxY, node.GridY);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             foreach (SkillRoutePoint point in prerequisite.Route)
             {
                 maxX = Math.Max(maxX, point.GridX);
+                minX = Math.Min(minX, point.GridX);
                 maxY = Math.Max(maxY, point.GridY);
             }
         }
 
         return new Vector2(
-            24 + (maxX + 1) * 200 + 190,
+            GridOriginX + (maxX + 1) * 200 + 190,
             40 + (maxY + 1) * 112 + 110);
     }
 
@@ -402,5 +424,5 @@ public partial class SkillGraphCanvas : Control
         => NodePosition(node) + new Vector2(87, 41);
 
     private static Vector2 RoutePointPosition(SkillRoutePoint point)
-        => new(24 + point.GridX * 200 + 87, 40 + point.GridY * 112 + 41);
+        => new(GridOriginX + point.GridX * 200 + 87, 40 + point.GridY * 112 + 41);
 }
