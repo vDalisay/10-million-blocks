@@ -9,6 +9,7 @@ public sealed class WorldProfile
 {
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public string IntroText { get; set; } = string.Empty;
     public int Seed { get; set; }
     public int LogicalWidth { get; set; }
     public int LogicalHeight { get; set; }
@@ -152,6 +153,11 @@ public sealed class WorldCatalog
         if (string.IsNullOrWhiteSpace(profile.Id))
         {
             errors.Add("World profile has an empty id.");
+        }
+
+        if (string.IsNullOrWhiteSpace(profile.DisplayName))
+        {
+            errors.Add($"World '{profile.Id}' has an empty display name.");
         }
 
         if (profile.LogicalWidth <= 0 || profile.LogicalHeight <= 0 || profile.LogicalDepth <= 0)
