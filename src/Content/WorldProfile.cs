@@ -17,6 +17,7 @@ public sealed class WorldProfile
     public bool SkillTreeAvailable { get; set; } = true;
     public bool AutomationAvailable { get; set; } = true;
     public List<string> VisibleSkillCategories { get; set; } = new();
+    public List<string> VisibleSkillIds { get; set; } = new();
     public int Seed { get; set; }
     public int LogicalWidth { get; set; }
     public int LogicalHeight { get; set; }
@@ -82,6 +83,16 @@ public sealed class WorldProfile
 
     public bool IsSkillCategoryVisible(string category)
         => VisibleSkillCategories.Count == 0 || VisibleSkillCategories.Contains(category, StringComparer.Ordinal);
+
+    public bool IsSkillVisible(string skillId, string category)
+    {
+        // Empty filters mean the normal unrestricted authored world. Once either filter is populated,
+        // a node is visible when its whole category is staged OR that exact node is deliberately
+        // introduced. This lets tutorials teach Forest Cutter without exposing every future tool.
+        if (VisibleSkillCategories.Count == 0 && VisibleSkillIds.Count == 0) return true;
+        return VisibleSkillCategories.Contains(category, StringComparer.Ordinal)
+            || VisibleSkillIds.Contains(skillId, StringComparer.Ordinal);
+    }
 }
 
 public sealed class WorldCatalog
@@ -132,6 +143,8 @@ public sealed class WorldCatalog
 
         foreach (WorldProfile world in document.Worlds)
         {
+            world.VisibleSkillCategories ??= new List<string>();
+            world.VisibleSkillIds ??= new List<string>();
             Validate(world, errors);
             if (!string.IsNullOrWhiteSpace(world.Id) && !worlds.TryAdd(world.Id, world))
             {
@@ -242,6 +255,15 @@ public sealed class WorldCatalog
             if (string.IsNullOrWhiteSpace(category) || !categories.Add(category))
             {
                 errors.Add($"World '{profile.Id}' has an empty or duplicate visible skill category.");
+            }
+        }
+
+        var skillIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string skillId in profile.VisibleSkillIds)
+        {
+            if (string.IsNullOrWhiteSpace(skillId) || !skillIds.Add(skillId))
+            {
+                errors.Add($"World '{profile.Id}' has an empty or duplicate visible skill id.");
             }
         }
     }
