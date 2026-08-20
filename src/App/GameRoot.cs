@@ -15,6 +15,7 @@ using TenMillionBlocks.Skills;
 using TenMillionBlocks.UI;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Rendering;
+using TenMillionBlocks.WorldEvents;
 
 namespace TenMillionBlocks.App;
 
@@ -45,6 +46,7 @@ public partial class GameRoot : Node3D
     private SkillTreeView? _skillTree;
     private PerformanceHud? _performanceHud;
     private StressBenchmarkController? _stressBenchmark;
+    private WorldEventController? _worldEvents;
     private ReplayRecorder? _replayRecorder;
     private ReplayPlayer? _replayPlayer;
     private ReplayView? _replayView;
@@ -282,6 +284,19 @@ public partial class GameRoot : Node3D
             _sessionRoot.AddChild(automationAttention);
         }
 
+        if (persistSession && IsActiveWorldEventProfile(profile))
+        {
+            _worldEvents = new WorldEventController { Name = "WorldEventController" };
+            _worldEvents.Initialize(
+                _world,
+                _worldView,
+                _mining,
+                _camera,
+                cloudEnabled: true,
+                meteorEnabled: true);
+            _sessionRoot.AddChild(_worldEvents);
+        }
+
         _performanceHud = new PerformanceHud { Name = "PerformanceHud" };
         _performanceHud.Initialize(_world, _worldView, _camera);
         _sessionRoot.AddChild(_performanceHud);
@@ -346,6 +361,7 @@ public partial class GameRoot : Node3D
         _replayRecorder = null;
         _replayPlayer = null;
         _replayView = null;
+        _worldEvents = null;
         _replayPath = string.Empty;
 
         if (_sessionRoot is null)
@@ -415,6 +431,10 @@ public partial class GameRoot : Node3D
         _manualMining.InputEnabled = false;
         _placement.InputEnabled = false;
         _miners.ProcessMode = ProcessModeEnum.Disabled;
+        if (_worldEvents is not null)
+        {
+            _worldEvents.ProcessMode = ProcessModeEnum.Disabled;
+        }
 
         WorldProfile? next = _progression.NextProfile();
         _completionView.ShowCompletion(
@@ -459,7 +479,7 @@ public partial class GameRoot : Node3D
             _save.CurrentWorldId = _progression.CurrentWorldId;
             _saveService.Save(_save);
             _completionView.HideCompletion();
-            GD.Print("Current authored test progression is complete.");
+            GD.Print("Steam demo progression complete.");
             return;
         }
 
@@ -581,6 +601,9 @@ public partial class GameRoot : Node3D
         }
         return System.IO.File.Exists(ProjectSettings.GlobalizePath(saved.ReplayFile));
     }
+
+    private static bool IsActiveWorldEventProfile(WorldProfile profile)
+        => profile.Id is "reference_lakes" or "reference_ridges";
 
     private void ConfigureWorldPresentation(WorldProfile profile)
     {
