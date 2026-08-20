@@ -19,8 +19,6 @@ public partial class ManualMiningController : Node3D
     private SkillTreeService _skills = null!;
     private SelectionHighlight _highlight = null!;
 
-    private bool _leftPressed;
-    private Vector2 _pressPosition;
     private Vector3I? _hoveredVoxel;
 
     public Vector3I? HoveredVoxel => _hoveredVoxel;
@@ -52,7 +50,7 @@ public partial class ManualMiningController : Node3D
         _ = delta;
         if (InputEnabled)
         {
-            UpdateHover();
+            UpdateHover(GetViewport().GetMousePosition());
         }
         else
         {
@@ -71,25 +69,18 @@ public partial class ManualMiningController : Node3D
             return;
         }
 
-        if (button.Pressed)
-        {
-            _leftPressed = true;
-            _pressPosition = button.Position;
-            return;
-        }
-
-        if (!_leftPressed) return;
-        _leftPressed = false;
-
-        if (button.Position.DistanceTo(_pressPosition) > 5.0f || _hoveredVoxel is not Vector3I voxel)
+        if (!button.Pressed)
         {
             return;
         }
+
+        UpdateHover(button.Position);
+        if (_hoveredVoxel is not Vector3I voxel) return;
 
         int actions = MineBurst(voxel, _skills.Derived.ManualBlocksPerClick);
         if (actions > 0)
         {
-            UpdateHover();
+            UpdateHover(button.Position);
             _highlight.PulseMine();
             GetViewport().SetInputAsHandled();
         }
@@ -185,9 +176,8 @@ public partial class ManualMiningController : Node3D
         burst.Initialize(position, outward, result.BlockId, spacing, seed);
     }
 
-    private void UpdateHover()
+    private void UpdateHover(Vector2 mouse)
     {
-        Vector2 mouse = GetViewport().GetMousePosition();
         float rayDistance = _world.GetWorldBounds().Size.Length() * 2.5f;
         if (VoxelRaycaster.TryRaycast(_world, _camera.Camera, mouse, rayDistance, out Vector3I voxel))
         {
