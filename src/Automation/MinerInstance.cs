@@ -2,6 +2,15 @@ using Godot;
 
 namespace TenMillionBlocks.Automation;
 
+public enum MinerStopReason
+{
+    None = 0,
+    RangeComplete = 1,
+    BlockedMaterial = 2,
+    NoReachableTarget = 3,
+    NoTreeTarget = 4,
+}
+
 public sealed class MinerInstance
 {
     public long InstanceId { get; init; }
@@ -13,6 +22,11 @@ public sealed class MinerInstance
     public long BlocksMined { get; set; }
     public double WorkAccumulator { get; set; }
     public bool Exhausted { get; set; }
+    public MinerStopReason StopReason { get; set; }
+    public Vector3I BlockedVoxel { get; set; }
+    public string BlockedBlockId { get; set; } = string.Empty;
+
+    public bool IsStopped => Exhausted;
 }
 
 public sealed class MinerSnapshot
@@ -32,4 +46,9 @@ public sealed class MinerSnapshot
     public long BlocksMined { get; set; }
     public double WorkAccumulator { get; set; }
     public bool Exhausted { get; set; }
+    public MinerStopReason StopReason { get; set; }
+    public int BlockedX { get; set; }
+    public int BlockedY { get; set; }
+    public int BlockedZ { get; set; }
+    public string BlockedBlockId { get; set; } = string.Empty;
 }
