@@ -29,8 +29,8 @@ public sealed class FrozenWorldManifest
 
 /// <summary>
 /// Versioned shipping-freeze backend. It hashes canonical profile + override JSON and refuses to
-/// overwrite an existing frozen version. The visual authoring tool can call this only after a human
-/// has approved a candidate; draft export remains separate.
+/// overwrite an existing frozen version. Replay compatibility uses the same hash routine, so a replay
+/// cannot silently attach itself to a changed deterministic baseline.
 /// </summary>
 public static class WorldFreezeService
 {
@@ -53,20 +53,7 @@ public static class WorldFreezeService
         ArgumentNullException.ThrowIfNull(profile);
         if (worldVersion <= 0) throw new ArgumentOutOfRangeException(nameof(worldVersion));
 
-        string canonicalProfile = CanonicalizeJson(JsonSerializer.Serialize(profile, ProfileJsonOptions));
-        string canonicalOverride = string.Empty;
-        if (!string.IsNullOrWhiteSpace(profile.OverrideFile))
-        {
-            if (!Godot.FileAccess.FileExists(profile.OverrideFile))
-            {
-                throw new InvalidOperationException(
-                    $"Cannot freeze '{profile.Id}': override file does not exist: {profile.OverrideFile}");
-            }
-            canonicalOverride = CanonicalizeJson(Godot.FileAccess.GetFileAsString(profile.OverrideFile));
-        }
-
-        string contentHash = Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes(canonicalProfile + "\n" + canonicalOverride))).ToLowerInvariant();
+        string contentHash = ComputeContentHash(profile);
         WorldAuthoringMetrics metrics = WorldAuthoringAnalyzer.Analyze(profile);
 
         return new FrozenWorldManifest
@@ -86,6 +73,25 @@ public static class WorldFreezeService
             SoftTerrainCoverage = metrics.SoftTerrainCoverage,
             ExposedStoneCoverage = metrics.ExposedStoneCoverage,
         };
+    }
+
+    public static string ComputeContentHash(WorldProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        string canonicalProfile = CanonicalizeJson(JsonSerializer.Serialize(profile, ProfileJsonOptions));
+        string canonicalOverride = string.Empty;
+        if (!string.IsNullOrWhiteSpace(profile.OverrideFile))
+        {
+            if (!Godot.FileAccess.FileExists(profile.OverrideFile))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot hash '{profile.Id}': override file does not exist: {profile.OverrideFile}");
+            }
+            canonicalOverride = CanonicalizeJson(Godot.FileAccess.GetFileAsString(profile.OverrideFile));
+        }
+
+        return Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(canonicalProfile + "\n" + canonicalOverride))).ToLowerInvariant();
     }
 
     public static FrozenWorldManifest Freeze(
