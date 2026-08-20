@@ -22,6 +22,23 @@ public partial class WorldAuthoringRoot : Node
 
     private OptionButton _profilePicker = null!;
     private SpinBox _seed = null!;
+    private SpinBox _dimension = null!;
+    private SpinBox _baseRadius = null!;
+    private SpinBox _terrainAmplitude = null!;
+    private SpinBox _detailAmplitude = null!;
+    private SpinBox _macroFrequency = null!;
+    private SpinBox _detailFrequency = null!;
+    private SpinBox _climateFrequency = null!;
+    private SpinBox _erosionFrequency = null!;
+    private SpinBox _ridgeFrequency = null!;
+    private SpinBox _oceanThreshold = null!;
+    private SpinBox _seaLevelOffset = null!;
+    private SpinBox _shoreBand = null!;
+    private SpinBox _plateauStep = null!;
+    private SpinBox _forestThreshold = null!;
+    private SpinBox _waterThreshold = null!;
+    private SpinBox _treeDensity = null!;
+    private SpinBox _blockSpacing = null!;
     private Label _status = null!;
     private Label _metrics = null!;
     private VBoxContainer _candidateList = null!;
@@ -46,7 +63,8 @@ public partial class WorldAuthoringRoot : Node
             }
 
             SelectPreferredProfile("reference_natural");
-            LoadSelectedProfileSeed();
+            LoadSelectedProfileControls();
+            ApplyWorld4Preset(regenerate: false);
             RegeneratePreview(analyze: true);
         }
         catch (Exception exception)
@@ -115,7 +133,7 @@ public partial class WorldAuthoringRoot : Node
             AnchorBottom = 1.0f,
             OffsetLeft = 16.0f,
             OffsetTop = 16.0f,
-            OffsetRight = 390.0f,
+            OffsetRight = 430.0f,
             OffsetBottom = -16.0f,
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
@@ -128,38 +146,99 @@ public partial class WorldAuthoringRoot : Node
         margin.AddThemeConstantOverride("margin_bottom", 12);
         panel.AddChild(margin);
 
-        var column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 8);
-        margin.AddChild(column);
+        var outer = new VBoxContainer();
+        outer.AddThemeConstantOverride("separation", 8);
+        margin.AddChild(outer);
 
         var title = new Label { Text = "WORLD AUTHORING" };
         title.AddThemeFontSizeOverride("font_size", 23);
-        column.AddChild(title);
-        column.AddChild(new Label
+        outer.AddChild(title);
+        outer.AddChild(new Label
         {
             Text = "Runtime-backed candidate preview. Camera: RMB orbit, MMB pan, wheel zoom.",
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
         });
 
-        _profilePicker = new OptionButton();
+        var scroll = new ScrollContainer
+        {
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        outer.AddChild(scroll);
+
+        var column = new VBoxContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        column.AddThemeConstantOverride("separation", 8);
+        scroll.AddChild(column);
+
+        _profilePicker = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _profilePicker.ItemSelected += _ =>
         {
-            LoadSelectedProfileSeed();
+            LoadSelectedProfileControls();
             RegeneratePreview(analyze: true);
         };
         column.AddChild(new Label { Text = "Base profile" });
         column.AddChild(_profilePicker);
 
-        _seed = new SpinBox
+        var world4Preset = new Button
         {
-            MinValue = 1,
-            MaxValue = int.MaxValue,
-            Step = 1,
-            AllowGreater = false,
+            Text = "Apply World 4 ~20³ preset",
             CustomMinimumSize = new Vector2(0, 36),
+            TooltipText = "Scale the selected terrain language down to the reviewed first-main-world target. All values remain editable afterwards.",
         };
-        column.AddChild(new Label { Text = "Candidate seed" });
-        column.AddChild(_seed);
+        world4Preset.Pressed += () => ApplyWorld4Preset(regenerate: true);
+        column.AddChild(world4Preset);
+
+        _seed = MakeNumber(1, int.MaxValue, 1, allowNegative: false);
+        AddParameter(column, "Candidate seed", _seed);
+
+        column.AddChild(new Label { Text = "PROFILE PARAMETERS" });
+        var grid = new GridContainer
+        {
+            Columns = 2,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        grid.AddThemeConstantOverride("h_separation", 8);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        column.AddChild(grid);
+
+        _dimension = MakeNumber(4, 50, 1, false);
+        _baseRadius = MakeNumber(1, 32, 0.05, false);
+        _terrainAmplitude = MakeNumber(0, 10, 0.05, false);
+        _detailAmplitude = MakeNumber(0, 5, 0.05, false);
+        _macroFrequency = MakeNumber(0.05, 8, 0.05, false);
+        _detailFrequency = MakeNumber(0.05, 12, 0.05, false);
+        _climateFrequency = MakeNumber(0.05, 8, 0.05, false);
+        _erosionFrequency = MakeNumber(0.05, 8, 0.05, false);
+        _ridgeFrequency = MakeNumber(0.05, 8, 0.05, false);
+        _oceanThreshold = MakeNumber(-1, 1, 0.01, true);
+        _seaLevelOffset = MakeNumber(-5, 5, 0.05, true);
+        _shoreBand = MakeNumber(0, 2, 0.01, false);
+        _plateauStep = MakeNumber(0.05, 2, 0.05, false);
+        _forestThreshold = MakeNumber(-1, 1, 0.01, true);
+        _waterThreshold = MakeNumber(-1, 1, 0.01, true);
+        _treeDensity = MakeNumber(0, 0.5, 0.005, false);
+        _blockSpacing = MakeNumber(0.5, 3.0, 0.05, false);
+
+        AddGridParameter(grid, "Dimension", _dimension);
+        AddGridParameter(grid, "Base radius", _baseRadius);
+        AddGridParameter(grid, "Terrain amp", _terrainAmplitude);
+        AddGridParameter(grid, "Detail amp", _detailAmplitude);
+        AddGridParameter(grid, "Macro freq", _macroFrequency);
+        AddGridParameter(grid, "Detail freq", _detailFrequency);
+        AddGridParameter(grid, "Climate freq", _climateFrequency);
+        AddGridParameter(grid, "Erosion freq", _erosionFrequency);
+        AddGridParameter(grid, "Ridge freq", _ridgeFrequency);
+        AddGridParameter(grid, "Ocean threshold", _oceanThreshold);
+        AddGridParameter(grid, "Sea offset", _seaLevelOffset);
+        AddGridParameter(grid, "Shore band", _shoreBand);
+        AddGridParameter(grid, "Plateau step", _plateauStep);
+        AddGridParameter(grid, "Forest threshold", _forestThreshold);
+        AddGridParameter(grid, "Water threshold", _waterThreshold);
+        AddGridParameter(grid, "Tree density", _treeDensity);
+        AddGridParameter(grid, "Block spacing", _blockSpacing);
 
         var buttonRow = new HBoxContainer();
         buttonRow.AddThemeConstantOverride("separation", 6);
@@ -206,15 +285,33 @@ public partial class WorldAuthoringRoot : Node
         column.AddChild(new HSeparator());
         column.AddChild(new Label { Text = "Candidate ranking" });
 
-        var scroll = new ScrollContainer
-        {
-            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
-            CustomMinimumSize = new Vector2(0, 180),
-        };
-        column.AddChild(scroll);
         _candidateList = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _candidateList.AddThemeConstantOverride("separation", 4);
-        scroll.AddChild(_candidateList);
+        column.AddChild(_candidateList);
+    }
+
+    private static SpinBox MakeNumber(double min, double max, double step, bool allowNegative)
+        => new()
+        {
+            MinValue = min,
+            MaxValue = max,
+            Step = step,
+            AllowGreater = false,
+            AllowLesser = allowNegative,
+            CustomMinimumSize = new Vector2(0, 32),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+
+    private static void AddParameter(VBoxContainer parent, string label, Control editor)
+    {
+        parent.AddChild(new Label { Text = label });
+        parent.AddChild(editor);
+    }
+
+    private static void AddGridParameter(GridContainer grid, string label, Control editor)
+    {
+        grid.AddChild(new Label { Text = label });
+        grid.AddChild(editor);
     }
 
     private void PopulateProfiles()
@@ -243,10 +340,44 @@ public partial class WorldAuthoringRoot : Node
         return _profiles[index];
     }
 
-    private void LoadSelectedProfileSeed()
+    private void LoadSelectedProfileControls()
     {
         if (_profiles.Count == 0) return;
-        _seed.Value = SelectedProfile().Seed;
+        WorldProfile profile = SelectedProfile();
+        _seed.Value = profile.Seed;
+        _dimension.Value = Math.Max(profile.LogicalWidth, Math.Max(profile.LogicalHeight, profile.LogicalDepth));
+        _baseRadius.Value = profile.BaseRadius;
+        _terrainAmplitude.Value = profile.TerrainAmplitude;
+        _detailAmplitude.Value = profile.DetailAmplitude;
+        _macroFrequency.Value = profile.MacroFrequency;
+        _detailFrequency.Value = profile.DetailFrequency;
+        _climateFrequency.Value = profile.ClimateFrequency;
+        _erosionFrequency.Value = profile.ErosionFrequency;
+        _ridgeFrequency.Value = profile.RidgeFrequency;
+        _oceanThreshold.Value = profile.OceanThreshold;
+        _seaLevelOffset.Value = profile.SeaLevelOffset;
+        _shoreBand.Value = profile.ShoreBand;
+        _plateauStep.Value = profile.PlateauStep;
+        _forestThreshold.Value = profile.ForestThreshold;
+        _waterThreshold.Value = profile.WaterThreshold;
+        _treeDensity.Value = profile.TreeDensity;
+        _blockSpacing.Value = profile.BlockSpacing;
+    }
+
+    private void ApplyWorld4Preset(bool regenerate)
+    {
+        if (_profiles.Count == 0) return;
+        WorldProfile source = SelectedProfile();
+        const int targetDimension = 20;
+        double sourceDimension = Math.Max(1, Math.Max(source.LogicalWidth, Math.Max(source.LogicalHeight, source.LogicalDepth)));
+        double scale = targetDimension / sourceDimension;
+
+        _dimension.Value = targetDimension;
+        _baseRadius.Value = Math.Max(2.0, source.BaseRadius * scale);
+        _terrainAmplitude.Value = Math.Max(0.6, source.TerrainAmplitude * scale);
+        _detailAmplitude.Value = Math.Max(0.3, source.DetailAmplitude * Math.Sqrt(scale));
+        _blockSpacing.Value = 2.0;
+        if (regenerate) RegeneratePreview(analyze: true);
     }
 
     private WorldProfile CandidateProfile(int? seedOverride = null)
@@ -255,7 +386,28 @@ public partial class WorldAuthoringRoot : Node
         string json = JsonSerializer.Serialize(source);
         WorldProfile? clone = JsonSerializer.Deserialize<WorldProfile>(json);
         if (clone is null) throw new InvalidOperationException("Could not clone selected world profile.");
+
+        int dimension = Math.Clamp(checked((int)Math.Round(_dimension.Value)), 4, 50);
+        clone.LogicalWidth = dimension;
+        clone.LogicalHeight = dimension;
+        clone.LogicalDepth = dimension;
         clone.Seed = seedOverride ?? checked((int)_seed.Value);
+        clone.BaseRadius = (float)_baseRadius.Value;
+        clone.TerrainAmplitude = (float)_terrainAmplitude.Value;
+        clone.DetailAmplitude = (float)_detailAmplitude.Value;
+        clone.MacroFrequency = (float)_macroFrequency.Value;
+        clone.DetailFrequency = (float)_detailFrequency.Value;
+        clone.ClimateFrequency = (float)_climateFrequency.Value;
+        clone.ErosionFrequency = (float)_erosionFrequency.Value;
+        clone.RidgeFrequency = (float)_ridgeFrequency.Value;
+        clone.OceanThreshold = (float)_oceanThreshold.Value;
+        clone.SeaLevelOffset = (float)_seaLevelOffset.Value;
+        clone.ShoreBand = (float)_shoreBand.Value;
+        clone.PlateauStep = (float)_plateauStep.Value;
+        clone.ForestThreshold = (float)_forestThreshold.Value;
+        clone.WaterThreshold = (float)_waterThreshold.Value;
+        clone.TreeDensity = (float)_treeDensity.Value;
+        clone.BlockSpacing = (float)_blockSpacing.Value;
         clone.OverrideFile = string.Empty;
         return clone;
     }
@@ -264,6 +416,12 @@ public partial class WorldAuthoringRoot : Node
     {
         WorldProfile profile = CandidateProfile();
         _status.Text = $"Generating {profile.Id} seed {profile.Seed:N0}...";
+
+        if (profile.MaxCoordinate > WorldAuthoringAnalyzer.MaximumExactAuthoringCoordinate)
+        {
+            _status.Text = $"Candidate bound {profile.MaxCoordinate} exceeds authoring exact-scan cap {WorldAuthoringAnalyzer.MaximumExactAuthoringCoordinate}. Reduce radius/relief.";
+            return;
+        }
 
         if (_previewRoot is not null)
         {
@@ -302,7 +460,7 @@ public partial class WorldAuthoringRoot : Node
             $"Water surface: {metrics.WaterCoverage:P1}   Soft terrain: {metrics.SoftTerrainCoverage:P1}\n" +
             $"Exposed stone: {metrics.ExposedStoneCoverage:P1}   Trees: {metrics.TreeCount:N0}\n" +
             $"Generated gems: {metrics.GemCount:N0}   Verdant mix score: {score:P0}\n" +
-            $"Profile dimensions metadata: {profile.LogicalWidth} x {profile.LogicalHeight} x {profile.LogicalDepth}";
+            $"Profile: {profile.LogicalWidth}³ metadata · radius {profile.BaseRadius:0.##} · address bound ±{profile.MaxCoordinate}";
     }
 
     private void RandomizeSeed()
@@ -316,11 +474,12 @@ public partial class WorldAuthoringRoot : Node
     private void BrowseCandidates()
     {
         foreach (Node child in _candidateList.GetChildren()) child.QueueFree();
+        WorldProfile template = CandidateProfile();
         var rng = new RandomNumberGenerator();
-        rng.Seed = unchecked((ulong)SelectedProfile().Seed * 6364136223846793005UL + 1442695040888963407UL);
+        rng.Seed = unchecked((ulong)template.Seed * 6364136223846793005UL + 1442695040888963407UL);
         var candidates = new List<(int Seed, double Score, WorldAuthoringMetrics Metrics)>();
 
-        _status.Text = "Scanning 8 deterministic candidate seeds with the runtime generator...";
+        _status.Text = $"Scanning 8 deterministic {template.LogicalWidth}³ candidate seeds with the runtime generator...";
         for (int i = 0; i < 8; i++)
         {
             int seed = rng.RandiRange(1, int.MaxValue);
@@ -355,7 +514,7 @@ public partial class WorldAuthoringRoot : Node
         WorldProfile profile = CandidateProfile();
         string directory = ProjectSettings.GlobalizePath("user://world_authoring_drafts");
         System.IO.Directory.CreateDirectory(directory);
-        string relative = $"user://world_authoring_drafts/{profile.Id}_seed_{profile.Seed}.json";
+        string relative = $"user://world_authoring_drafts/{profile.Id}_{profile.LogicalWidth}cube_seed_{profile.Seed}.json";
         string json = JsonSerializer.Serialize(profile, new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -364,7 +523,7 @@ public partial class WorldAuthoringRoot : Node
         using Godot.FileAccess file = Godot.FileAccess.Open(relative, Godot.FileAccess.ModeFlags.Write);
         if (file is null) throw new InvalidOperationException($"Could not write authoring draft '{relative}'.");
         file.StoreString(json);
-        _status.Text = $"Draft exported to {relative}. Freeze-for-shipping remains a deliberate later step.";
+        _status.Text = $"Draft exported to {relative}. Freeze-for-shipping remains a deliberate reviewed step.";
     }
 
     private void ShowFatal(string message)
