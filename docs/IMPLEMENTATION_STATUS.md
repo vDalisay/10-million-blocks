@@ -2,6 +2,8 @@
 
 Source plan: `docs/IMPLEMENTATION_PLAN.md`
 
+Future tutorial/demo progression: `docs/FUTURE_WORLD_PROGRESSION.md`
+
 ## Current checkpoint
 
 - Phase 0 — Plan/baseline: **complete**
@@ -13,104 +15,98 @@ Source plan: `docs/IMPLEMENTATION_PLAN.md`
 - Phase 6 — Automation framework: **complete**
 - Phase 7 — Skill-tree runtime: **complete**
 - Phase 8 — Skill-tree editor: **complete**
-- Phase 9 — Completion/progression: **complete; now routes through three normal early-game worlds before the finale**
+- Phase 9 — Completion/progression foundation: **complete; current provisional authored sequence remains until the future tutorial-world pass begins**
 - Phase 10 — Save/load/offline foundation: **complete for current gameplay state**
-- Phase 11 — stress/optimization architecture: **complete enough for now; one-million manual-mining tuning is deliberately deferred**
-- Phase 12 — game-feel/reference polish: **major implementation pass complete; ongoing local tuning**
-- Phase 13 — final-scale target: **exact 1,000,000 authoritative target implemented**
-- Phase 14 — specialized automation/world events: **mechanics implemented; some final art remains replaceable**
+- Phase 11 — stress/optimization architecture: **complete enough for current scope; one-million manual-mining tuning is deliberately deferred**
+- Phase 12 — game-feel/reference polish: **current implementation scope complete**
+- Phase 13 — final-scale architecture/target: **current implementation scope complete; exact 1,000,000 target retained as the planned 100³ full-release destination**
+- Phase 14 — specialized automation/world events foundation: **current implementation scope complete**
 
-The product priority is now the **opening ~2-hour experience**, not additional optimization of the one-million finale. See `docs/EARLY_GAME_PACING.md`.
+Phase 12-14 are now treated as closed for this implementation branch. Further additions described in `docs/FUTURE_WORLD_PROGRESSION.md` are new future progression/content work, not unfinished Phase 12-14 blockers.
 
-No merge to `main` should happen before the final local gameplay/visual pass.
-
----
-
-## Opening progression
-
-Current configured progression:
-
-1. **Verdant Cube** (`reference_natural`) — forgiving forested introduction; manual mining, first Drill, stopped-automation interaction.
-2. **Lakebound Cube** (`reference_lakes`) — shoreline/sand routing; Powered Shovel and its intelligence upgrades become useful.
-3. **Copper Ridge Cube** (`reference_ridges`) — provisional third authored world; more ridges/exposed rock, intended to emphasize Drill material upgrades and Rock Breaker.
-4. **One Million Block World** (`final_target_1m`) — finale, deliberately outside the current tuning priority.
-
-World profiles now carry authored `introText`; the completion screen previews the next world's gameplay role instead of only naming it.
-
-CI guards the existence/order of the three early normal-scale profiles so the opening arc cannot accidentally regress directly into the million-block renderer.
+No merge to `main` should happen before the final local gameplay/visual regression pass.
 
 ---
 
-## Automation placement / purchase / relocation
+## Latest Phase 12 UX/game-feel fixes
 
-All automation placement routes now share one interaction:
+### Manual mining pop
 
-- the real automation model is reused as a placement ghost;
-- **green** ghost = valid placement;
-- **red** ghost = invalid placement;
-- LMB commits;
-- RMB or Esc cancels;
-- moving a stopped automation uses the same preview and moves the existing instance;
-- automation anchors cannot be stacked on each other.
+A successful manual block removal now spawns a short-lived copy of that block which scales from roughly 0.985 -> 1.12 -> 0.92 before disappearing. This is presentation-only: authoritative mining and chunk rebuilding still happen normally and no persistent per-block node is introduced.
 
-First-time automation purchases are transactional. Buying from the Automation drawer or an `unlock_miner` Skill Tree node starts preview **before spending**. Resources are deducted only after a valid placement successfully commits. Cancelling or clicking invalid terrain costs nothing.
+Only the first few blocks of a multi-block manual burst receive the effect so upgraded manual mining cannot create unbounded presentation spam.
 
----
+### Camera-friendly placement/move cancellation
 
-## Stopped-automation attention interaction
+RMB no longer cancels automation placement or relocation. While a ghost is active:
 
-Actionable stops still produce the attention popup and can be cycled/focused.
+- LMB commits a valid green placement;
+- RMB remains available for normal camera orbit;
+- Esc cancels;
+- a bottom-right **Cancel** / **Cancel Move** button is shown for mouse-driven cancellation.
 
-The visibility locator has been changed after local feedback:
+If relocation is cancelled, the original stopped automation reappears at its original position/state.
 
-- the previous solid orange x-ray fill was rejected because it obscured the automation's shape;
-- the current implementation uses a Godot 4.6 stencil mask plus a pixel-stable expanded silhouette pass;
-- only a thick orange/yellow **outer outline** should remain visible through terrain;
-- hovering brightens/thickens that outline rather than filling the model;
-- LMB on the highlighted stopped automation enters relocation mode;
-- the overlay casts no shadows.
-
-This shader still needs the final local Godot visual check because .NET CI cannot compile/render Godot shader code.
+First-time automation purchases remain transactional: resources are charged only after a valid placement successfully commits.
 
 ---
 
-## Powered Shovel surface ownership
+## Stopped-automation interaction
 
-Shovelable terrain includes:
+There are now two discovery paths.
 
-- normal sand;
-- `grass`;
-- `dirt_grass` / the grass-edged dirt model;
-- future blocks carrying the `sand` content tag.
+### Explicit attention flow
 
-The Shovel is not allowed to remove a tile while something owns/occupies its outward surface:
+The existing automation-stopped alert can cycle/focus actionable stopped machines. The focused machine uses the stencil-backed x-ray silhouette locator so a buried Drill can still be found through terrain. The previous solid orange fill remains rejected; only the border should be visible.
 
-- deterministic tree feature on that support voxel => blocked;
-- a real present voxel immediately outward from that tile => blocked;
-- after the obstruction/tree is cleared manually or by the appropriate automation, the tile becomes eligible again.
+### Ambient world hover
 
-The same rule is applied both to initial placement validation and to every subsequent Shovel route candidate, so an already-running Shovel cannot silently eat the ground underneath a tree.
+When the player is simply looking around the world, a **visible** actionable stopped automation can be discovered directly:
 
-Future deterministic decorative rocks/props should plug into this same surface-feature policy instead of becoming one-off Shovel exceptions.
-
-Base Shovel remains ~1 block/sec, cardinal/same-height only. Gearbox, Slope Sensor, Terrain Scout and High-Torque Drive progressively add speed and intelligence.
+- moving the mouse over the visible machine gives it the orange outline;
+- the outline exists only while it is hovered in this ambient mode;
+- LMB selects that stopped automation and enters the same relocation ghost flow;
+- ambient detection is visibility/occlusion gated so it is not intended to reveal buried machines — the explicit attention flow still handles those.
 
 ---
 
-## Primary Drill
+## Powered Shovel surface rules
+
+Shovelable soft terrain now includes:
+
+- sand;
+- vegetated grass surface;
+- `dirt_grass` / grass-edged dirt;
+- ordinary brown `dirt`.
+
+The three dirt/grass variants share the shovelable content tag so placement and route-following use the same data rule.
+
+Vegetated `grass` now renders with the dirt-backed grass mesh. This keeps the outward face grassy while exposed side/interior faces read as brown soil instead of producing isolated solid-green blocks after nearby mining.
+
+The Shovel still cannot remove a soft-terrain tile while its outward surface is occupied:
+
+- deterministic tree feature => blocked;
+- a real outward voxel/physical obstruction => blocked;
+- once that obstruction is cleared manually or by the appropriate automation, the tile becomes eligible again.
+
+Future deterministic decorative rocks/props should join this same surface-feature ownership policy rather than becoming one-off Shovel exceptions.
+
+---
+
+## Primary Drill / automation foundation retained
 
 The starter Drill:
 
 - advances one depth layer/sec;
 - initially cuts ordinary stone only;
 - stops on unsupported material rather than skipping it;
-- **Hardened Bit** adds dark stone;
-- **Ore-Cutting Bit** adds normal copper/silver/gold ore;
+- Hardened Bit adds dark stone;
+- Ore-Cutting Bit adds normal copper/silver/gold ore;
 - gems/unstable blocks retain specialist/manual interactions;
-- reaches a real physical end-of-world condition instead of travelling forever;
-- Wide Bore preflights its complete cutter face and stops if any occupied cutter cell is unsupported.
+- reaches a real end-of-world condition instead of travelling forever;
+- Wide Bore preflights its complete 3x3 cutter face and stops if an occupied cutter cell is unsupported.
 
-Hidden/back-side automation remains computational where possible; expensive presentation is deferred until relevant to the camera. Further giant-world tuning is postponed while the opening worlds are refined.
+Hidden/back-side automation remains computational where possible; expensive presentation is deferred until relevant to the camera. Further giant-world tuning is postponed while the opening progression is redesigned.
 
 ---
 
@@ -118,27 +114,48 @@ Hidden/back-side automation remains computational where possible; expensive pres
 
 - Rock Breaker / pickaxe-class automation;
 - Forest Cutter / axe-class automation;
+- Powered Shovel with speed/slope/search upgrades;
 - deterministic gem pockets;
 - deterministic multi-hit unstable blocks / bounded blasts;
+- stopped-automation attention/cycling/relocation;
+- transactional buy-and-place ghosts;
 - clumped orbiting clouds;
 - adaptive orbit/zoom camera;
 - compact HUD + H details;
 - scrollable runtime skill tree;
 - standalone grid-based skill-tree editor with routed prerequisite lines and rank gates;
 - completion overview / Continue flow;
-- sparse save/load and offline automation foundation.
+- sparse save/load and offline automation foundation;
+- one-million/full-surface architecture retained for the eventual 100 x 100 x 100 destination.
 
 ---
 
-## Current local gate — early-game only
+## Future progression direction
 
-Do **not** spend the next validation pass benchmarking the one-million world unless an obvious regression appears.
+The current Verdant -> Lakebound -> Copper Ridge -> million-block sequence remains a temporary runtime sequence only. The planned replacement is documented in `docs/FUTURE_WORLD_PROGRESSION.md` and begins with tiny tutorial worlds before the first fully generated cube:
 
-The remaining useful local checks are:
+1. 1 x 1 x 1 single-block introduction.
+2. 5 x 5 x 5 dirt tutorial for manual-mining upgrades.
+3. 10 x 10 x 10 lake + stone-core tutorial for tool/material restrictions.
+4. 15 x 15 x 15 water/stone/trees + first special upgrade resource.
+5. 20 x 20 x 20 first full Verdant-style generated world.
+6. 40 x 40 x 40 larger world with rare upgrades and planned active lightning/meteor gameplay.
+7. 50 x 50 x 50 Steam demo finale.
+8. 100 x 100 x 100 current full-release end target, with optional intermediate worlds still undecided.
 
-1. Stop a Drill and cycle/focus it from the attention alert. Through covering terrain, the locator should be a thick **outline only**, not a filled orange blob. Hover should only strengthen the border. Clicking it should still enter the green/red relocation ghost.
-2. Place/run a Powered Shovel near tree-bearing terrain. Tree support tiles should show invalid placement and should not be chosen by an already-running Shovel. Clear the tree/support obstruction manually or with Forest Cutter and confirm the terrain can then be used.
-3. Preview/play progression through Verdant -> Lakebound -> Copper Ridge. Copper Ridge is intentionally provisional: verify that it reads as the more rocky/ridge-heavy third step and creates natural reasons for Hardened Bit, Ore-Cutting Bit and Rock Breaker.
-4. Confirm previous transactional buy-and-place, RMB/Esc cancellation, save/load and normal mining/automation interactions have not regressed.
+All shipped worlds are intended to use deterministic authored profiles/seeds that are generated/reviewed ahead of time and committed as predetermined worlds. A player-facing infinite/random cube generator is explicitly far-future scope.
 
-After these pass, remaining work should mostly be **early-game pacing, resource-cost tuning, terrain/art direction and presentation polish**, rather than another architecture rewrite.
+---
+
+## Final local regression gate for this branch
+
+The next local check can stay focused and does not need another one-million performance benchmark:
+
+1. Place the Powered Shovel on green grass, grass-edged dirt and plain brown dirt. All three should be valid when unobstructed.
+2. Confirm a tree-bearing/outward-obstructed soft tile remains invalid for the Shovel until cleared.
+3. Move a stopped automation: RMB must orbit instead of cancelling; Esc and the bottom-right Cancel Move button must restore the original unit.
+4. Buy/place a normal automation: the bottom-right Cancel button and Esc should cancel without spending resources; RMB must remain camera orbit.
+5. Without clicking the attention alert, hover a visible stopped automation. It should receive the orange outline only while hovered and LMB should let it be moved.
+6. Cycle to a buried stopped automation through the attention alert and verify the existing x-ray outline remains outline-only through terrain.
+7. Manually mine a few blocks and verify the new small block-pop effect reads as a quick scale-up rather than a lingering duplicate.
+8. Confirm the grass/dirt presentation no longer creates the isolated fully-green interior blocks shown in the previous screenshots.
