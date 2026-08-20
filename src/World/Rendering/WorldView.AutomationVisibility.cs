@@ -54,6 +54,11 @@ public partial class WorldView
         }
     }
 
+    public void FocusAutomationVoxel(Vector3I voxel)
+    {
+        _camera?.FocusWorldPoint(VoxelToWorld(voxel));
+    }
+
     private void MarkAutomationChunkIfObserved(ChunkCoord chunk)
     {
         if (_desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk))
