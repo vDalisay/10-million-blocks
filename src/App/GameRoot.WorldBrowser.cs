@@ -16,9 +16,10 @@ public partial class GameRoot
         _ = delta;
         if (!_sessionPersists || _sessionRoot is null || _world is null) return;
 
-        // World sessions are rebuilt in-place. Attach the browser lazily to the active session so the
-        // core session construction path stays focused on gameplay services and replay sessions remain
-        // read-only. The parent comparison also handles the one-frame QueueFree handoff cleanly.
+        // Persistent session-level observers/UI are attached lazily after BuildWorldSession has wired
+        // every service. Replay/debug sessions remain read-only and therefore never receive them.
+        EnsureTutorialLayer();
+
         if (_worldBrowser is null
             || !IsInstanceValid(_worldBrowser)
             || _worldBrowser.GetParent() != _sessionRoot)
