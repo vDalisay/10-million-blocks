@@ -307,6 +307,47 @@ public sealed class ProceduralWorldSource
         return found;
     }
 
+    private bool WouldResolveToWater(Vector3I coordinate)
+    {
+        if (_overrides is not null && _overrides.TryGet(coordinate, out BlockSample authored))
+        {
+            return authored.Present && IsWaterBlockId(authored.BlockId);
+        }
+
+        int maxCoordinate = _profile.MaxCoordinate;
+        if (Math.Abs(coordinate.X) > maxCoordinate
+            || Math.Abs(coordinate.Y) > maxCoordinate
+            || Math.Abs(coordinate.Z) > maxCoordinate)
+        {
+            return false;
+        }
+
+        bool foundSolid = false;
+        bool foundWater = false;
+        foreach (Vector3I normal in FaceNormals)
+        {
+            if (!TryBuildCandidate(coordinate, normal, out SurfaceCandidate candidate)) continue;
+            if (candidate.IsSolid) foundSolid = true;
+            else if (candidate.IsWater) foundWater = true;
+            if (foundSolid) return false;
+        }
+        return foundWater;
+    }
+
+    private bool HasAdjacentResolvedWater(Vector3I coordinate)
+    {
+        foreach (Vector3I direction in FaceNormals)
+        {
+            if (WouldResolveToWater(coordinate + direction)) return true;
+        }
+        return false;
+    }
+
+    private bool IsWaterBlockId(string blockId)
+        => blockId == _profile.WaterBlock
+            || blockId == _profile.ShallowWaterBlock
+            || blockId == _profile.DeepWaterBlock;
+
     private BlockSample ClassifyWater(Vector3I normal, int u, int v, TerrainContext terrain)
     {
         if (terrain.WaterDepth <= 1.60f)
@@ -348,7 +389,11 @@ public sealed class ProceduralWorldSource
     {
         if (depth <= 0.78f)
         {
-            if (terrain.HasWater || terrain.ShoreFactor > 0.38f)
+            // Shoreline classification is based on the final resolved six-neighbour topology, not
+            // only this face's raw hydrology field. That matters at cube seams where a visible water
+            // cell can be controlled by one face while its touching dry cell is controlled by another.
+            // Any surface solid directly touching resolved water becomes beach/sand.
+            if (terrain.HasWater || terrain.ShoreFactor > 0.38f || HasAdjacentResolvedWater(coordinate))
             {
                 return new BlockSample(true, _profile.SandBlock, true);
             }
