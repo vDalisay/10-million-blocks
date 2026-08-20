@@ -185,11 +185,11 @@ public partial class GameRoot : Node3D
         WorldSaveData? savedWorld = null;
         if (persistSession && _save.Worlds.TryGetValue(profile.Id, out WorldSaveData? existing))
         {
-            if (existing.GenerationVersion != profile.GenerationVersion)
+            if (existing.WorldVersion != profile.WorldVersion || existing.GenerationVersion != profile.GenerationVersion)
             {
                 throw new InvalidOperationException(
-                    $"Save world '{profile.Id}' uses generation version {existing.GenerationVersion}; " +
-                    $"this build requires {profile.GenerationVersion}. Reset or migrate the save explicitly.");
+                    $"Save world '{profile.Id}' uses world/generation version {existing.WorldVersion}/{existing.GenerationVersion}; " +
+                    $"this build requires {profile.WorldVersion}/{profile.GenerationVersion}. Reset or migrate the save explicitly.");
             }
 
             savedWorld = existing;
@@ -554,6 +554,7 @@ public partial class GameRoot : Node3D
         _save.Worlds[_world.Profile.Id] = new WorldSaveData
         {
             WorldId = _world.Profile.Id,
+            WorldVersion = _world.Profile.WorldVersion,
             GenerationVersion = _world.Profile.GenerationVersion,
             TutorialLocalCurrency = tutorialLocalCurrency,
             ManualBlocksMined = _manualBlocksThisWorld,
@@ -630,7 +631,7 @@ public partial class GameRoot : Node3D
     }
 
     private static string ReplayPath(WorldProfile profile)
-        => $"user://replays/{profile.Id}_g{profile.GenerationVersion}.cmbr";
+        => $"user://replays/{profile.Id}_v{profile.WorldVersion}_g{profile.GenerationVersion}.cmbr";
 
     private void AddLightingAndEnvironment()
     {
