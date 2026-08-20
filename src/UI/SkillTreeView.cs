@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
+using TenMillionBlocks.Automation;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Skills;
 
@@ -180,21 +182,34 @@ public partial class SkillTreeView : CanvasLayer
 
     private string BuildTooltip(SkillNodeDefinition node)
     {
-        if (node.Prerequisites.Count == 0) return node.Description;
+        string description = node.Description;
+        if (TryGetMinerUnlock(node, out _))
+        {
+            description += "\nPlacement is previewed before payment; green commits, red is invalid, RMB/Esc cancels.";
+        }
+
+        if (node.Prerequisites.Count == 0) return description;
         var requirements = new List<string>();
         foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
         {
             requirements.Add($"{_skills.Catalog.Get(prerequisite.NodeId).DisplayName} rank {prerequisite.RequiredRank}");
         }
-        return node.Description + "\nRequires: " + string.Join(", ", requirements);
+        return description + "\nRequires: " + string.Join(", ", requirements);
     }
 
     private void Purchase(string skillId)
     {
+        SkillNodeDefinition node = _skills.Catalog.Get(skillId);
+        if (TryGetMinerUnlock(node, out string minerId) && _skills.GetRank(skillId) < node.MaxRank)
+        {
+            BeginAutomationPurchasePlacement(node, minerId);
+            return;
+        }
+
         SkillPurchaseResult result = _skills.Purchase(skillId);
         if (result.Success)
         {
-            _feedback.Text = $"Purchased {_skills.Catalog.Get(skillId).DisplayName} rank {result.NewRank}.";
+            _feedback.Text = $"Purchased {node.DisplayName} rank {result.NewRank}.";
             _feedback.Modulate = new Color(0.60f, 1.0f, 0.70f);
             if (_buttons.TryGetValue(skillId, out Button? button))
             {
@@ -221,6 +236,46 @@ public partial class SkillTreeView : CanvasLayer
         Refresh();
     }
 
+    private void BeginAutomationPurchasePlacement(SkillNodeDefinition node, string minerId)
+    {
+        int rank = _skills.GetRank(node.Id);
+        long cost = checked(node.Cost * (rank + 1L));
+        if (!_skills.PrerequisitesMet(node))
+        {
+            _feedback.Text = "Required prerequisite rank has not been reached.";
+            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
+            _feedbackTimer = 2.0;
+            return;
+        }
+        if (_mining.Currency < cost)
+        {
+            _feedback.Text = $"Not enough resources. Need {cost:N0}.";
+            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
+            _feedbackTimer = 2.0;
+            return;
+        }
+
+        MinerPlacementController? placement = GetParent()?.GetNodeOrNull<MinerPlacementController>("MinerPlacement");
+        if (placement is null || !placement.BeginPurchasePlacement(minerId, node.Id))
+        {
+            _feedback.Text = "Automation placement could not be started.";
+            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
+            _feedbackTimer = 2.0;
+            return;
+        }
+
+        // Nothing has been spent yet. Closing restores world input; the placement controller owns the
+        // shared green/red ghost and commits the unlock+cost only after a valid LMB placement.
+        Close();
+    }
+
+    private static bool TryGetMinerUnlock(SkillNodeDefinition node, out string minerId)
+    {
+        SkillEffectDefinition? effect = node.Effects.FirstOrDefault(candidate => candidate.Type == "unlock_miner");
+        minerId = effect?.StringValue ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(minerId);
+    }
+
     private void Refresh()
     {
         if (_resources is null) return;
@@ -237,6 +292,7 @@ public partial class SkillTreeView : CanvasLayer
             bool prerequisites = _skills.PrerequisitesMet(node);
             long cost = checked(node.Cost * (rank + 1L));
             bool affordable = _mining.Currency >= cost;
+            bool automationUnlock = TryGetMinerUnlock(node, out _);
 
             if (maxed)
             {
@@ -244,6 +300,13 @@ public partial class SkillTreeView : CanvasLayer
                     ? $"{node.DisplayName}\nMAX {rank}/{node.MaxRank}"
                     : $"{node.DisplayName}\nOWNED";
                 button.Modulate = new Color(0.70f, 1.0f, 0.78f);
+            }
+            else if (automationUnlock)
+            {
+                button.Text = $"{node.DisplayName}\nBUY & PLACE  |  {cost:N0}";
+                button.Modulate = prerequisites
+                    ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
+                    : new Color(0.52f, 0.55f, 0.62f);
             }
             else if (node.PurchaseMode == "repeatable")
             {
