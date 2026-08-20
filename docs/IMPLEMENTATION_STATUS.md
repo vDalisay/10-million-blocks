@@ -61,13 +61,9 @@ The primary Drill now follows the requested physical model:
 
 - upgrades the **existing primary drill**;
 - visibly scales its tangent footprint to 3x3 blocks;
-- still advances exactly one depth block per second;
+- still advances one depth layer at a deliberately reduced rate;
 - each depth step clears the full 3x3 slice in the same work tick;
 - resetting an existing drill after purchase starts at the tunnel mouth and fills the eight surrounding cells around the old center tunnel.
-
-### Radial Excavator
-
-Radial excavation is now a **separate placeable miner** (`B`) rather than changing the primary drill into a disc. This prevents the earlier tiny-drill/disc-shaped excavation mismatch.
 
 ---
 
@@ -165,15 +161,22 @@ Final visual parity against the supplied reference cannot be judged from reposit
 - F: recenter
 - K: skill tree
 - H: HUD details
-- M: Drill
-- N: Powered Shovel
-- P: Rock Breaker
-- A: Forest Cutter
-- B: Radial Excavator
+- A: automation menu
+- M: automation menu focused on Drill
+- N: automation menu focused on Powered Shovel
+- P: automation menu focused on Rock Breaker
+- C: automation menu focused on Forest Cutter
 - F8: one-million debug world
 - F9: performance diagnostics
 - F7: stress benchmark on a large profile
 - F10: completion-flow preview
+
+1. Open the automation menu with **A**, buy **Powered Shovel**, select it again, and click a highlighted sand block.
+2. Base shovel should remove about one sand block per second.
+3. It should only move to a directly cardinal-adjacent sand tile at the same local height and should stop at a one-block slope/gap.
+4. Buy ranks of **Shovel Gearbox**; mining cadence should visibly increase.
+5. Buy **Slope Sensor**; a stopped shovel should wake and be able to follow a neighboring sand tile one block higher/lower.
+6. Buy **Terrain Scout**; when local terrain runs out, a stopped shovel should wake and bridge to a valid sand patch within five tiles if one exists.
 
 ---
 
@@ -191,7 +194,7 @@ Final visual parity against the supplied reference cannot be judged from reposit
 
 1. Base Drill: one depth block/second and roughly one-block physical footprint.
 2. Buy Wide Bore: same drill should visibly become ~3x3 and clear one 3x3 slice/second.
-3. It must remain square; Radial Excavator is placed separately with `B`.
+3. It must remain square; no disc-shaped excavation is used.
 
 ### Shovel
 

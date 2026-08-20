@@ -59,7 +59,7 @@ public partial class GameRoot : Node3D
             AddLightingAndEnvironment();
             BuildPersistentPresentation();
             BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: true, persistSession: true);
-            GD.Print("Gameplay ready. LMB mines, RMB drag orbits, MMB drag pans, wheel zooms, [K] skill tree, [M] places unlocked drill miner. Debug: [F8] stress world, [F9] performance HUD, [F7] stress benchmark.");
+            GD.Print("Gameplay ready. LMB mines, RMB drag orbits, MMB drag pans, wheel zooms, [A] automation menu, [K] skill tree. Debug: [F8] stress world, [F9] performance HUD, [F7] stress benchmark.");
         }
         catch (Exception exception)
         {
@@ -228,7 +228,7 @@ public partial class GameRoot : Node3D
         _sessionRoot.AddChild(_skillTree);
 
         var hud = new MiningHud { Name = "MiningHud" };
-        hud.Initialize(_world, _mining, _worldView, _skills, _miners);
+        hud.Initialize(_world, _mining, _worldView, _skills, _miners, _manualMining, _placement);
         _sessionRoot.AddChild(hud);
 
         _performanceHud = new PerformanceHud { Name = "PerformanceHud" };

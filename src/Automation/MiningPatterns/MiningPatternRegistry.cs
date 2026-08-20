@@ -62,33 +62,6 @@ public sealed class WideLineMiningPattern : IMiningPattern
     }
 }
 
-public sealed class DiscMiningPattern : IMiningPattern
-{
-    public string Id => "disc";
-
-    public IEnumerable<Vector3I> Enumerate(Vector3I origin, Vector3I direction, int range, int width = 5)
-    {
-        Vector3I normal = LineMiningPattern.Cardinal(direction);
-        (Vector3I axisA, Vector3I axisB) = LineMiningPattern.PerpendicularAxes(normal);
-
-        int radius = Math.Max(1, width / 2);
-        int radiusSquared = radius * radius;
-
-        // A radial drill should keep boring inward with a circular cross-section. The earlier
-        // placeholder stopped after only two layers, which made the upgrade exhaust almost
-        // immediately instead of behaving like a persistent late-game mining pattern.
-        for (int depth = 0; depth < Math.Max(1, range); depth++)
-        for (int a = -radius; a <= radius; a++)
-        for (int b = -radius; b <= radius; b++)
-        {
-            if (a * a + b * b <= radiusSquared)
-            {
-                yield return origin + normal * depth + axisA * a + axisB * b;
-            }
-        }
-    }
-}
-
 /// <summary>
 /// Pure tangential address pattern retained for data-driven surface tools and future broad-strip
 /// automations. The Powered Shovel now layers a topology-aware crawler policy on top of its tool class:
@@ -126,7 +99,6 @@ public sealed class MiningPatternRegistry
     {
         ["line"] = new LineMiningPattern(),
         ["wide_line"] = new WideLineMiningPattern(),
-        ["disc"] = new DiscMiningPattern(),
         ["surface_strip"] = new SurfaceStripMiningPattern(),
     };
 

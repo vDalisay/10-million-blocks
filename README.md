@@ -14,7 +14,7 @@ The branch now includes the main architectural/gameplay systems from `docs/IMPLE
 - sparse mined state, exact 64-bit target accounting and aggregate region state
 - base drill that advances exactly one depth block/second
 - Wide Bore upgrade that physically scales the drill to a 3x3 cutter and clears one 3x3 depth slice/second
-- separate Radial Excavator automation instead of mutating the primary drill into a disc
+- square Wide Bore excavation; disc-shaped excavation is not used
 - Powered Shovel with sand-only base traversal, speed upgrades, slope sensing and Terrain Scout
 - Rock Breaker/pickaxe automation specialized for stone, ore and gem blocks
 - Forest Cutter/axe automation that seeks deterministic tree-bearing surface blocks
@@ -56,19 +56,19 @@ skill_tree_editor.bat
 
 ## Gameplay controls
 
-- `LMB`: mine highlighted block / interact with UI
+- `LMB`: mine highlighted block / select a placement target
 - `RMB drag`: orbit camera
 - `MMB drag`: pan camera
 - Mouse wheel: zoom; large worlds automatically use finer steps near the surface
 - `1` / `2` / `3`: far / medium / near camera presets
 - `F`: recenter camera pan
+- `A`: open/close the right-side automation menu
 - `K`: open/close skill tree
+- `M`: open the automation menu focused on the drill
+- `N`: open the automation menu focused on the Powered Shovel
 - `H`: expand/collapse gameplay HUD details
-- `M`: place the unlocked Drill
-- `N`: place the unlocked Powered Shovel on sand
-- `P`: place the unlocked Rock Breaker
-- `A`: place the unlocked Forest Cutter on a tree-bearing surface tile
-- `B`: place the unlocked Radial Excavator
+- `P`: open the automation menu focused on the Rock Breaker
+- `C`: open the automation menu focused on the Forest Cutter
 
 Debug-build controls:
 

@@ -799,7 +799,7 @@ public partial class WorldView : Node3D
     private static ChunkCoord Add(ChunkCoord a, ChunkCoord b)
         => new(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
 
-    private static ChunkCoord Scale(ChunkCoord value, int scale)
+    private static new ChunkCoord Scale(ChunkCoord value, int scale)
         => new(value.X * scale, value.Y * scale, value.Z * scale);
 
     private static Basis BasisForNormal(Vector3I normal)

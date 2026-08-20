@@ -15,7 +15,7 @@ public partial class PerformanceHud : CanvasLayer
     private Label _label = null!;
     private double _refreshTimer;
 
-    public bool IsVisible => _panel is not null && _panel.Visible;
+    public new bool IsVisible => _panel is not null && _panel.Visible;
 
     public void Initialize(VirtualWorld world, WorldView view, OrbitCameraController camera)
     {

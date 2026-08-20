@@ -40,6 +40,7 @@ public partial class MinerSimulationService : Node3D
 
     public IReadOnlyList<MinerInstance> Miners => _miners;
     public int MaxMiningOperationsPerFrame { get; set; } = 96;
+    public bool IsMinerUnlocked(string minerId) => _skills.IsMinerUnlocked(minerId);
 
     public double BlocksPerSecond => _miners
         .Where(miner => !miner.Exhausted)
@@ -264,7 +265,7 @@ public partial class MinerSimulationService : Node3D
         Vector3I inward = LineMiningPattern.Cardinal(miner.Direction);
         Vector3I center = miner.Origin + inward * depth;
         string patternId = EffectivePatternId(definition);
-        int width = patternId == "wide_line" ? Math.Max(3, _skills.Derived.MinerPatternWidth) : 1;
+        int width = patternId == "wide_line" ? 3 : 1;
         int minedThisStep = 0;
 
         if (patternId == "wide_line")
@@ -539,6 +540,10 @@ public partial class MinerSimulationService : Node3D
                 continue;
             }
 
+            // Pattern upgrades apply to existing drills as well as newly placed ones. Restart pattern
+            // enumeration from the drill origin; already-mined coordinates are skipped naturally, so
+            // A Wide Bore upgrade fills a fixed 3x3 front around the old tunnel instead of jumping
+            // ahead arbitrarily.
             if (drillPatternChanged && IsPrimaryDrill(definition))
             {
                 miner.CandidateIndex = 0;
@@ -557,9 +562,17 @@ public partial class MinerSimulationService : Node3D
 
     private double EffectiveRateMultiplier(MinerDefinition definition)
     {
-        if (IsShovel(definition)) return _skills.Derived.ShovelRateMultiplier;
-        if (IsPrimaryDrill(definition)) return 1.0;
-        return _skills.Derived.MinerRateMultiplier;
+        // General Faster Motors deliberately does not make the primitive shovel faster. The shovel has
+        // its own upgrade branch so its initial one-block-per-second behavior is predictable.
+        double multiplier = IsShovel(definition)
+            ? _skills.Derived.ShovelRateMultiplier
+            : IsPrimaryDrill(definition)
+                ? 1.0
+                : _skills.Derived.MinerRateMultiplier;
+
+        return IsPrimaryDrill(definition) && _skills.Derived.DrillPatternId == "wide_line"
+            ? multiplier * 0.75
+            : multiplier;
     }
 
     private string EffectivePatternId(MinerDefinition definition)
@@ -567,8 +580,7 @@ public partial class MinerSimulationService : Node3D
 
     private int PatternWidthFor(MinerDefinition definition, string patternId)
     {
-        if (IsPrimaryDrill(definition) && patternId == "wide_line") return Math.Max(3, _skills.Derived.MinerPatternWidth);
-        if (patternId == "disc") return 5;
+        if (IsPrimaryDrill(definition) && patternId == "wide_line") return 3;
         if (patternId == "wide_line") return 3;
         return 1;
     }
@@ -807,7 +819,6 @@ public partial class MinerSimulationService : Node3D
         return patternId switch
         {
             "wide_line" => 3.0f,
-            "disc" => 5.0f,
             _ => 1.0f,
         };
     }

@@ -25,6 +25,7 @@ public partial class ManualMiningController : Node3D
 
     public Vector3I? HoveredVoxel => _hoveredVoxel;
     public bool InputEnabled { get; set; } = true;
+    public bool PlacementMode { get; set; }
 
     public void Initialize(
         VirtualWorld world,
@@ -62,7 +63,10 @@ public partial class ManualMiningController : Node3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!InputEnabled || @event is not InputEventMouseButton button || button.ButtonIndex != MouseButton.Left)
+        if (PlacementMode
+            || !InputEnabled
+            || @event is not InputEventMouseButton button
+            || button.ButtonIndex != MouseButton.Left)
         {
             return;
         }

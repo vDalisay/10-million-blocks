@@ -26,18 +26,6 @@
       "description": "Standalone wide-pattern content entry retained for data compatibility."
     },
     {
-      "id": "disc_miner",
-      "display_name": "Radial Excavator",
-      "tool_class": "drill",
-      "base_rate": 3.0,
-      "pattern_id": "disc",
-      "range": 32,
-      "power": 1.0,
-      "allowed_block_tags": [],
-      "tag_rate_multipliers": {},
-      "description": "Separate radial excavator unlocked after Wide Bore; it does not mutate the starter drill."
-    },
-    {
       "id": "shovel_miner",
       "display_name": "Powered Shovel",
       "tool_class": "shovel",

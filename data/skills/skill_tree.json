@@ -61,7 +61,7 @@
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Turn the starter drill into a physical 3x3 cutter. It still moves inward one depth block per second, clearing the full 3x3 slice each step.",
+      "description": "Requires Faster Motors rank 3. Upgrade the placed drill to a slower 3x3 bore.",
       "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
@@ -75,24 +75,6 @@
         { "type": "unlock_pattern", "string_value": "wide_line" },
         { "type": "set_drill_pattern", "string_value": "wide_line" },
         { "type": "set_miner_pattern_width", "value": 3.0 }
-      ]
-    },
-    {
-      "id": "disc_unlock",
-      "display_name": "Radial Excavator",
-      "description": "Unlock a separate radial excavator. It does not change the starter or Wide Bore drill.",
-      "grid_x": 4,
-      "grid_y": 4,
-      "category": "patterns",
-      "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "wide_bore_unlock", "required_rank": 1, "route": [{ "grid_x": 4, "grid_y": 3 }] }
-      ],
-      "cost": 240,
-      "max_rank": 1,
-      "effects": [
-        { "type": "unlock_pattern", "string_value": "disc" },
-        { "type": "unlock_miner", "string_value": "disc_miner" }
       ]
     },
     {
@@ -148,9 +130,7 @@
       "grid_y": 4,
       "category": "shovel",
       "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "resource_sensors", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 4 }] }
-      ],
+      "prerequisites": [],
       "cost": 180,
       "max_rank": 1,
       "effects": [
