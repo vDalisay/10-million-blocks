@@ -40,8 +40,12 @@ miners = unique_by_id(miners_doc["miners"], "miner")
 skills = unique_by_id(skills_doc["nodes"], "skill")
 worlds = unique_by_id(worlds_doc["worlds"], "world")
 patterns = {"line", "wide_line", "disc", "surface_strip"}
+manual_footprints = {"single", "plus_3", "square_3", "square_10"}
 known_effects = {
     "add_manual_blocks_per_click",
+    "multiply_manual_mining_rate",
+    "set_manual_footprint",
+    "unlock_hover_mining",
     "multiply_miner_rate",
     "multiply_shovel_rate",
     "unlock_miner",
@@ -85,6 +89,10 @@ for ident, skill in skills.items():
             assert string_value in miners, f"skill {ident} unlocks missing miner {string_value}"
         elif effect_type in {"unlock_pattern", "set_drill_pattern"}:
             assert string_value in patterns, f"skill {ident} references missing pattern {string_value}"
+        elif effect_type == "set_manual_footprint":
+            assert string_value in manual_footprints, (
+                f"skill {ident} references unknown manual footprint {string_value}"
+            )
 
 # Cycle detection for prerequisite graph.
 visiting: set[str] = set()
@@ -190,11 +198,24 @@ def effect_values(skill_id: str, effect_type: str):
     return [effect.get("value") for effect in skills[skill_id].get("effects", []) if effect.get("type") == effect_type]
 
 
+def effect_strings(skill_id: str, effect_type: str):
+    return [effect.get("string_value", "") for effect in skills[skill_id].get("effects", []) if effect.get("type") == effect_type]
+
+
 assert effect_values("drill_hardened_bit", "set_drill_material_tier") == [1.0], (
     "Hardened Bit must establish Drill material tier 1"
 )
 assert effect_values("drill_ore_bit", "set_drill_material_tier") == [2.0], (
     "Ore-Cutting Bit must establish Drill material tier 2"
+)
+assert effect_strings("manual_2x", "set_manual_footprint") == ["plus_3"], (
+    "first manual area upgrade must be the 3x3 plus footprint"
+)
+assert effect_strings("manual_3x", "set_manual_footprint") == ["square_3"], (
+    "second manual area upgrade must be the full 3x3 footprint"
+)
+assert any(effect.get("type") == "unlock_hover_mining" for effect in skills["hover_mining_unlock"].get("effects", [])), (
+    "hover_mining_unlock must expose the no-button hover mining mode"
 )
 
 print(
