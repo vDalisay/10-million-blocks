@@ -1,11 +1,15 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace TenMillionBlocks.World.Rendering;
 
 public partial class WorldView
 {
+    private readonly HashSet<ChunkCoord> _deferredAutomationChunks = new();
+
     public long AutomationPresentationUpdatesQueued { get; private set; }
     public long AutomationPresentationUpdatesSuppressed { get; private set; }
+    public int DeferredAutomationChunkCount => _deferredAutomationChunks.Count;
 
     /// <summary>
     /// Automation simulation is authoritative regardless of camera position, but presentation work is
@@ -26,22 +30,15 @@ public partial class WorldView
             return false;
         }
 
-        if (_camera?.Camera is null || outward == Vector3I.Zero)
-        {
-            return true;
-        }
-
-        Vector3 worldPosition = VoxelToWorld(voxel);
-        Vector3 toCamera = _camera.Camera.GlobalPosition - worldPosition;
-        return toCamera.Dot((Vector3)outward) > 0.0f;
+        return IsAutomationFaceCameraFacing(voxel, outward);
     }
 
     /// <summary>
     /// World state is already authoritative before this method is called. For large worlds, only queue
     /// exact mesh rebuilds when the changed area can contribute pixels now. A drill on the far side or
     /// deep inside the cube therefore keeps mining computationally without forcing hidden chunk scans.
-    /// When the player later brings that side into view, normal deterministic chunk construction reads
-    /// the accumulated sparse state and presents the latest result in one catch-up build.
+    /// Suppressed chunks are remembered and rebuilt in a coalesced pass when the player later faces
+    /// their side of the cube.
     /// </summary>
     public void MarkAutomationDirty(Vector3I voxel)
     {
@@ -52,15 +49,21 @@ public partial class WorldView
             return;
         }
 
+        int chunkSize = _world.Profile.ChunkSize;
         Vector3I outward = _world.Source.GetOutwardNormal(voxel);
+        ChunkCoord changedChunk = ChunkCoord.FromVoxel(voxel, chunkSize);
         if (!ShouldPresentAutomation(voxel, outward))
         {
+            DeferAutomationChunk(changedChunk);
+            foreach (Vector3I direction in VoxelMath.Neighbors)
+            {
+                DeferAutomationChunk(ChunkCoord.FromVoxel(voxel + direction, chunkSize));
+            }
             AutomationPresentationUpdatesSuppressed++;
             return;
         }
 
-        int chunkSize = _world.Profile.ChunkSize;
-        MarkAutomationChunkIfObserved(ChunkCoord.FromVoxel(voxel, chunkSize));
+        MarkAutomationChunkIfObserved(changedChunk);
         foreach (Vector3I direction in VoxelMath.Neighbors)
         {
             MarkAutomationChunkIfObserved(ChunkCoord.FromVoxel(voxel + direction, chunkSize));
@@ -68,18 +71,83 @@ public partial class WorldView
         AutomationPresentationUpdatesQueued++;
     }
 
+    /// <summary>
+    /// Called at the same low frequency as automation visibility checks. Hundreds of off-screen mining
+    /// ticks can collapse into one deferred chunk rebuild instead of rebuilding the same hidden mesh on
+    /// every tick. Full-surface worlds may promote modified interior chunks once their cube face is
+    /// viewed; macro-streamed experiments still require the chunk to be in the camera working set.
+    /// </summary>
+    public void RefreshDeferredAutomationPresentation()
+    {
+        if (_deferredAutomationChunks.Count == 0 || _camera?.Camera is null)
+        {
+            return;
+        }
+
+        var promote = new List<ChunkCoord>();
+        foreach (ChunkCoord chunk in _deferredAutomationChunks)
+        {
+            if (!ChunkInWorldBounds(chunk))
+            {
+                promote.Add(chunk);
+                continue;
+            }
+
+            Vector3I min = chunk.MinVoxel(_world.Profile.ChunkSize);
+            Vector3I center = min + new Vector3I(
+                _world.Profile.ChunkSize / 2,
+                _world.Profile.ChunkSize / 2,
+                _world.Profile.ChunkSize / 2);
+            Vector3I outward = _world.Source.GetOutwardNormal(center);
+
+            bool inWorkingSet = _desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk);
+            bool eligible = FullSurfaceRenderer || inWorkingSet;
+            if (eligible && IsAutomationFaceCameraFacing(center, outward))
+            {
+                // MarkChunkDirty adds a modified interior chunk to the full-surface working set only at
+                // this point, after it has become presentation-relevant.
+                MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
+                promote.Add(chunk);
+            }
+        }
+
+        foreach (ChunkCoord chunk in promote)
+        {
+            _deferredAutomationChunks.Remove(chunk);
+        }
+    }
+
     public void FocusAutomationVoxel(Vector3I voxel)
     {
         _camera?.FocusWorldPoint(VoxelToWorld(voxel));
+    }
+
+    private bool IsAutomationFaceCameraFacing(Vector3I voxel, Vector3I outward)
+    {
+        if (_camera?.Camera is null || outward == Vector3I.Zero)
+        {
+            return true;
+        }
+
+        Vector3 worldPosition = VoxelToWorld(voxel);
+        Vector3 toCamera = _camera.Camera.GlobalPosition - worldPosition;
+        return toCamera.Dot((Vector3)outward) > 0.0f;
+    }
+
+    private void DeferAutomationChunk(ChunkCoord chunk)
+    {
+        if (ChunkInWorldBounds(chunk))
+        {
+            _deferredAutomationChunks.Add(chunk);
+        }
     }
 
     private void MarkAutomationChunkIfObserved(ChunkCoord chunk)
     {
         if (_desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk))
         {
-            // Use the normal dirty path so visible full-surface chunks switch to exact exposed-voxel
-            // rebuilding. Suppressed chunks deliberately never enter this path until viewed later.
             MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
+            _deferredAutomationChunks.Remove(chunk);
         }
     }
 }
