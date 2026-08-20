@@ -17,12 +17,14 @@ public partial class MiningHud : CanvasLayer
             string minerId,
             string skillId,
             string displayName,
+            PanelContainer card,
             Label status,
             Button action)
         {
             MinerId = minerId;
             SkillId = skillId;
             DisplayName = displayName;
+            Card = card;
             Status = status;
             Action = action;
         }
@@ -30,6 +32,7 @@ public partial class MiningHud : CanvasLayer
         public string MinerId { get; }
         public string SkillId { get; }
         public string DisplayName { get; }
+        public PanelContainer Card { get; }
         public Label Status { get; }
         public Button Action { get; }
     }
@@ -166,10 +169,10 @@ public partial class MiningHud : CanvasLayer
         {
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -400.0f,
+            OffsetLeft = -420.0f,
             OffsetTop = 58.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 122.0f,
+            OffsetBottom = 132.0f,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             Visible = false,
             MouseFilter = Control.MouseFilterEnum.Ignore,
@@ -221,7 +224,7 @@ public partial class MiningHud : CanvasLayer
             return;
         }
 
-        if (key.Keycode == Key.A)
+        if (key.Keycode == Key.A && _world.Profile.AutomationAvailable)
         {
             ToggleAutomationMenu();
             GetViewport().SetInputAsHandled();
@@ -234,21 +237,18 @@ public partial class MiningHud : CanvasLayer
             GetViewport().SetInputAsHandled();
             return;
         }
-
         if (key.Keycode == Key.N)
         {
             OpenAutomationMenu("shovel_miner");
             GetViewport().SetInputAsHandled();
             return;
         }
-
         if (key.Keycode == Key.P)
         {
             OpenAutomationMenu("pickaxe_miner");
             GetViewport().SetInputAsHandled();
             return;
         }
-
         if (key.Keycode == Key.C)
         {
             OpenAutomationMenu("axe_miner");
@@ -263,10 +263,7 @@ public partial class MiningHud : CanvasLayer
             return;
         }
 
-        if (key.Keycode != Key.H)
-        {
-            return;
-        }
+        if (key.Keycode != Key.H) return;
 
         _detailsVisible = !_detailsVisible;
         _details.Visible = _detailsVisible;
@@ -307,16 +304,12 @@ public partial class MiningHud : CanvasLayer
         var title = new Label { Text = "AUTOMATION", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         title.AddThemeFontSizeOverride("font_size", 22);
         header.AddChild(title);
-        var close = new Button
-        {
-            Text = "Close",
-            CustomMinimumSize = new Vector2(64.0f, 32.0f),
-        };
+        var close = new Button { Text = "Close", CustomMinimumSize = new Vector2(64.0f, 32.0f) };
         close.Pressed += CloseAutomationMenu;
         header.AddChild(close);
         column.AddChild(header);
 
-        _automationResources = new Label();
+        _automationResources = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         column.AddChild(_automationResources);
 
         _automationFeedback = new Label
@@ -333,37 +326,18 @@ public partial class MiningHud : CanvasLayer
         };
         column.AddChild(scroll);
 
-        var list = new VBoxContainer
-        {
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-        };
+        var list = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         list.AddThemeConstantOverride("separation", 10);
         scroll.AddChild(list);
 
-        AddAutomationEntry(
-            list,
-            "line_miner",
-            "automation_unlock",
-            "DRILL",
-            "Straight-line miner. Buy-and-place uses a green/red ghost; resources are charged only after a valid placement is accepted.");
-        AddAutomationEntry(
-            list,
-            "shovel_miner",
-            "shovel_unlock",
-            "POWERED SHOVEL",
-            "Surface crawler for sand, grass-topped dirt, and ordinary dirt terrain. Green/red placement preview is shared with moving stopped tools.");
-        AddAutomationEntry(
-            list,
-            "pickaxe_miner",
-            "pickaxe_unlock",
-            "ROCK BREAKER",
-            "Stone and ore miner. Preview its real model before committing placement.");
-        AddAutomationEntry(
-            list,
-            "axe_miner",
-            "axe_unlock",
-            "FOREST CUTTER",
-            "Surface tool for tree-bearing terrain. Preview its real model before committing placement.");
+        AddAutomationEntry(list, "line_miner", "automation_unlock", "DRILL",
+            "Straight-line miner. Unlock the class in the skill tree, then buy each physical Drill for its fixed unit price in the current world.");
+        AddAutomationEntry(list, "shovel_miner", "shovel_unlock", "POWERED SHOVEL",
+            "Surface crawler for soft terrain. Every physical Shovel is bought for the same fixed unit price and belongs to this world.");
+        AddAutomationEntry(list, "pickaxe_miner", "pickaxe_unlock", "ROCK BREAKER",
+            "Stone and ore miner. Permanent capability unlock; fixed-price physical units per world.");
+        AddAutomationEntry(list, "axe_miner", "axe_unlock", "FOREST CUTTER",
+            "Tree-clearing surface tool. Permanent capability unlock; fixed-price physical units per world.");
     }
 
     private void AddAutomationEntry(
@@ -409,48 +383,33 @@ public partial class MiningHud : CanvasLayer
         action.Pressed += () => OnAutomationAction(id);
         column.AddChild(action);
 
-        _automationEntries.Add(minerId, new AutomationEntry(minerId, skillId, displayName, status, action));
+        _automationEntries.Add(minerId, new AutomationEntry(minerId, skillId, displayName, card, status, action));
     }
 
     private void OnAutomationAction(string minerId)
     {
-        if (!_automationEntries.TryGetValue(minerId, out AutomationEntry? entry))
+        if (!_automationEntries.TryGetValue(minerId, out AutomationEntry? entry)) return;
+
+        SkillNodeDefinition unlockNode = _skills.Catalog.Get(entry.SkillId);
+        if (!_world.Profile.IsSkillCategoryVisible(unlockNode.Category)) return;
+
+        if (!_skills.IsMinerUnlocked(minerId))
         {
+            ShowAutomationFeedback($"Unlock {entry.DisplayName} in the skill tree first.");
             return;
         }
 
-        if (_skills.IsMinerUnlocked(minerId))
+        MinerDefinition definition = _miners.GetDefinition(minerId);
+        if (_mining.Currency < definition.UnitPrice)
         {
-            if (_placement.BeginPlacement(minerId))
-            {
-                ShowAutomationFeedback($"{entry.DisplayName} selected. Green = valid, red = blocked. LMB places; RMB orbits; Esc/Cancel exits placement.");
-                CloseAutomationMenu();
-            }
-            else
-            {
-                ShowAutomationFeedback($"{entry.DisplayName} is not available yet.");
-            }
+            ShowAutomationFeedback($"Not enough resources. One {entry.DisplayName} costs {definition.UnitPrice:N0}.");
             return;
         }
 
-        SkillNodeDefinition node = _skills.Catalog.Get(entry.SkillId);
-        int rank = _skills.GetRank(entry.SkillId);
-        if (!_skills.PrerequisitesMet(node))
+        if (_placement.BeginUnitPurchasePlacement(minerId))
         {
-            ShowAutomationFeedback($"Requires: {string.Join(", ", MissingPrerequisites(entry.SkillId))}.");
-            return;
-        }
-
-        long cost = checked(node.Cost * (rank + 1L));
-        if (_mining.Currency < cost)
-        {
-            ShowAutomationFeedback($"Not enough resources. Need {cost:N0}.");
-            return;
-        }
-
-        if (_placement.BeginPurchasePlacement(minerId, entry.SkillId))
-        {
-            ShowAutomationFeedback($"Preview {entry.DisplayName}. {cost:N0} resources are charged only after a green placement is accepted.");
+            ShowAutomationFeedback(
+                $"Preview {entry.DisplayName}. {definition.UnitPrice:N0} resources are charged only after a green placement is accepted.");
             CloseAutomationMenu();
         }
         else
@@ -478,7 +437,11 @@ public partial class MiningHud : CanvasLayer
         SetAutomationMenuOpen(true);
         if (preferredMinerId is not null && _automationEntries.TryGetValue(preferredMinerId, out AutomationEntry? entry))
         {
-            entry.Action.GrabFocus();
+            SkillNodeDefinition unlockNode = _skills.Catalog.Get(entry.SkillId);
+            if (_world.Profile.IsSkillCategoryVisible(unlockNode.Category) && entry.Card.Visible)
+            {
+                entry.Action.GrabFocus();
+            }
         }
     }
 
@@ -488,17 +451,11 @@ public partial class MiningHud : CanvasLayer
         else OpenAutomationMenu();
     }
 
-    private void CloseAutomationMenu()
-    {
-        SetAutomationMenuOpen(false);
-    }
+    private void CloseAutomationMenu() => SetAutomationMenuOpen(false);
 
     private void SetAutomationMenuOpen(bool open, bool immediate = false)
     {
-        if (_automationOpen == open && !immediate)
-        {
-            return;
-        }
+        if (_automationOpen == open && !immediate) return;
 
         _automationOpen = open;
         _manual.InputEnabled = !open;
@@ -548,7 +505,7 @@ public partial class MiningHud : CanvasLayer
         Refresh();
         if (_feedback is null) return;
 
-        if (result.BlockId.StartsWith("gem_", System.StringComparison.Ordinal))
+        if (result.BlockId.StartsWith("gem_", StringComparison.Ordinal))
         {
             _feedback.Text = $"Gem found: {result.BlockId.Replace("gem_", string.Empty)}  +{result.Reward}";
             _feedback.Modulate = new Color(0.72f, 0.92f, 1.0f);
@@ -593,12 +550,8 @@ public partial class MiningHud : CanvasLayer
         {
             if (_world.Profile.AutomationAvailable)
             {
-                string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill" : "Drill locked";
-                string shovel = _skills.IsMinerUnlocked("shovel_miner") ? "Shovel" : "Shovel locked";
-                string rock = _skills.IsMinerUnlocked("pickaxe_miner") ? "Rock" : "Rock locked";
-                string forest = _skills.IsMinerUnlocked("axe_miner") ? "Forest" : "Forest locked";
                 _automation.Text =
-                    $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} blocks/s  |  {drill} · {shovel} · {rock} · {forest}  |  [A] automation  [H] details";
+                    $"{_miners.Miners.Count} units  |  {_miners.BlocksPerSecond:0.##} blocks/s  |  [A] automation shop  [H] details";
             }
             else
             {
@@ -617,32 +570,39 @@ public partial class MiningHud : CanvasLayer
     {
         if (!_world.Profile.AutomationAvailable || _automationResources is null || _skills is null) return;
 
-        _automationResources.Text = $"Resources: {_mining.Currency:N0}  |  Placement preview is free until accepted";
+        _automationResources.Text =
+            $"Resources: {_mining.Currency:N0}\nClass unlocks persist. Physical units use fixed prices and remain in this world.";
+
         foreach (AutomationEntry entry in _automationEntries.Values)
         {
             SkillNodeDefinition node = _skills.Catalog.Get(entry.SkillId);
-            int rank = _skills.GetRank(entry.SkillId);
+            bool stageVisible = _world.Profile.IsSkillCategoryVisible(node.Category);
+            entry.Card.Visible = stageVisible;
+            if (!stageVisible) continue;
+
             bool unlocked = _skills.IsMinerUnlocked(entry.MinerId);
             bool prerequisites = _skills.PrerequisitesMet(node);
-            long cost = checked(node.Cost * (rank + 1L));
+            MinerDefinition definition = _miners.GetDefinition(entry.MinerId);
 
             if (unlocked)
             {
-                entry.Status.Text = "OWNED  |  Green/red ghost placement";
-                entry.Action.Text = "PLACE";
+                entry.Status.Text = $"UNLOCKED  |  Fixed unit price {definition.UnitPrice:N0}";
+                entry.Action.Text = $"BUY & PLACE  |  {definition.UnitPrice:N0}";
                 entry.Action.Disabled = false;
             }
             else if (!prerequisites)
             {
                 entry.Status.Text = $"LOCKED  |  Requires {string.Join(", ", MissingPrerequisites(entry.SkillId))}";
-                entry.Action.Text = "PREREQUISITES REQUIRED";
+                entry.Action.Text = "UNLOCK IN SKILL TREE";
                 entry.Action.Disabled = true;
             }
             else
             {
-                entry.Status.Text = $"AVAILABLE  |  {cost:N0} resources · charged after placement";
-                entry.Action.Text = $"BUY & PLACE  |  {cost:N0}";
-                entry.Action.Disabled = false;
+                int rank = _skills.GetRank(entry.SkillId);
+                long unlockCost = checked(node.Cost * (rank + 1L));
+                entry.Status.Text = $"LOCKED  |  Capability costs {unlockCost:N0} in the skill tree";
+                entry.Action.Text = "UNLOCK IN SKILL TREE [K]";
+                entry.Action.Disabled = true;
             }
         }
     }
@@ -655,10 +615,13 @@ public partial class MiningHud : CanvasLayer
         {
             string action = _placement.IsMoving
                 ? "Moving"
-                : _placement.IsDeferredPurchase ? "Buying + placing" : "Placing";
-            string payment = _placement.IsDeferredPurchase
-                ? "\nResources are charged only after a valid placement is accepted."
-                : string.Empty;
+                : _placement.IsUnitPurchase ? "Buying + placing" : "Placing";
+            string payment = string.Empty;
+            if (_placement.IsUnitPurchase)
+            {
+                long price = _miners.GetDefinition(entry.MinerId).UnitPrice;
+                payment = $"\nFixed unit price: {price:N0}. Charged only after a valid placement is accepted.";
+            }
             _placementHint.Text =
                 $"{action} {entry.DisplayName}\nGreen = valid · Red = blocked · LMB place · RMB orbit · Esc/Cancel button to cancel{payment}";
             _placementHint.Visible = true;
@@ -679,7 +642,7 @@ public partial class MiningHud : CanvasLayer
             : "same height only";
         string controls = "Controls: LMB mine   RMB orbit   Wheel zoom";
         if (_world.Profile.SkillTreeAvailable) controls += "   [K] Skill Tree";
-        if (_world.Profile.AutomationAvailable) controls += "   [A] Automation   [M/N/P/C] Tool menus";
+        if (_world.Profile.AutomationAvailable) controls += "   [A] Automation";
         _details.Text =
             $"{controls}\n" +
             $"Mined: {_mining.TotalMined:N0}   render chunks: {_view.VisibleChunkCount}   dirty: {_view.PendingChunkRebuilds}   modified: {_world.State.ModifiedChunkCount}\n" +
