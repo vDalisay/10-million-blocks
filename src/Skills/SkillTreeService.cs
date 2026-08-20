@@ -59,7 +59,7 @@ public sealed class SkillTreeService
     private readonly Dictionary<string, int> _ranks = new(StringComparer.Ordinal);
 
     public SkillTreeService(SkillTreeCatalog catalog, MiningService mining)
-        : this(catalog, mining, new SpecialResourceInventory())
+        : this(catalog, mining, mining.SpecialResources)
     {
     }
 
