@@ -11,7 +11,7 @@
       "power": 1.0,
       "allowed_block_tags": [],
       "tag_rate_multipliers": {},
-      "description": "Advances one block of depth per second. Wide Bore turns its cutter into a physical 3x3 footprint without increasing travel speed."
+      "description": "Advances one block of depth per second and starts with ordinary-stone capability only. Unsupported material stops the drill until the blocker is removed or an appropriate drill-bit skill is bought."
     },
     {
       "id": "wide_bore_miner",
@@ -35,7 +35,7 @@
       "power": 1.0,
       "allowed_block_tags": ["sand"],
       "tag_rate_multipliers": {},
-      "description": "Starts as a deliberately dumb one-block-per-second sand crawler. Skills add speed, slope sensing and longer-range terrain scouting."
+      "description": "Starts as a deliberately dumb one-block-per-second terrain crawler. Sand and grass-edged dirt patches count as valid shovel terrain; skills add speed, slope sensing and longer-range scouting."
     },
     {
       "id": "pickaxe_miner",
