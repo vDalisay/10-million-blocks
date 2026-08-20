@@ -24,17 +24,23 @@ public readonly record struct ReplayRemovalEvent(
 
 public sealed class ReplayHeader
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
+    public const int MinimumReadableSchemaVersion = 1;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public string WorldId { get; init; } = string.Empty;
+    public int WorldVersion { get; init; }
     public int GenerationVersion { get; init; }
+    public string WorldContentHash { get; init; } = string.Empty;
     public int MinCoordinate { get; init; }
     public int AxisSize { get; init; }
     public int TickRate { get; init; } = 20;
     public long EventCount { get; init; }
     public long FinalMinedCount { get; init; }
     public byte[] EventChecksum { get; init; } = Array.Empty<byte>();
+
+    public bool HasFrozenBaselineIdentity
+        => SchemaVersion >= 2 && WorldVersion > 0 && !string.IsNullOrWhiteSpace(WorldContentHash);
 }
 
 public sealed class ReplayData
