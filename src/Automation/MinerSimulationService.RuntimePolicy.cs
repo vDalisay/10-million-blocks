@@ -139,9 +139,24 @@ public partial class MinerSimulationService
         _visualVisibilityRefreshTimer = 0.0;
         _view.RefreshViewDependentPresentation();
         _view.RefreshDeferredAutomationPresentation();
+
+        bool resumed = false;
         foreach (MinerInstance miner in _miners)
         {
+            // A player may manually remove an unsupported block after following the alert to this
+            // drill. Poll only already-stopped drills at the low presentation cadence; once the exact
+            // blocker is gone (or has become supported) the drill wakes without requiring re-placement.
+            if (miner.Exhausted && miner.StopReason == MinerStopReason.BlockedMaterial && BlockerIsNowSupported(miner))
+            {
+                ResumeMiner(miner);
+                resumed = true;
+            }
             RefreshVisualVisibility(miner);
+        }
+
+        if (resumed)
+        {
+            Changed?.Invoke();
         }
     }
 
