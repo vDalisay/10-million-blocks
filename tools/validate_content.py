@@ -80,6 +80,18 @@ for ident, skill in skills.items():
             f"skill {ident} requires invalid rank {required} from {source_id}"
         )
 
+    special_ids = set()
+    for special_cost in skill.get("special_costs", []):
+        resource_id = special_cost.get("resource_id", "")
+        amount = int(special_cost.get("amount", 0))
+        assert resource_id in blocks, f"skill {ident} special cost references missing resource {resource_id}"
+        assert "gem" in set(blocks[resource_id].get("tags", [])), (
+            f"skill {ident} special cost {resource_id} is not tagged as a gem/special resource"
+        )
+        assert amount > 0, f"skill {ident} special cost {resource_id} must be positive"
+        assert resource_id not in special_ids, f"skill {ident} repeats special cost {resource_id}"
+        special_ids.add(resource_id)
+
     for effect in skill.get("effects", []):
         effect_type = effect.get("type")
         string_value = effect.get("string_value", "")
@@ -114,6 +126,7 @@ for skill_id in skills:
 for world_id in progression_doc["world_ids"]:
     assert world_id in worlds, f"progression references missing world {world_id}"
 
+world_override_docs = {}
 for world_id, profile in worlds.items():
     assert int(profile.get("generationVersion", 0)) > 0, (
         f"world {world_id} must commit a positive generationVersion"
@@ -123,33 +136,56 @@ for world_id, profile in worlds.items():
     )
 
     override_file = str(profile.get("overrideFile", "")).strip()
-    if override_file:
-        assert override_file.startswith("res://"), f"world {world_id} overrideFile must be a res:// path"
-        override_path = ROOT / override_file.removeprefix("res://")
-        assert override_path.exists(), f"world {world_id} references missing override file {override_file}"
-        override_doc = load(str(override_path.relative_to(ROOT)))
-        assert int(override_doc.get("schemaVersion", 0)) == 1, f"world {world_id} override schema must be 1"
-        assert override_doc.get("worldId") == world_id, f"world {world_id} override targets another world"
-        assert int(override_doc.get("generationVersion", 0)) == int(profile.get("generationVersion", 0)), (
-            f"world {world_id} override generation version does not match its profile"
-        )
-        seen_coordinates = set()
-        for item in override_doc.get("overrides", []):
-            coordinate = (int(item.get("x", 0)), int(item.get("y", 0)), int(item.get("z", 0)))
-            assert coordinate not in seen_coordinates, f"world {world_id} has duplicate override at {coordinate}"
-            seen_coordinates.add(coordinate)
-            if item.get("present", True):
-                assert item.get("blockId") in blocks, (
-                    f"world {world_id} override {coordinate} references missing block {item.get('blockId')}"
-                )
+    if not override_file:
+        continue
 
-tutorial_ids = progression_doc["world_ids"][:3]
-expected_tutorial_ids = ["tutorial_single_block", "tutorial_dirt_5", "tutorial_lake_core_10"]
-if len(tutorial_ids) >= 3:
-    assert tutorial_ids == expected_tutorial_ids, f"expected first three tutorial worlds, got {tutorial_ids}"
-else:
-    # During the two-commit rollout, the new profile can exist before it is inserted into progression.
-    assert tutorial_ids[:2] == expected_tutorial_ids[:2], f"unexpected opening tutorial sequence {tutorial_ids}"
+    assert override_file.startswith("res://"), f"world {world_id} overrideFile must be a res:// path"
+    override_path = ROOT / override_file.removeprefix("res://")
+    assert override_path.exists(), f"world {world_id} references missing override file {override_file}"
+    override_doc = load(str(override_path.relative_to(ROOT)))
+    world_override_docs[world_id] = override_doc
+    assert int(override_doc.get("schemaVersion", 0)) == 1, f"world {world_id} override schema must be 1"
+    assert override_doc.get("worldId") == world_id, f"world {world_id} override targets another world"
+    assert int(override_doc.get("generationVersion", 0)) == int(profile.get("generationVersion", 0)), (
+        f"world {world_id} override generation version does not match its profile"
+    )
+
+    seen_coordinates = set()
+    for item in override_doc.get("overrides", []):
+        coordinate = (int(item.get("x", 0)), int(item.get("y", 0)), int(item.get("z", 0)))
+        assert coordinate not in seen_coordinates, f"world {world_id} has duplicate override at {coordinate}"
+        seen_coordinates.add(coordinate)
+        if item.get("present", True):
+            assert item.get("blockId") in blocks, (
+                f"world {world_id} override {coordinate} references missing block {item.get('blockId')}"
+            )
+
+    seen_features = set()
+    for item in override_doc.get("features", []):
+        coordinate = (int(item.get("x", 0)), int(item.get("y", 0)), int(item.get("z", 0)))
+        normal = (
+            int(item.get("normalX", 0)),
+            int(item.get("normalY", 1)),
+            int(item.get("normalZ", 0)),
+        )
+        assert coordinate not in seen_features, f"world {world_id} has duplicate feature at {coordinate}"
+        seen_features.add(coordinate)
+        assert item.get("blockId") == "tree", (
+            f"world {world_id} currently supports only semantic authored tree features, got {item.get('blockId')}"
+        )
+        assert sum(abs(value) for value in normal) == 1, (
+            f"world {world_id} feature {coordinate} has non-cardinal normal {normal}"
+        )
+
+expected_tutorial_ids = [
+    "tutorial_single_block",
+    "tutorial_dirt_5",
+    "tutorial_lake_core_10",
+    "tutorial_trees_gem_15",
+]
+assert progression_doc["world_ids"][:4] == expected_tutorial_ids, (
+    f"expected the four authored tutorial worlds first, got {progression_doc['world_ids'][:4]}"
+)
 
 single = worlds["tutorial_single_block"]
 assert single.get("generationMode") == "single_block", "opening tutorial must use single_block generation"
@@ -163,7 +199,7 @@ assert single.get("automationAvailable") is False, "opening tutorial must hide a
 manual = worlds["tutorial_dirt_5"]
 assert manual.get("generationMode") == "solid_cube", "5x5 tutorial must use deterministic solid_cube generation"
 assert [int(manual.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")] == [5, 5, 5], (
-    "manual tutorial must remain 5 x 5 x 5 while its initial lesson is being validated"
+    "manual tutorial must remain 5 x 5 x 5"
 )
 assert int(manual.get("targetMineableBlocks", 0)) == 125, "5x5 solid tutorial must contain 125 blocks"
 assert manual.get("automationAvailable") is False, "manual tutorial must hide automation"
@@ -180,18 +216,37 @@ assert lake.get("automationAvailable") is True, "lake/core tutorial must introdu
 assert lake.get("visibleSkillCategories") == ["manual", "shovel"], (
     "lake/core tutorial must reveal only manual and shovel branches"
 )
-lake_overrides = load(lake["overrideFile"].removeprefix("res://"))["overrides"]
+lake_overrides = world_override_docs["tutorial_lake_core_10"]["overrides"]
 lake_water = [item for item in lake_overrides if item.get("blockId") in {"water", "water_shallow", "water_deep"}]
 lake_stone = [item for item in lake_overrides if item.get("blockId") in {"stone", "stone_dark"}]
 assert len(lake_water) == 16, f"lake/core tutorial must keep one authored 4x4 lake surface, got {len(lake_water)} water cells"
 assert len(lake_stone) == 64, f"lake/core tutorial must keep the authored 4x4x4 stone core, got {len(lake_stone)} stone cells"
 
+trees_gem = worlds["tutorial_trees_gem_15"]
+assert trees_gem.get("generationMode") == "solid_cube", "15x15 tutorial must use an authored solid base"
+assert [int(trees_gem.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")] == [15, 15, 15], (
+    "trees/gem tutorial must remain 15 x 15 x 15"
+)
+assert int(trees_gem.get("targetMineableBlocks", 0)) == 3375, (
+    "15x15 tutorial overrides replace cells and must retain exactly 3375 physical mineable blocks"
+)
+assert trees_gem.get("visibleSkillCategories") == ["manual", "shovel", "automation", "drill", "patterns"], (
+    "15x15 tutorial must reveal the Drill/Wide Bore lesson without exposing later tool/resource branches"
+)
+trees_doc = world_override_docs["tutorial_trees_gem_15"]
+trees_overrides = trees_doc["overrides"]
+red_gems = [item for item in trees_overrides if item.get("blockId") == "gem_red"]
+assert len(red_gems) == 1, f"15x15 tutorial must contain exactly one red gem, got {len(red_gems)}"
+assert (red_gems[0]["x"], red_gems[0]["y"], red_gems[0]["z"]) == (0, 0, 0), (
+    "15x15 tutorial red gem must replace the exact center voxel"
+)
+tutorial3_water = [item for item in trees_overrides if item.get("blockId") in {"water", "water_shallow", "water_deep"}]
+assert len(tutorial3_water) == 25, f"15x15 tutorial must keep its authored 5x5 lake, got {len(tutorial3_water)} water cells"
+assert len(trees_doc.get("features", [])) == 8, "15x15 tutorial must keep eight authored tree blockers"
+
 # Provisional authored worlds stay available after implemented tutorial slices until their reviewed
 # replacements are authored. Keeping them explicit avoids accidentally jumping to the finale.
-if "tutorial_lake_core_10" in progression_doc["world_ids"]:
-    early_worlds = progression_doc["world_ids"][3:6]
-else:
-    early_worlds = progression_doc["world_ids"][2:5]
+early_worlds = progression_doc["world_ids"][4:7]
 assert early_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
     f"expected provisional authored bridge worlds after tutorials, got {early_worlds}"
 )
@@ -266,6 +321,15 @@ assert effect_strings("manual_3x", "set_manual_footprint") == ["square_3"], (
 )
 assert any(effect.get("type") == "unlock_hover_mining" for effect in skills["hover_mining_unlock"].get("effects", [])), (
     "hover_mining_unlock must expose the no-button hover mining mode"
+)
+assert skills["wide_bore_unlock"].get("special_costs") == [{"resource_id": "gem_red", "amount": 1}], (
+    "Wide Bore must consume exactly one central red gem"
+)
+assert effect_strings("wide_bore_unlock", "set_drill_pattern") == ["wide_line"], (
+    "Wide Bore must transform the primary Drill pattern class-wide"
+)
+assert effect_values("wide_bore_unlock", "set_miner_pattern_width") == [3.0], (
+    "Wide Bore must keep the 3x3 cutter width"
 )
 
 print(
