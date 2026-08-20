@@ -26,16 +26,25 @@ public sealed class ProceduralWorldSource
         float ForestField);
 
     private readonly WorldProfile _profile;
+    private readonly WorldOverrideSet? _overrides;
 
     public ProceduralWorldSource(WorldProfile profile)
     {
         _profile = profile;
+        _overrides = WorldOverrideSet.Load(profile);
     }
 
     public WorldProfile Profile => _profile;
 
     public BlockSample SampleVoxel(Vector3I coordinate)
     {
+        // Sparse authored overrides win before base bounds/generation are evaluated. This lets the
+        // authoring workflow replace, carve or coherently extend a frozen deterministic candidate.
+        if (_overrides is not null && _overrides.TryGet(coordinate, out BlockSample authored))
+        {
+            return authored;
+        }
+
         if (_profile.UsesSingleBlockGenerator)
         {
             return coordinate == Vector3I.Zero
@@ -97,7 +106,7 @@ public sealed class ProceduralWorldSource
         }
 
         voxel = FaceVoxel(outwardNormal, radial, tangentU, tangentV);
-        sample = SampleVoxelFromTerrain(voxel, terrain);
+        sample = SampleVoxel(voxel);
         if (sample.Present)
         {
             return true;
@@ -108,7 +117,7 @@ public sealed class ProceduralWorldSource
             int candidateRadial = radial - inward;
             if (candidateRadial < 0) break;
             Vector3I candidate = FaceVoxel(outwardNormal, candidateRadial, tangentU, tangentV);
-            BlockSample candidateSample = SampleVoxelFromTerrain(candidate, terrain);
+            BlockSample candidateSample = SampleVoxel(candidate);
             if (!candidateSample.Present) continue;
             voxel = candidate;
             sample = candidateSample;
