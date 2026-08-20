@@ -67,6 +67,7 @@ for ident, block in blocks.items():
 for ident, miner in miners.items():
     pattern = miner.get("pattern_id")
     assert pattern in patterns, f"miner {ident} references unknown pattern {pattern}"
+    assert int(miner.get("unit_price", 0)) > 0, f"miner {ident} must have a fixed positive unit_price"
     assert float(miner.get("base_rate", 0)) > 0, f"miner {ident} must have positive base_rate"
 
 for ident, skill in skills.items():
@@ -134,6 +135,11 @@ for world_id, profile in worlds.items():
     assert profile.get("generationMode", "procedural") in {"procedural", "single_block", "solid_cube"}, (
         f"world {world_id} has an unknown generationMode"
     )
+
+    visible_ids = profile.get("visibleSkillIds", [])
+    assert len(visible_ids) == len(set(visible_ids)), f"world {world_id} repeats a visibleSkillId"
+    for skill_id in visible_ids:
+        assert skill_id in skills, f"world {world_id} exposes missing skill id {skill_id}"
 
     override_file = str(profile.get("overrideFile", "")).strip()
     if not override_file:
@@ -230,8 +236,8 @@ assert [int(trees_gem.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight"
 assert int(trees_gem.get("targetMineableBlocks", 0)) == 3375, (
     "15x15 tutorial overrides replace cells and must retain exactly 3375 physical mineable blocks"
 )
-assert trees_gem.get("visibleSkillCategories") == ["manual", "shovel", "automation", "drill", "patterns"], (
-    "15x15 tutorial must reveal the Drill/Wide Bore lesson without exposing later tool/resource branches"
+assert trees_gem.get("visibleSkillCategories") == ["manual", "shovel", "automation", "drill", "patterns", "forest"], (
+    "15x15 tutorial must add only the dedicated Forest Cutter branch alongside Drill/Wide Bore lessons"
 )
 trees_doc = world_override_docs["tutorial_trees_gem_15"]
 trees_overrides = trees_doc["overrides"]
@@ -330,6 +336,12 @@ assert effect_strings("wide_bore_unlock", "set_drill_pattern") == ["wide_line"],
 )
 assert effect_values("wide_bore_unlock", "set_miner_pattern_width") == [3.0], (
     "Wide Bore must keep the 3x3 cutter width"
+)
+assert skills["axe_unlock"].get("category") == "forest", (
+    "Forest Cutter must stay in its dedicated tutorial-visible branch"
+)
+assert skills["axe_unlock"].get("prerequisites", []) == [], (
+    "Forest Cutter tutorial unlock must not depend on a later hidden Resource Sensors branch"
 )
 
 print(
