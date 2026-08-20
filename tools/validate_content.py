@@ -135,10 +135,12 @@ assert progression_doc["world_ids"][-1] == "final_target_1m", (
     "final_target_1m must remain the configured progression end goal"
 )
 
-# Product rules added during the final automation pass should be visible in data and guarded by CI.
-assert "sand" in set(blocks["dirt_grass"].get("tags", [])), (
-    "grass-edged dirt must remain valid shovel terrain via the sand tag"
-)
+# Surface art uses both a top-heavy grass model and a grass-edged dirt model for the same shovelable
+# terrain family. Selecting either visible part must remain valid placement/traversal data.
+for shovel_surface in ("grass", "dirt_grass"):
+    assert "sand" in set(blocks[shovel_surface].get("tags", [])), (
+        f"{shovel_surface} must remain valid shovel terrain via the sand tag"
+    )
 assert miners["line_miner"].get("tool_class") == "drill", "line_miner must remain the primary Drill"
 
 
