@@ -110,7 +110,10 @@ public partial class WorldCompleteView : CanvasLayer
         }
         else
         {
-            _next.Text = $"Next world: {next.DisplayName}\nThe next world is generated from its own authored profile and seed.";
+            string role = string.IsNullOrWhiteSpace(next.IntroText)
+                ? "The next world is generated from its own authored profile and seed."
+                : next.IntroText;
+            _next.Text = $"Next world: {next.DisplayName}\n{role}";
             _continue.Text = "Continue";
         }
 
