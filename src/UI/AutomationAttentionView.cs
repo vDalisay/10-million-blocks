@@ -31,7 +31,7 @@ public partial class AutomationAttentionView : CanvasLayer
             OffsetLeft = -420.0f,
             OffsetTop = 106.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 178.0f,
+            OffsetBottom = 188.0f,
             Visible = false,
         };
         AddChild(_panel);
@@ -46,6 +46,7 @@ public partial class AutomationAttentionView : CanvasLayer
         _button = new Button
         {
             Text = "Automation needs attention",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         _button.Pressed += CycleAttention;
@@ -68,6 +69,7 @@ public partial class AutomationAttentionView : CanvasLayer
         {
             _miners.MinerStopped -= OnMinerStopped;
             _miners.Changed -= Refresh;
+            _miners.SetAttentionHighlight(null);
         }
     }
 
@@ -90,6 +92,7 @@ public partial class AutomationAttentionView : CanvasLayer
         MinerInstance? miner = _miners.GetAttentionMiner(_cycleIndex++);
         if (miner is null) return;
 
+        _miners.SetAttentionHighlight(miner);
         _view.FocusAutomationVoxel(_miners.AttentionFocusVoxel(miner));
         Refresh(miner);
     }
@@ -109,6 +112,7 @@ public partial class AutomationAttentionView : CanvasLayer
         {
             _button.Text = string.Empty;
             _cycleIndex = 0;
+            _miners.SetAttentionHighlight(null);
             return;
         }
 
@@ -117,7 +121,7 @@ public partial class AutomationAttentionView : CanvasLayer
             ? "automation stopped"
             : $"{selected.DefinitionId}: {_miners.DescribeStop(selected)}";
         _button.Text = count == 1
-            ? $"AUTOMATION STOPPED\n{detail}  ·  Click to focus"
+            ? $"AUTOMATION STOPPED\n{detail}  ·  Click to focus/select"
             : $"{count} AUTOMATIONS NEED ATTENTION\n{detail}  ·  Click to cycle/focus";
     }
 }
