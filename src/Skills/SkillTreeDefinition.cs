@@ -13,6 +13,12 @@ public sealed class SkillEffectDefinition
     public string StringValue { get; set; } = string.Empty;
 }
 
+public sealed class SkillSpecialCostDefinition
+{
+    public string ResourceId { get; set; } = string.Empty;
+    public long Amount { get; set; }
+}
+
 public sealed class SkillRoutePoint
 {
     public int GridX { get; set; }
@@ -37,6 +43,7 @@ public sealed class SkillNodeDefinition
     public string PurchaseMode { get; set; } = "once"; // once | repeatable
     public List<SkillPrerequisiteDefinition> Prerequisites { get; set; } = new();
     public long Cost { get; set; }
+    public List<SkillSpecialCostDefinition> SpecialCosts { get; set; } = new();
     public int MaxRank { get; set; } = 1;
     public List<SkillEffectDefinition> Effects { get; set; } = new();
 }
@@ -87,9 +94,6 @@ public sealed class SkillTreeCatalog
     public int ContentVersion { get; }
     public IReadOnlyDictionary<string, SkillNodeDefinition> Nodes => _nodes;
 
-    public static WorldStageSkillFilter BuildStageFilter(IEnumerable<string> visibleCategories)
-        => new(visibleCategories);
-
     public static SkillTreeCatalog Load(string path = "res://data/skills/skill_tree.json")
     {
         if (!Godot.FileAccess.FileExists(path))
@@ -115,6 +119,10 @@ public sealed class SkillTreeCatalog
 
         foreach (SkillNodeDefinition node in document.Nodes)
         {
+            node.Prerequisites ??= new List<SkillPrerequisiteDefinition>();
+            node.SpecialCosts ??= new List<SkillSpecialCostDefinition>();
+            node.Effects ??= new List<SkillEffectDefinition>();
+
             if (string.IsNullOrWhiteSpace(node.Id)) errors.Add("Skill node has an empty id.");
             if (string.IsNullOrWhiteSpace(node.DisplayName)) errors.Add($"Skill '{node.Id}' has no display name.");
             if (node.Cost < 0) errors.Add($"Skill '{node.Id}' has a negative cost.");
@@ -130,6 +138,23 @@ public sealed class SkillTreeCatalog
             else if (node.PurchaseMode == "repeatable" && node.MaxRank < 2)
             {
                 errors.Add($"Repeatable skill '{node.Id}' must have max_rank >= 2.");
+            }
+
+            var specialIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (SkillSpecialCostDefinition specialCost in node.SpecialCosts)
+            {
+                if (string.IsNullOrWhiteSpace(specialCost.ResourceId))
+                {
+                    errors.Add($"Skill '{node.Id}' has a special cost with an empty resource id.");
+                }
+                else if (!specialIds.Add(specialCost.ResourceId))
+                {
+                    errors.Add($"Skill '{node.Id}' contains duplicate special cost '{specialCost.ResourceId}'.");
+                }
+                if (specialCost.Amount <= 0)
+                {
+                    errors.Add($"Skill '{node.Id}' special cost '{specialCost.ResourceId}' must be positive.");
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(node.Id) && !nodes.TryAdd(node.Id, node))
@@ -151,6 +176,7 @@ public sealed class SkillTreeCatalog
             var seenPrerequisites = new HashSet<string>(StringComparer.Ordinal);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             {
+                prerequisite.Route ??= new List<SkillRoutePoint>();
                 if (!nodes.TryGetValue(prerequisite.NodeId, out SkillNodeDefinition? source))
                 {
                     errors.Add($"Skill '{node.Id}' references missing prerequisite '{prerequisite.NodeId}'.");
@@ -220,21 +246,4 @@ public sealed class SkillTreeCatalog
             }
         }
     }
-}
-
-/// <summary>
-/// Lightweight stage-level skill visibility contract. Runtime UI can use the same catalog while early
-/// tutorial worlds expose only the categories relevant to their current lesson.
-/// </summary>
-public sealed class WorldStageSkillFilter
-{
-    private readonly HashSet<string> _visibleCategories;
-
-    public WorldStageSkillFilter(IEnumerable<string> visibleCategories)
-    {
-        _visibleCategories = new HashSet<string>(visibleCategories ?? Array.Empty<string>(), StringComparer.Ordinal);
-    }
-
-    public bool IsVisible(SkillNodeDefinition node)
-        => _visibleCategories.Count == 0 || _visibleCategories.Contains(node.Category);
 }
