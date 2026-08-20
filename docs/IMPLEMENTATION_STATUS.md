@@ -8,146 +8,194 @@ Source plan: `docs/IMPLEMENTATION_PLAN.md`
 - Phase 1 — Project foundation + asset catalog: **complete**
 - Phase 2 — Reference visual slice: **superseded by the procedural world; reference remains the art target**
 - Phase 3 — Virtual world + deterministic generator: **complete**
-- Phase 4 — Rendering + picking: **complete architecture; final one-million visual/performance review is local**
+- Phase 4 — Rendering + picking: **architecture complete; final local visual review remains**
 - Phase 5 — Manual mining: **complete**
-- Phase 6 — Automation framework: **complete**
-- Phase 7 — Skill-tree runtime: **complete**
+- Phase 6 — Automation framework: **complete; off-screen computation/presentation split added**
+- Phase 7 — Skill-tree runtime: **complete; drill material capability progression added**
 - Phase 8 — Skill-tree editor: **complete**
-- Phase 9 — Completion/progression: **complete; one-million world is now the final configured progression world**
-- Phase 10 — Save/load/offline foundation: **complete for mined state/skills/miners/aggregate regions**
-- Phase 11 — stress/optimization architecture: **complete; previous macro-stream benchmark passed and the product renderer has since changed**
+- Phase 9 — Completion/progression: **complete; one-million world is the final configured progression world**
+- Phase 10 — Save/load/offline foundation: **complete for mined state/skills/miners/aggregate regions; miner stop state persists**
+- Phase 11 — stress/optimization: **architecture complete; current automation/render optimizations await final local measurement**
 - Phase 12 — game-feel/reference polish: **implementation pass complete; final visual comparison requires local Godot review**
-- Phase 13 — final-scale target: **implemented as exactly 1,000,000 authoritative mineable blocks with real-block visible geometry**
-- Phase 14 — tool-class automation/world events: **mechanics implemented; some final art remains replaceable**
+- Phase 13 — final-scale target: **exactly 1,000,000 authoritative mineable blocks with real-block visible geometry**
+- Phase 14 — tool-class automation/world events: **mechanics implemented; final imported art remains replaceable**
 
-CI is configured on the draft integration PR and has been run after the major implementation batches. The drill/shovel fixes, real-block full-surface renderer, specialized tools/gems, unstable-block mechanics, and HUD/diagnostic pass all compile successfully in GitHub Actions.
+The remaining gate is one final local runtime/visual/performance pass. No merge should happen before that pass.
 
 ---
 
-## Major direction change: one-million world
+## One-million world renderer
 
-The old product-scale prototype used coarse `MacroWorldProxy` cells plus a small local detail patch. That was rejected as the player-facing direction because the world looked like large blocks made from mini blocks rather than one enormous mineable block world.
+The old product-scale macro-cell prototype was rejected. `stress_1000` and `final_target_1m` use the `full_surface` renderer:
 
-The new `full_surface` renderer is documented in `docs/ONE_MILLION_WORLD_RENDERING.md`.
-
-For both `stress_1000` (kept as a legacy debug ID so F8 remains useful) and `final_target_1m`:
-
-- logical profile is now a roughly 100-axis one-million-block world rather than a fake 1000^3 visual cube;
 - authoritative target is exactly **1,000,000** blocks;
-- visible terrain is built from actual supplied block meshes at actual voxel addresses;
-- no macro proxy is instantiated;
-- initial rendering samples all surface-shell chunks, distributed across frames;
-- modified/mined chunks switch to exact exposed-voxel rebuilds so holes/tunnels reveal real interior blocks;
-- interior state remains deterministic/sparse until modified;
-- the world profiles carry some physical generator headroom so every authoritative region can satisfy its quota without the player running out of generated rock before reaching one million.
+- supplied block meshes represent real voxel addresses;
+- no macro proxy is used for product-scale worlds;
+- surface shell generation is distributed across frames;
+- modified visible chunks rebuild exact exposed voxels so tunnels reveal real interior blocks;
+- untouched/interior state remains deterministic and sparse.
 
-The macro renderer remains available only for separate diagnostic experiments using `rendererMode: auto`; it is no longer the intended final-world presentation.
+### View-dependent full-surface culling
+
+Resident shell chunks no longer imply drawable shell chunks. The full-surface renderer now periodically classifies loaded chunk roots against the camera:
+
+- only cube faces oriented toward the camera remain visible;
+- back-side chunk roots are disabled before their MultiMeshes are submitted;
+- corner chunks stay visible if any of their shell faces is camera-facing;
+- modified interior chunks inherit their nearest outward cube face;
+- chunk data stays resident, so orbiting does not cause a regeneration spike merely to redisplay another side.
+
+F9 reports `presented/culled` chunk counts so this can be measured locally.
+
+### Deterministic generated-sample cache
+
+Exact modified-chunk rebuilds used to re-run expensive terrain noise for the same voxel and its six neighbours repeatedly. `VirtualWorld` now has a fixed-size direct-mapped cache for generated/reclassified voxel samples:
+
+- mined state is checked before the cache, so mining needs no cache invalidation;
+- generated terrain is deterministic, making cached source samples safe;
+- cache size is bounded and cannot grow with the million-block address space;
+- neighbouring `IsExposed` checks can reuse the same generated samples instead of re-evaluating fractal noise.
+
+F9 reports cache hits, misses, and hit rate.
 
 ---
 
-## Drill behavior
+## Automation simulation vs presentation
 
-The primary Drill now follows the requested physical model:
+Large-world automation now deliberately separates authoritative simulation from presentation.
+
+When a drill/shovel/pickaxe/axe changes a block:
+
+1. world state, rewards, counters and save state update normally;
+2. if the automation is on the far side, outside the current rendered working set, or already deep inside an unseen part of the cube, no immediate mesh rebuild or debris effect is produced;
+3. affected chunk IDs are coalesced into a deferred set instead of rebuilding hidden geometry every automation tick;
+4. when the player later faces that side, deferred modified chunks are promoted to exact rebuilds and catch up to current authoritative state;
+5. automation model nodes themselves are hidden when they cannot contribute pixels, and invisible drill rotors are not animated.
+
+This is the intended scaling rule: **simulation continues everywhere; presentation only pays for what can currently be seen.**
+
+F9 exposes:
+
+- automation presentation updates queued;
+- updates suppressed as invisible;
+- deferred automation chunk count;
+- resident vs presented/culled render chunks.
+
+---
+
+## Primary Drill behavior
 
 ### Base Drill
 
-- approximately one block wide;
-- one work tick per second;
-- moves exactly one block of depth per tick;
-- removes the center block at that depth;
-- general `Faster Motors` does not make this primary drill travel faster.
+- one-block footprint;
+- one depth step per second;
+- general `Faster Motors` does not accelerate its travel speed;
+- initially mines **ordinary stone only**;
+- it does not skip an unsupported block;
+- hitting unsupported material stops the machine at that exact coordinate;
+- the configured safety range is now larger than all current worlds, so normal termination is the physical empty boundary rather than an arbitrary short range.
+
+### Drill material progression
+
+New skill branch:
+
+- **Hardened Bit** — adds dark stone capability;
+- **Ore-Cutting Bit** — adds normal copper/silver/gold ore capability;
+- gems and unstable/bomb blocks still stop the ordinary Drill, preserving reasons to use specialised tools and interact with world events.
+
+If a stopped drill's blocker becomes supported after buying a bit upgrade, it resumes automatically.
+
+If the player manually removes the blocking voxel with another tool, the stopped drill detects that at the low-frequency automation visibility tick and resumes automatically.
 
 ### Wide Bore
 
-- upgrades the **existing primary drill**;
-- visibly scales its tangent footprint to 3x3 blocks;
-- still advances one depth layer at a deliberately reduced rate;
-- each depth step clears the full 3x3 slice in the same work tick;
-- resetting an existing drill after purchase starts at the tunnel mouth and fills the eight surrounding cells around the old center tunnel.
+- upgrades the existing primary Drill;
+- scales its physical cutter footprint to 3x3;
+- preflights the full cutter face at each depth;
+- any unsupported present block in that 3x3 face stops the entire machine instead of being skipped;
+- a work step clears the supported 3x3 slice, then advances one depth layer.
+
+### End-of-world stop
+
+The drill now distinguishes a real terminal condition from a material blocker. When its next depth position is outside/empty after the tunnel reaches the physical world boundary, it enters `RangeComplete` and no longer consumes work or advances forever.
+
+---
+
+## Stopped-automation attention flow
+
+Actionable automation stops now produce a compact clickable alert.
+
+The alert:
+
+- appears when a Drill is blocked by unsupported material, a Shovel runs out of reachable terrain, or a Forest Cutter has no reachable tree target;
+- shows the stop reason/material;
+- when one automation needs attention, clicking focuses that automation;
+- when several need attention, repeated clicks cycle through/focus them;
+- focuses a blocked Drill at its visible tunnel entrance so the player can inspect/unblock its path;
+- disappears automatically after all actionable automations resume or are otherwise resolved.
+
+Normal `RangeComplete` Drill termination is not treated as an error/attention condition.
+
+Miner stop reason, blocker voxel and blocker material are included in miner snapshots so save/load does not lose why a machine was stopped.
 
 ---
 
 ## Powered Shovel
 
-Placement was relaxed at the correct boundary: the selected placement voxel itself must be exposed sand (profile sand ID or a block carrying the `sand` tag), but placement no longer rejects valid sand because a cube-face normal tie resolves to a neighboring face.
+Valid shovel terrain now includes:
 
-Base shovel:
+- normal `sand`;
+- the profile's grass-edged dirt/surface-edge block (`dirt_grass`);
+- any future block carrying the `sand` content tag.
 
-- sand-only;
+`dirt_grass` itself now carries the `sand` tag so the rule is also visible in data instead of existing only as a special-case code path.
+
+Base shovel remains deliberately primitive:
+
 - about one block/second;
 - placement tile first;
-- cardinal same-height neighbors only;
-- stops when that primitive local search is exhausted.
+- cardinal same-height neighbours only;
+- stops when that local search is exhausted.
 
-Upgrades:
+Upgrades remain:
 
 - **Shovel Gearbox** — repeatable speed increase;
 - **High-Torque Drive** — later speed multiplier;
-- **Slope Sensor** — allows one block of local height change;
-- **Terrain Scout** — nearest-shell-first fallback search up to radius 5 and wakes a previously stuck shovel.
+- **Slope Sensor** — one block of local height change;
+- **Terrain Scout** — nearest-shell-first fallback up to radius 5 and wakes a stuck shovel.
 
 ---
 
-## Phase 14 specialized tools/events
+## Phase 14 specialised tools/events
 
-### Rock Breaker / pickaxe class
+### Rock Breaker
 
-- unlocked from the skill tree;
-- placed with `P`;
-- ignores unsuitable soft blocks while following its inward path;
-- material affinities make it faster on stone, ore and gems;
-- currently uses a procedural pickaxe-shaped placeholder presentation so mechanics are not blocked by missing final imported art.
+- placeable pickaxe-class automation;
+- skips unsuitable soft terrain;
+- specialises in stone, ore and gem tags;
+- uses material affinity rate bonuses;
+- current presentation is a procedural placeholder until final imported art exists.
 
-### Forest Cutter / axe class
+### Forest Cutter
 
-- unlocked from the skill tree;
-- placed with `A` on a deterministic tree-bearing surface voxel;
-- searches neighboring surface terrain for the next tree-bearing voxel;
-- mines the supporting block, which also removes the deterministic tree feature because its anchor no longer exists;
-- uses a procedural axe-shaped placeholder presentation pending final art replacement.
+- placeable only on deterministic tree-bearing surface voxels;
+- searches neighbouring surface terrain for other tree anchors;
+- clearing the support block also removes the deterministic tree feature;
+- current presentation is a procedural placeholder until final imported art exists.
 
 ### Gem pockets
 
-Three high-value deterministic deep-block tiers are generated from a broad 3D pocket field plus a per-voxel grain test:
+Deterministic deep pockets provide `gem_green`, `gem_blue`, and `gem_red` reward tiers. Placement is a pure function of world seed/address and therefore requires no per-gem save objects.
 
-- `gem_green` — commonest/lowest reward;
-- `gem_blue` — deeper/rarer;
-- `gem_red` — deepest/rarest.
+### Unstable blocks
 
-They currently reuse supplied colored block meshes, carry `ore`/`gem` tags, work with the Rock Breaker, and need no per-instance save data because placement is a pure world-seed/address function.
+- rare deterministic deep placement;
+- manual hit 1/3 and 2/3 leave the block in place;
+- hit 3/3 triggers a bounded radius-2 blast;
+- every removed block still passes through authoritative world accounting;
+- destroyed/mined state persists normally.
 
-### Unstable blocks / block bombs
-
-- deterministic rare placement in deep rock;
-- current visual uses a supplied yellow colored block mesh;
-- manual mining requires three hits;
-- first two hits leave the block in place and report hit progress;
-- third hit detonates a bounded radius-2 sphere;
-- automation detonates one immediately on contact rather than silently stepping past a half-damaged bomb;
-- every removed voxel still goes through `VirtualWorld.TryMine`, preserving exact global/region accounting and normal progression events;
-- manual blast presentation dirties the affected render area and emits mining debris.
-
-Partial bomb hit count is currently session-local. Bomb *placement* and destroyed/mined state remain deterministic/persistent; persisting the 1/3 or 2/3 intermediate hit counter can be added later if that tiny state detail is desired.
-
----
-
-## Phase 12 polish implemented
-
-- block-aware mining/debris bursts;
-- capped presentation bursts for multi-block actions;
-- hover breathing and successful-hit pulse;
-- smoothed camera interpolation;
-- adaptive large-world wheel zoom and hard anti-penetration barrier;
-- animated drill rotor/cutter and physical footprint scaling;
-- distinct shovel/pickaxe/axe presentations;
-- compact lower-left progress HUD with optional `H` details;
-- gem and unstable-block feedback;
-- scrollable runtime skill-tree graph with purchase feedback;
-- completion overlay/Continue transitions;
-- clumped voxel clouds with slow world orbit and inward-facing undersides;
-- F9 renderer diagnostics now explicitly distinguish `real-block full surface` from macro experiments.
-
-Final visual parity against the supplied reference cannot be judged from repository/CI alone and remains part of the final local review pass.
+Partial 1/3 or 2/3 bomb-hit progress remains session-local and is not a milestone blocker.
 
 ---
 
@@ -162,58 +210,59 @@ Final visual parity against the supplied reference cannot be judged from reposit
 - K: skill tree
 - H: HUD details
 - A: automation menu
-- M: automation menu focused on Drill
-- N: automation menu focused on Powered Shovel
-- P: automation menu focused on Rock Breaker
-- C: automation menu focused on Forest Cutter
+- M: Drill menu
+- N: Powered Shovel menu
+- P: Rock Breaker menu
+- C: Forest Cutter menu
 - F8: one-million debug world
 - F9: performance diagnostics
-- F7: stress benchmark on a large profile
+- F7: stress benchmark
 - F10: completion-flow preview
-
-1. Open the automation menu with **A**, buy **Powered Shovel**, select it again, and click a highlighted sand block.
-2. Base shovel should remove about one sand block per second.
-3. It should only move to a directly cardinal-adjacent sand tile at the same local height and should stop at a one-block slope/gap.
-4. Buy ranks of **Shovel Gearbox**; mining cadence should visibly increase.
-5. Buy **Slope Sensor**; a stopped shovel should wake and be able to follow a neighboring sand tile one block higher/lower.
-6. Buy **Terrain Scout**; when local terrain runs out, a stopped shovel should wake and bridge to a valid sand patch within five tiles if one exists.
 
 ---
 
 ## Final local review checklist
 
-### One-million world
+### 1. Build/regression
 
-1. `F8`, then `F9`: renderer must say `real-block full surface` and macro must be disabled.
-2. Allow the initial shell queue to settle; surface should be continuous actual block meshes, not coarse proxy cells.
-3. Far/medium/near should all show the same world at different scales.
-4. Mine inward and verify newly exposed blocks/tunnel walls remain proper supplied block meshes.
-5. Record F9 FPS, queue length and chunk-build average while the shell is initially filling and while mining/orbiting.
+- `play_game.bat` builds and launches without errors;
+- Verdant/Lakebound still render and mine correctly;
+- save/load restores mined state, skill ranks, miners, stopped-miner state and progression;
+- runtime skill tree scrolls to the new Drill bit and Shovel branches.
 
-### Drill
+### 2. One-million performance
 
-1. Base Drill: one depth block/second and roughly one-block physical footprint.
-2. Buy Wide Bore: same drill should visibly become ~3x3 and clear one 3x3 slice/second.
-3. It must remain square; no disc-shaped excavation is used.
+1. Press `F8`, then `F9` and allow initial shell population to settle.
+2. Record baseline FPS with no automation.
+3. Place a Drill on the visible face and record FPS while it works.
+4. Orbit so that Drill is on the far side. FPS should no longer collapse merely because it keeps mining.
+5. F9 `presented/culled` should show a substantial portion of resident shell chunks culled.
+6. While the Drill is hidden, `automation presentation ... suppressed` should increase and deferred chunk count should remain bounded/coalesced rather than growing once per mined block.
+7. Orbit back toward the Drill. Deferred chunks should drain/catch up and the visible tunnel should represent the current mined state.
+8. Generated sample cache hit rate should become meaningful during exact rebuilds; compare `chunk build ms` against the previous ~15-FPS automation behavior.
 
-### Shovel
+### 3. Drill blockers/end
 
-1. Place `N` on a clearly visible sand block; placement must succeed.
-2. Base behavior should be cardinal/same-height and roughly one block/second.
-3. Verify Gearbox, Slope Sensor and Terrain Scout progressively change only their intended behavior.
+1. Base Drill should mine ordinary `stone` but stop on `stone_dark`, ore, gem or bomb.
+2. A top-right `AUTOMATION STOPPED` alert should name the blocking material.
+3. Click the alert; it should focus the stopped Drill. With multiple stopped machines, repeated clicks should cycle them.
+4. Manually remove the blocker using an appropriate tool; the Drill should resume without re-placement.
+5. Alternatively buy **Hardened Bit** for dark stone or **Ore-Cutting Bit** for normal ore; a compatible stopped Drill should resume.
+6. Let a Drill reach the physical end of the cube; it should stop permanently rather than continue moving/working forever.
+7. Wide Bore should stop if any supported cutter-face path is blocked by unsupported material.
 
-### Phase 14
+### 4. Shovel
 
-1. `P` Rock Breaker should progress into stone/ore and visibly accelerate on affinity materials.
-2. `A` Forest Cutter should only place on a tree-bearing tile and seek other trees after clearing one.
-3. Deep mining should eventually expose colored gem pockets with elevated rewards.
-4. A yellow unstable block should show hit 1/3, 2/3, then detonate on the third manual hit.
+1. Place on normal sand.
+2. Place on a grass-edged dirt (`dirt_grass`) patch; this must now also succeed.
+3. Base behaviour should remain cardinal/same-height and ~1 block/sec.
+4. Verify Gearbox, Slope Sensor and Terrain Scout alter only their intended properties.
 
-### Regression
+### 5. Remaining Phase 14 presentation
 
-- normal Verdant/Lakebound worlds still render/mine correctly;
-- skill tree scrolls to all new branches;
-- save/load restores existing mined state, miners, skill ranks and world progression;
-- completion Continue reaches `final_target_1m` after Lakebound.
+- Rock Breaker progresses through stone/ore/gems;
+- Forest Cutter seeks deterministic trees;
+- gem rewards appear when deep pockets are exposed;
+- unstable block reports 1/3, 2/3, then detonates on 3/3.
 
-After this checklist, remaining changes should be tuning/art-direction fixes rather than another architecture rewrite.
+After this checklist, remaining work should be visual/art-direction tuning rather than another renderer/automation architecture rewrite.
