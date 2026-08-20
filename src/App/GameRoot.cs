@@ -79,24 +79,14 @@ public partial class GameRoot : Node3D
 
     public override void _Process(double delta)
     {
-        if (!_autosaveDirty || _world is null)
-        {
-            return;
-        }
-
+        if (!_autosaveDirty || _world is null) return;
         _autosaveTimer += delta;
-        if (_autosaveTimer >= 10.0)
-        {
-            TrySaveCurrentSession();
-        }
+        if (_autosaveTimer >= 10.0) TrySaveCurrentSession();
     }
 
     public override void _UnhandledKeyInput(InputEvent @event)
     {
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
-            return;
-        }
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
 
         if (key.Keycode == Key.F10 && OS.IsDebugBuild() && _sessionPersists && !_completionShown && _world is not null)
         {
@@ -166,15 +156,11 @@ public partial class GameRoot : Node3D
 
     private void BuildWorldSession(WorldProfile profile, bool applyOfflineProgress, bool persistSession)
     {
-        if (_sessionPersists)
-        {
-            CaptureCurrentSession();
-        }
+        if (_sessionPersists) CaptureCurrentSession();
         TearDownWorldSession();
         _sessionPersists = persistSession;
         _completionView.HideCompletion();
         _completionShown = false;
-
         ConfigureWorldPresentation(profile);
 
         _sessionRoot = new Node3D { Name = $"WorldSession_{profile.Id}" };
@@ -222,9 +208,7 @@ public partial class GameRoot : Node3D
 
         if (persistSession)
         {
-            _replayPath = string.IsNullOrWhiteSpace(savedWorld?.ReplayFile)
-                ? ReplayPath(profile)
-                : savedWorld!.ReplayFile;
+            _replayPath = string.IsNullOrWhiteSpace(savedWorld?.ReplayFile) ? ReplayPath(profile) : savedWorld!.ReplayFile;
             string replayAbsolute = ProjectSettings.GlobalizePath(_replayPath);
             _replayRecorder = new ReplayRecorder(
                 _world,
@@ -238,27 +222,18 @@ public partial class GameRoot : Node3D
         }
 
         _skills = new SkillTreeService(_skillCatalog, _mining, _specialResources);
-        if (persistSession)
-        {
-            _skills.RestoreRanks(_save.SkillRanks);
-        }
+        if (persistSession) _skills.RestoreRanks(_save.SkillRanks);
         _skills.Changed += MarkAutosaveDirty;
 
         _manualMining = new ManualMiningController { Name = "ManualMining" };
         _manualMining.Initialize(_world, _camera, _worldView, _mining, _skills);
-        if (savedWorld is not null)
-        {
-            _manualMining.RestoreHoverMiningEnabled(savedWorld.HoverMiningEnabled);
-        }
+        if (savedWorld is not null) _manualMining.RestoreHoverMiningEnabled(savedWorld.HoverMiningEnabled);
         _sessionRoot.AddChild(_manualMining);
 
         _miners = new MinerSimulationService { Name = "MinerSimulation" };
         _miners.Initialize(_world, _mining, _worldView, _minerCatalog, _patterns, _skills);
         _sessionRoot.AddChild(_miners);
-        if (savedWorld is not null)
-        {
-            _miners.RestoreSnapshot(savedWorld.Miners);
-        }
+        if (savedWorld is not null) _miners.RestoreSnapshot(savedWorld.Miners);
         _miners.Changed += MarkAutosaveDirty;
 
         _placement = new MinerPlacementController { Name = "MinerPlacement" };
@@ -287,14 +262,13 @@ public partial class GameRoot : Node3D
         if (persistSession && IsActiveWorldEventProfile(profile))
         {
             _worldEvents = new WorldEventController { Name = "WorldEventController" };
-            _worldEvents.Initialize(
-                _world,
-                _worldView,
-                _mining,
-                _camera,
-                cloudEnabled: true,
-                meteorEnabled: true);
+            _worldEvents.Initialize(_world, _worldView, _mining, _camera, cloudEnabled: true, meteorEnabled: true);
+            _worldEvents.PersistentStateChanged += MarkAutosaveDirty;
             _sessionRoot.AddChild(_worldEvents);
+            if (savedWorld?.WorldEvents is WorldEventSnapshot eventSnapshot)
+            {
+                _worldEvents.RestoreSnapshot(eventSnapshot);
+            }
         }
 
         _performanceHud = new PerformanceHud { Name = "PerformanceHud" };
@@ -319,10 +293,7 @@ public partial class GameRoot : Node3D
             }
         }
 
-        if (persistSession && _world.RemainingMineableBlocks == 0)
-        {
-            ShowCompletion(debugPreview: false);
-        }
+        if (persistSession && _world.RemainingMineableBlocks == 0) ShowCompletion(debugPreview: false);
     }
 
     private void BuildReplaySession(WorldProfile profile, ReplayData replay)
@@ -335,7 +306,6 @@ public partial class GameRoot : Node3D
 
         _sessionRoot = new Node3D { Name = $"ReplaySession_{profile.Id}" };
         AddChild(_sessionRoot);
-
         _world = new VirtualWorld(profile);
         _world.InitializeMineableBlockCount();
         _worldView = new WorldView { Name = "ReplayWorldView" };
@@ -350,7 +320,6 @@ public partial class GameRoot : Node3D
         _replayView.Initialize(_replayPlayer, profile);
         _replayView.ExitRequested += OnReplayExitRequested;
         _sessionRoot.AddChild(_replayView);
-
         ApplyDefaultCameraPreset(profile);
         GD.Print($"Replay viewer opened for '{profile.Id}' with {replay.Events.Count:N0} recorded removals.");
     }
@@ -361,14 +330,11 @@ public partial class GameRoot : Node3D
         _replayRecorder = null;
         _replayPlayer = null;
         _replayView = null;
+        if (_worldEvents is not null) _worldEvents.PersistentStateChanged -= MarkAutosaveDirty;
         _worldEvents = null;
         _replayPath = string.Empty;
 
-        if (_sessionRoot is null)
-        {
-            return;
-        }
-
+        if (_sessionRoot is null) return;
         RemoveChild(_sessionRoot);
         _sessionRoot.QueueFree();
         _sessionRoot = null;
@@ -388,53 +354,34 @@ public partial class GameRoot : Node3D
 
     private void OnBlockMined(MiningResult result)
     {
-        if (result.Source == MiningSource.Automated || result.Source == MiningSource.Offline)
-        {
-            _automatedBlocksThisWorld++;
-        }
-        else if (result.Source == MiningSource.Manual)
-        {
-            _manualBlocksThisWorld++;
-        }
+        if (result.Source is MiningSource.Automated or MiningSource.Offline) _automatedBlocksThisWorld++;
+        else if (result.Source == MiningSource.Manual) _manualBlocksThisWorld++;
 
         MarkAutosaveDirty();
-        if (_sessionPersists && result.Remaining == 0 && !_completionShown)
-        {
-            ShowCompletion(debugPreview: false);
-        }
+        if (_sessionPersists && result.Remaining == 0 && !_completionShown) ShowCompletion(debugPreview: false);
     }
 
     private void OnBulkMined(BulkMiningResult result)
     {
-        if (result.Source == MiningSource.Automated || result.Source == MiningSource.Offline)
+        if (result.Source is MiningSource.Automated or MiningSource.Offline)
         {
             _automatedBlocksThisWorld = checked(_automatedBlocksThisWorld + result.BlocksMined);
         }
-
         _worldView?.MarkRegionDirty(result.Region);
         MarkAutosaveDirty();
-        if (_sessionPersists && result.Remaining == 0 && !_completionShown)
-        {
-            ShowCompletion(debugPreview: false);
-        }
+        if (_sessionPersists && result.Remaining == 0 && !_completionShown) ShowCompletion(debugPreview: false);
     }
 
     private void ShowCompletion(bool debugPreview)
     {
-        if (!_sessionPersists || _world is null || _mining is null || _manualMining is null || _miners is null || _placement is null)
-        {
-            return;
-        }
+        if (!_sessionPersists || _world is null || _mining is null || _manualMining is null || _miners is null || _placement is null) return;
 
         _completionShown = true;
         _skillTree?.Close();
         _manualMining.InputEnabled = false;
         _placement.InputEnabled = false;
         _miners.ProcessMode = ProcessModeEnum.Disabled;
-        if (_worldEvents is not null)
-        {
-            _worldEvents.ProcessMode = ProcessModeEnum.Disabled;
-        }
+        if (_worldEvents is not null) _worldEvents.ProcessMode = ProcessModeEnum.Disabled;
 
         WorldProfile? next = _progression.NextProfile();
         _completionView.ShowCompletion(
@@ -467,11 +414,7 @@ public partial class GameRoot : Node3D
 
     private void OnContinueRequested()
     {
-        if (!_sessionPersists || _world is null)
-        {
-            return;
-        }
-
+        if (!_sessionPersists || _world is null) return;
         CaptureCurrentSession();
 
         if (!_progression.Advance())
@@ -492,17 +435,13 @@ public partial class GameRoot : Node3D
 
     private void OnReplayRequested()
     {
-        if (!_sessionPersists || _world is null || !_save.CompletedWorldIds.Contains(_world.Profile.Id))
-        {
-            return;
-        }
+        if (!_sessionPersists || _world is null || !_save.CompletedWorldIds.Contains(_world.Profile.Id)) return;
 
         string worldId = _world.Profile.Id;
         CaptureCurrentSession();
         TrySaveCurrentSession(captureFirst: false);
 
-        if (!_save.Worlds.TryGetValue(worldId, out WorldSaveData? savedWorld)
-            || string.IsNullOrWhiteSpace(savedWorld.ReplayFile))
+        if (!_save.Worlds.TryGetValue(worldId, out WorldSaveData? savedWorld) || string.IsNullOrWhiteSpace(savedWorld.ReplayFile))
         {
             GD.PushWarning($"Completed world '{worldId}' has no replay file.");
             return;
@@ -521,21 +460,14 @@ public partial class GameRoot : Node3D
 
     private void OnReplayExitRequested()
     {
-        if (_world is null)
-        {
-            return;
-        }
-
+        if (_world is null) return;
         string worldId = _world.Profile.Id;
         BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: false, persistSession: true);
     }
 
     private void CaptureCurrentSession()
     {
-        if (!_sessionPersists || _world is null || _mining is null || _skills is null || _miners is null || _manualMining is null)
-        {
-            return;
-        }
+        if (!_sessionPersists || _world is null || _mining is null || _skills is null || _miners is null || _manualMining is null) return;
 
         _save.SpecialResources = _specialResources.CreateSnapshot();
         _save.CurrentWorldId = _progression.CurrentWorldId;
@@ -543,20 +475,11 @@ public partial class GameRoot : Node3D
 
         _save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? previous);
         long tutorialLocalCurrency = previous?.TutorialLocalCurrency ?? 0L;
-        if (_world.Profile.UsesTutorialLocalWallet)
-        {
-            tutorialLocalCurrency = _mining.Currency;
-        }
-        else
-        {
-            _save.PersistentMainCurrency = _mining.Currency;
-        }
+        if (_world.Profile.UsesTutorialLocalWallet) tutorialLocalCurrency = _mining.Currency;
+        else _save.PersistentMainCurrency = _mining.Currency;
 
         var skillRanks = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach ((string id, int rank) in _skills.Ranks)
-        {
-            skillRanks[id] = rank;
-        }
+        foreach ((string id, int rank) in _skills.Ranks) skillRanks[id] = rank;
         _save.SkillRanks = skillRanks;
 
         bool completed = _save.CompletedWorldIds.Contains(_world.Profile.Id) || (previous?.Completed ?? false);
@@ -584,6 +507,7 @@ public partial class GameRoot : Node3D
             FirstStartedUnixSeconds = started,
             CompletedUnixSeconds = completedAt,
             ReplayFile = replayFile,
+            WorldEvents = _worldEvents?.CreateSnapshot() ?? previous?.WorldEvents,
             MinedChunks = _world.State.CreateSnapshot(),
             ExhaustedRegions = _world.State.CreateExhaustedRegionSnapshot(),
             Miners = _miners.CreateSnapshot(),
@@ -594,11 +518,7 @@ public partial class GameRoot : Node3D
     {
         if (_world is null) return false;
         if (_replayRecorder is not null && _replayRecorder.EventCount > 0) return true;
-        if (!_save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? saved)
-            || string.IsNullOrWhiteSpace(saved.ReplayFile))
-        {
-            return false;
-        }
+        if (!_save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? saved) || string.IsNullOrWhiteSpace(saved.ReplayFile)) return false;
         return System.IO.File.Exists(ProjectSettings.GlobalizePath(saved.ReplayFile));
     }
 
@@ -608,10 +528,7 @@ public partial class GameRoot : Node3D
     private void ConfigureWorldPresentation(WorldProfile profile)
     {
         float worldExtent = profile.BlockSpacing * (
-            profile.BaseRadius
-            + profile.TerrainAmplitude
-            + profile.DetailAmplitude
-            + MathF.Max(0.0f, profile.SeaLevelOffset));
+            profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude + MathF.Max(0.0f, profile.SeaLevelOffset));
         _clouds.Visible = !profile.UsesSingleBlockGenerator && !profile.UsesSolidCubeGenerator;
         _clouds.SetWorldExtent(worldExtent);
         _camera.ConfigureWorldExtent(worldExtent);
@@ -628,20 +545,14 @@ public partial class GameRoot : Node3D
 
     private void MarkAutosaveDirty()
     {
-        if (_sessionPersists)
-        {
-            _autosaveDirty = true;
-        }
+        if (_sessionPersists) _autosaveDirty = true;
     }
 
     private void TrySaveCurrentSession(bool captureFirst = true)
     {
         try
         {
-            if (captureFirst)
-            {
-                CaptureCurrentSession();
-            }
+            if (captureFirst) CaptureCurrentSession();
             _saveService.Save(_save);
             _autosaveDirty = false;
             _autosaveTimer = 0.0;
@@ -675,14 +586,9 @@ public partial class GameRoot : Node3D
             SsaoIntensity = 2.6f,
             SsaoPower = 1.4f,
         };
+        AddChild(new WorldEnvironment { Name = "WorldEnvironment", Environment = environment });
 
-        AddChild(new WorldEnvironment
-        {
-            Name = "WorldEnvironment",
-            Environment = environment,
-        });
-
-        var keyLight = new DirectionalLight3D
+        AddChild(new DirectionalLight3D
         {
             Name = "KeyLight",
             RotationDegrees = new Vector3(-52.0f, -34.0f, 0.0f),
@@ -692,10 +598,9 @@ public partial class GameRoot : Node3D
             ShadowEnabled = true,
             DirectionalShadowMaxDistance = 140.0f,
             ShadowBlur = 1.4f,
-        };
-        AddChild(keyLight);
+        });
 
-        var fillLight = new DirectionalLight3D
+        AddChild(new DirectionalLight3D
         {
             Name = "FillLight",
             RotationDegrees = new Vector3(24.0f, 146.0f, 0.0f),
@@ -703,15 +608,13 @@ public partial class GameRoot : Node3D
             LightEnergy = 0.45f,
             LightSpecular = 0.0f,
             ShadowEnabled = false,
-        };
-        AddChild(fillLight);
+        });
     }
 
     private void ShowFatalError(string message)
     {
         var canvas = new CanvasLayer { Layer = 100 };
         AddChild(canvas);
-
         var panel = new PanelContainer
         {
             OffsetLeft = 32.0f,
@@ -720,12 +623,10 @@ public partial class GameRoot : Node3D
             OffsetBottom = 190.0f,
         };
         canvas.AddChild(panel);
-
-        var label = new Label
+        panel.AddChild(new Label
         {
             Text = "Startup validation failed\n\n" + message,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
-        };
-        panel.AddChild(label);
+        });
     }
 }
