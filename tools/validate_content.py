@@ -129,9 +129,8 @@ for world_id in progression_doc["world_ids"]:
 
 world_override_docs = {}
 for world_id, profile in worlds.items():
-    assert int(profile.get("generationVersion", 0)) > 0, (
-        f"world {world_id} must commit a positive generationVersion"
-    )
+    assert int(profile.get("worldVersion", 0)) > 0, f"world {world_id} must commit a positive worldVersion"
+    assert int(profile.get("generationVersion", 0)) > 0, f"world {world_id} must commit a positive generationVersion"
     assert profile.get("generationMode", "procedural") in {"procedural", "single_block", "solid_cube"}, (
         f"world {world_id} has an unknown generationMode"
     )
@@ -250,25 +249,37 @@ tutorial3_water = [item for item in trees_overrides if item.get("blockId") in {"
 assert len(tutorial3_water) == 25, f"15x15 tutorial must keep its authored 5x5 lake, got {len(tutorial3_water)} water cells"
 assert len(trees_doc.get("features", [])) == 8, "15x15 tutorial must keep eight authored tree blockers"
 
-# Provisional authored worlds stay available after implemented tutorial slices until their reviewed
-# replacements are authored. Keeping them explicit avoids accidentally jumping to the finale.
-early_worlds = progression_doc["world_ids"][4:7]
-assert early_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
-    f"expected provisional authored bridge worlds after tutorials, got {early_worlds}"
+# Reviewed Steam-demo world scale. The legacy reference IDs are deliberately retained as stable save
+# keys while their profiles now represent the 20/40/50-cube post-tutorial sequence.
+demo_worlds = progression_doc["world_ids"][4:]
+assert demo_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
+    f"expected reviewed 20/40/50 demo worlds after tutorials, got {demo_worlds}"
 )
-for world_id in early_worlds:
+expected_dimensions = {
+    "reference_natural": 20,
+    "reference_lakes": 40,
+    "reference_ridges": 50,
+}
+for world_id, dimension in expected_dimensions.items():
     profile = worlds[world_id]
+    actual_dimensions = [int(profile.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")]
+    assert actual_dimensions == [dimension, dimension, dimension], (
+        f"{world_id} must remain {dimension}^3 metadata, got {actual_dimensions}"
+    )
     assert profile.get("rendererMode", "eager") != "full_surface", (
-        f"early-game world {world_id} must stay on the normal authored-scale renderer"
+        f"demo world {world_id} must stay on the normal authored-scale renderer"
     )
-    assert max(
-        int(profile.get("logicalWidth", 0)),
-        int(profile.get("logicalHeight", 0)),
-        int(profile.get("logicalDepth", 0)),
-    ) <= 48, f"early-game world {world_id} unexpectedly grew into a stress-scale profile"
-    assert str(profile.get("introText", "")).strip(), (
-        f"early-game world {world_id} needs authored introText explaining its gameplay role"
+    assert profile.get("currencyScope", "persistent_main") == "persistent_main", (
+        f"demo world {world_id} must use the persistent main wallet"
     )
+    assert str(profile.get("introText", "")).strip(), f"demo world {world_id} needs authored introText"
+
+assert progression_doc["world_ids"][-1] == "reference_ridges", (
+    "the Steam demo must end after the reviewed 50-cube finale"
+)
+assert "final_target_1m" not in progression_doc["world_ids"], (
+    "the one-million full-release destination must not be reachable in the Steam demo progression"
+)
 
 for world_id in ("stress_1000", "final_target_1m"):
     profile = worlds[world_id]
@@ -290,10 +301,6 @@ for world_id in ("stress_1000", "final_target_1m"):
         "primary Drill safety range must exceed the full physical diameter so normal termination "
         f"comes from the world boundary ({world_id} requires > {max_coordinate * 2 + 1})"
     )
-
-assert progression_doc["world_ids"][-1] == "final_target_1m", (
-    "final_target_1m must remain the configured progression end goal"
-)
 
 for shovel_surface in ("grass", "dirt_grass", "dirt"):
     assert "sand" in set(blocks[shovel_surface].get("tags", [])), (
