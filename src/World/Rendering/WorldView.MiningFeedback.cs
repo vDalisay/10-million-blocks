@@ -11,8 +11,6 @@ public partial class WorldView
     /// </summary>
     public void SpawnManualMinePop(Vector3I voxel, string blockId)
     {
-        if (!_assets.Definitions.ContainsKey(blockId)) return;
-
         Vector3I outward = _world.Source.GetOutwardNormal(voxel);
         Basis basis = ShouldOrientToCubeFace(blockId)
             ? BasisForNormal(outward)
