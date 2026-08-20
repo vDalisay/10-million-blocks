@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using TenMillionBlocks.World.Generation;
 
 namespace TenMillionBlocks.Automation;
 
