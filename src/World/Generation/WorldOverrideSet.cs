@@ -1,0 +1,105 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
+using Godot;
+using TenMillionBlocks.Content;
+
+namespace TenMillionBlocks.World.Generation;
+
+public sealed class WorldVoxelOverrideDefinition
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Z { get; set; }
+    public bool Present { get; set; } = true;
+    public string BlockId { get; set; } = string.Empty;
+    public bool Mineable { get; set; } = true;
+}
+
+/// <summary>
+/// Sparse authored corrections layered over a deterministic base generator. This is the runtime half
+/// of the planned world-authoring workflow: approved worlds keep a compact set of hand-authored
+/// replacements/carves without materializing the untouched cube into save or content data.
+/// </summary>
+public sealed class WorldOverrideSet
+{
+    public const int SupportedSchemaVersion = 1;
+
+    private sealed class Document
+    {
+        public int SchemaVersion { get; set; }
+        public string WorldId { get; set; } = string.Empty;
+        public int GenerationVersion { get; set; }
+        public List<WorldVoxelOverrideDefinition> Overrides { get; set; } = new();
+    }
+
+    private readonly Dictionary<Vector3I, BlockSample> _voxels;
+
+    private WorldOverrideSet(Dictionary<Vector3I, BlockSample> voxels)
+    {
+        _voxels = voxels;
+    }
+
+    public int Count => _voxels.Count;
+
+    public static WorldOverrideSet? Load(WorldProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.OverrideFile)) return null;
+        if (!Godot.FileAccess.FileExists(profile.OverrideFile))
+        {
+            throw new InvalidOperationException($"World override file was not found: {profile.OverrideFile}");
+        }
+
+        string json = Godot.FileAccess.GetFileAsString(profile.OverrideFile);
+        Document? document = JsonSerializer.Deserialize<Document>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+        });
+        if (document is null || document.SchemaVersion != SupportedSchemaVersion)
+        {
+            throw new InvalidOperationException(
+                $"World override file '{profile.OverrideFile}' is unreadable or has an unsupported schema.");
+        }
+
+        if (!string.Equals(document.WorldId, profile.Id, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"World override file '{profile.OverrideFile}' targets '{document.WorldId}', expected '{profile.Id}'.");
+        }
+        if (document.GenerationVersion != profile.GenerationVersion)
+        {
+            throw new InvalidOperationException(
+                $"World override file '{profile.OverrideFile}' targets generation {document.GenerationVersion}, " +
+                $"expected {profile.GenerationVersion}.");
+        }
+
+        var voxels = new Dictionary<Vector3I, BlockSample>();
+        foreach (WorldVoxelOverrideDefinition item in document.Overrides)
+        {
+            var coordinate = new Vector3I(item.X, item.Y, item.Z);
+            if (voxels.ContainsKey(coordinate))
+            {
+                throw new InvalidOperationException(
+                    $"World override file '{profile.OverrideFile}' contains duplicate voxel {coordinate}.");
+            }
+            if (item.Present && string.IsNullOrWhiteSpace(item.BlockId))
+            {
+                throw new InvalidOperationException(
+                    $"World override {coordinate} is present but has no block id.");
+            }
+
+            voxels.Add(coordinate, item.Present
+                ? new BlockSample(true, item.BlockId, item.Mineable)
+                : BlockSample.Empty);
+        }
+
+        GD.Print($"Loaded {voxels.Count} sparse authored voxel overrides for '{profile.Id}'.");
+        return new WorldOverrideSet(voxels);
+    }
+
+    public BlockSample Apply(Vector3I coordinate, BlockSample generated)
+        => _voxels.TryGetValue(coordinate, out BlockSample authored) ? authored : generated;
+
+    public bool TryGet(Vector3I coordinate, out BlockSample sample)
+        => _voxels.TryGetValue(coordinate, out sample);
+}
