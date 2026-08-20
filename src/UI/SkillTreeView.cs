@@ -33,6 +33,7 @@ public partial class SkillTreeView : CanvasLayer
         _manual = manual;
         _profile = manual.WorldProfile;
         skills.Changed += Refresh;
+        skills.SpecialResources.Changed += Refresh;
         mining.CurrencyChanged += _ => Refresh();
     }
 
@@ -189,8 +190,11 @@ public partial class SkillTreeView : CanvasLayer
         {
             description += "\nPlacement is previewed before payment; green commits, red is invalid, Esc/Cancel aborts.";
         }
+        if (node.SpecialCosts.Count > 0)
+        {
+            description += "\nSpecial cost: " + string.Join(", ", node.SpecialCosts.Select(FormatSpecialCost));
+        }
 
-        if (node.Prerequisites.Count == 0) return description;
         var requirements = new List<string>();
         foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
         {
@@ -232,7 +236,8 @@ public partial class SkillTreeView : CanvasLayer
         {
             _feedback.Text = result.Failure switch
             {
-                SkillPurchaseFailure.InsufficientResources => "Not enough resources.",
+                SkillPurchaseFailure.InsufficientResources => "Not enough ordinary resources.",
+                SkillPurchaseFailure.InsufficientSpecialResources => MissingSpecialResources(node),
                 SkillPurchaseFailure.MissingPrerequisite => "Required prerequisite rank has not been reached.",
                 SkillPurchaseFailure.MaxRank => "Skill is already maxed.",
                 _ => "Skill could not be purchased.",
@@ -257,7 +262,14 @@ public partial class SkillTreeView : CanvasLayer
         }
         if (_mining.Currency < cost)
         {
-            _feedback.Text = $"Not enough resources. Need {cost:N0}.";
+            _feedback.Text = $"Not enough ordinary resources. Need {cost:N0}.";
+            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
+            _feedbackTimer = 2.0;
+            return;
+        }
+        if (!_skills.SpecialCostsAffordable(node))
+        {
+            _feedback.Text = MissingSpecialResources(node);
             _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
             _feedbackTimer = 2.0;
             return;
@@ -285,8 +297,13 @@ public partial class SkillTreeView : CanvasLayer
     private void Refresh()
     {
         if (_resources is null) return;
+        string specials = _skills.SpecialResources.Balances.Count == 0
+            ? "none"
+            : string.Join(", ", _skills.SpecialResources.Balances
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{DisplayResourceName(pair.Key)} {pair.Value:N0}"));
         _resources.Text =
-            $"Resources: {_mining.Currency:N0}   |   Manual footprint: {_skills.Derived.ManualFootprint}" +
+            $"Resources: {_mining.Currency:N0}   |   Special: {specials}   |   Manual footprint: {_skills.Derived.ManualFootprint}" +
             $"   |   Hover: {(_skills.Derived.HoverMiningUnlocked ? "unlocked" : "locked")}" +
             $"   |   Drill speed: x{_skills.Derived.MinerRateMultiplier:0.##}";
 
@@ -297,8 +314,9 @@ public partial class SkillTreeView : CanvasLayer
             bool maxed = rank >= node.MaxRank;
             bool prerequisites = _skills.PrerequisitesMet(node);
             long cost = checked(node.Cost * (rank + 1L));
-            bool affordable = _mining.Currency >= cost;
+            bool affordable = _mining.Currency >= cost && _skills.SpecialCostsAffordable(node);
             bool automationUnlock = TryGetMinerUnlock(node, out _);
+            string costText = FormatCost(node, cost);
 
             if (maxed)
             {
@@ -309,21 +327,21 @@ public partial class SkillTreeView : CanvasLayer
             }
             else if (automationUnlock)
             {
-                button.Text = $"{node.DisplayName}\nBUY & PLACE  |  {cost:N0}";
+                button.Text = $"{node.DisplayName}\nBUY & PLACE  |  {costText}";
                 button.Modulate = prerequisites
                     ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
                     : new Color(0.52f, 0.55f, 0.62f);
             }
             else if (node.PurchaseMode == "repeatable")
             {
-                button.Text = $"{node.DisplayName}\nRank {rank}/{node.MaxRank}  |  {cost:N0}";
+                button.Text = $"{node.DisplayName}\nRank {rank}/{node.MaxRank}  |  {costText}";
                 button.Modulate = prerequisites
                     ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
                     : new Color(0.52f, 0.55f, 0.62f);
             }
             else
             {
-                button.Text = $"{node.DisplayName}\n{cost:N0} resources";
+                button.Text = $"{node.DisplayName}\n{costText}";
                 button.Modulate = prerequisites
                     ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
                     : new Color(0.52f, 0.55f, 0.62f);
@@ -334,6 +352,44 @@ public partial class SkillTreeView : CanvasLayer
 
         _graph.QueueRedraw();
     }
+
+    private static string FormatCost(SkillNodeDefinition node, long ordinaryCost)
+    {
+        string text = $"{ordinaryCost:N0} resources";
+        foreach (SkillSpecialCostDefinition special in node.SpecialCosts)
+        {
+            text += $" + {FormatSpecialCost(special)}";
+        }
+        return text;
+    }
+
+    private static string FormatSpecialCost(SkillSpecialCostDefinition cost)
+        => $"{cost.Amount:N0} {DisplayResourceName(cost.ResourceId)}";
+
+    private string MissingSpecialResources(SkillNodeDefinition node)
+    {
+        var missing = new List<string>();
+        foreach (SkillSpecialCostDefinition cost in node.SpecialCosts)
+        {
+            long have = _skills.SpecialResources.Get(cost.ResourceId);
+            if (have < cost.Amount)
+            {
+                missing.Add($"{DisplayResourceName(cost.ResourceId)} {have:N0}/{cost.Amount:N0}");
+            }
+        }
+        return missing.Count == 0
+            ? "Not enough special resources."
+            : "Missing special resource: " + string.Join(", ", missing) + ".";
+    }
+
+    private static string DisplayResourceName(string resourceId)
+        => resourceId switch
+        {
+            "gem_red" => "Core Gem",
+            "gem_blue" => "Azure Gem",
+            "gem_green" => "Verdant Gem",
+            _ => resourceId.Replace('_', ' '),
+        };
 }
 
 public partial class SkillGraphCanvas : Control
