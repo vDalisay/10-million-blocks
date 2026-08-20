@@ -3,7 +3,7 @@
 
 This intentionally duplicates only cross-file invariants that can fail before Godot starts. Runtime
 C# validation remains authoritative for richer behavior, but CI should catch missing assets, dangling
-skill/miner references and accidental regressions of the one-million real-block renderer direction.
+skill/miner references and progression/generator contract regressions before the game boots.
 """
 from __future__ import annotations
 
@@ -58,7 +58,6 @@ known_effects = {
     "unlock_resource_filter",
 }
 
-# Asset existence is otherwise discovered only when BlockAssetRegistry preloads inside Godot.
 for ident, block in blocks.items():
     asset = block.get("asset_path", "")
     assert asset.startswith("res://"), f"block {ident} has non-res asset path: {asset}"
@@ -94,7 +93,6 @@ for ident, skill in skills.items():
                 f"skill {ident} references unknown manual footprint {string_value}"
             )
 
-# Cycle detection for prerequisite graph.
 visiting: set[str] = set()
 visited: set[str] = set()
 
@@ -120,25 +118,39 @@ for world_id, profile in worlds.items():
     assert int(profile.get("generationVersion", 0)) > 0, (
         f"world {world_id} must commit a positive generationVersion"
     )
-    assert profile.get("generationMode", "procedural") in {"procedural", "single_block"}, (
+    assert profile.get("generationMode", "procedural") in {"procedural", "single_block", "solid_cube"}, (
         f"world {world_id} has an unknown generationMode"
     )
 
-tutorial_id = progression_doc["world_ids"][0]
-assert tutorial_id == "tutorial_single_block", f"expected single-block tutorial first, got {tutorial_id}"
-tutorial = worlds[tutorial_id]
-assert tutorial.get("generationMode") == "single_block", "opening tutorial must use single_block generation"
-assert int(tutorial.get("targetMineableBlocks", 0)) == 1, "opening tutorial must target exactly one block"
-assert [int(tutorial.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")] == [1, 1, 1], (
+tutorial_ids = progression_doc["world_ids"][:2]
+assert tutorial_ids == ["tutorial_single_block", "tutorial_dirt_5"], (
+    f"expected the first two tutorial worlds, got {tutorial_ids}"
+)
+
+single = worlds["tutorial_single_block"]
+assert single.get("generationMode") == "single_block", "opening tutorial must use single_block generation"
+assert int(single.get("targetMineableBlocks", 0)) == 1, "opening tutorial must target exactly one block"
+assert [int(single.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")] == [1, 1, 1], (
     "opening tutorial must remain 1 x 1 x 1"
 )
-assert tutorial.get("skillTreeAvailable") is False, "opening tutorial must hide the skill tree"
-assert tutorial.get("automationAvailable") is False, "opening tutorial must hide automation"
+assert single.get("skillTreeAvailable") is False, "opening tutorial must hide the skill tree"
+assert single.get("automationAvailable") is False, "opening tutorial must hide automation"
 
-# Keep the existing authored worlds as a temporary playable bridge after the first tutorial slice.
-early_worlds = progression_doc["world_ids"][1:4]
+manual = worlds["tutorial_dirt_5"]
+assert manual.get("generationMode") == "solid_cube", "5x5 tutorial must use deterministic solid_cube generation"
+assert [int(manual.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")] == [5, 5, 5], (
+    "manual tutorial must remain 5 x 5 x 5 while its initial lesson is being validated"
+)
+assert int(manual.get("targetMineableBlocks", 0)) == 125, "5x5 solid tutorial must contain 125 blocks"
+assert manual.get("automationAvailable") is False, "manual tutorial must hide automation"
+assert manual.get("visibleSkillCategories") == ["manual"], "manual tutorial must expose only the manual skill branch"
+assert manual.get("surfaceBlock") == "dirt", "manual tutorial must remain a dirt practice cube"
+
+# Provisional authored worlds stay available after the two implemented tutorial slices until their
+# reviewed replacements are authored. Keeping them explicit avoids accidentally jumping to the finale.
+early_worlds = progression_doc["world_ids"][2:5]
 assert early_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
-    f"expected the three provisional authored worlds after the tutorial, got {early_worlds}"
+    f"expected provisional authored bridge worlds after tutorials, got {early_worlds}"
 )
 for world_id in early_worlds:
     profile = worlds[world_id]
@@ -154,8 +166,6 @@ for world_id in early_worlds:
         f"early-game world {world_id} needs authored introText explaining its gameplay role"
     )
 
-# Product-direction guardrail: future refactors must not silently put the final million-block world
-# back onto the old macro-cell presentation.
 for world_id in ("stress_1000", "final_target_1m"):
     profile = worlds[world_id]
     assert int(profile.get("targetMineableBlocks", 0)) == 1_000_000, (
@@ -181,9 +191,6 @@ assert progression_doc["world_ids"][-1] == "final_target_1m", (
     "final_target_1m must remain the configured progression end goal"
 )
 
-# Grass, grass-edged dirt and plain brown dirt are one shovelable soft-terrain family. Selecting the
-# green presentation or exposed brown soil must remain valid placement/traversal data. Vegetated grass
-# intentionally uses the dirt-backed grass mesh so mined cliff/interior faces remain soil-colored.
 for shovel_surface in ("grass", "dirt_grass", "dirt"):
     assert "sand" in set(blocks[shovel_surface].get("tags", [])), (
         f"{shovel_surface} must remain valid shovel terrain via the sand tag"
