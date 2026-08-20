@@ -5,9 +5,11 @@ using TenMillionBlocks.Automation;
 using TenMillionBlocks.Automation.MiningPatterns;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Diagnostics;
+using TenMillionBlocks.Economy;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Progression;
+using TenMillionBlocks.Replay;
 using TenMillionBlocks.Save;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.UI;
@@ -27,6 +29,7 @@ public partial class GameRoot : Node3D
     private WorldProgressionService _progression = null!;
     private SaveService _saveService = null!;
     private GameSaveData _save = null!;
+    private SpecialResourceInventory _specialResources = null!;
 
     private OrbitCameraController _camera = null!;
     private CloudField _clouds = null!;
@@ -42,6 +45,8 @@ public partial class GameRoot : Node3D
     private SkillTreeView? _skillTree;
     private PerformanceHud? _performanceHud;
     private StressBenchmarkController? _stressBenchmark;
+    private ReplayRecorder? _replayRecorder;
+    private string _replayPath = string.Empty;
 
     private long _manualBlocksThisWorld;
     private long _automatedBlocksThisWorld;
@@ -130,6 +135,11 @@ public partial class GameRoot : Node3D
         _save = _saveService.LoadOrCreate();
         _loadedSaveTimestamp = _save.SavedAtUnixSeconds;
         _progression.RestoreWorld(_save.CurrentWorldId);
+        _save.UnlockedWorldIds.Add(_progression.CurrentWorldId);
+
+        _specialResources = new SpecialResourceInventory();
+        _specialResources.Restore(_save.SpecialResources);
+        _specialResources.Changed += MarkAutosaveDirty;
     }
 
     private void BuildPersistentPresentation()
@@ -161,7 +171,7 @@ public partial class GameRoot : Node3D
         _completionShown = false;
 
         float worldExtent = profile.BlockSpacing * (profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude + MathF.Max(0.0f, profile.SeaLevelOffset));
-        _clouds.Visible = !profile.UsesSingleBlockGenerator;
+        _clouds.Visible = !profile.UsesSingleBlockGenerator && !profile.UsesSolidCubeGenerator;
         _clouds.SetWorldExtent(worldExtent);
         _camera.ConfigureWorldExtent(worldExtent);
 
@@ -203,6 +213,23 @@ public partial class GameRoot : Node3D
         _mining.BulkMined += OnBulkMined;
         _mining.CurrencyChanged += _ => MarkAutosaveDirty();
 
+        if (persistSession)
+        {
+            _replayPath = string.IsNullOrWhiteSpace(savedWorld?.ReplayFile)
+                ? ReplayPath(profile)
+                : savedWorld!.ReplayFile;
+            string replayAbsolute = ProjectSettings.GlobalizePath(_replayPath);
+            _replayRecorder = new ReplayRecorder(
+                _world,
+                _mining,
+                System.IO.File.Exists(replayAbsolute) ? replayAbsolute : null);
+        }
+        else
+        {
+            _replayPath = string.Empty;
+            _replayRecorder = null;
+        }
+
         _skills = new SkillTreeService(_skillCatalog, _mining);
         if (persistSession)
         {
@@ -212,6 +239,10 @@ public partial class GameRoot : Node3D
 
         _manualMining = new ManualMiningController { Name = "ManualMining" };
         _manualMining.Initialize(_world, _camera, _worldView, _mining, _skills);
+        if (savedWorld is not null)
+        {
+            _manualMining.RestoreHoverMiningEnabled(savedWorld.HoverMiningEnabled);
+        }
         _sessionRoot.AddChild(_manualMining);
 
         _miners = new MinerSimulationService { Name = "MinerSimulation" };
@@ -225,6 +256,7 @@ public partial class GameRoot : Node3D
 
         _placement = new MinerPlacementController { Name = "MinerPlacement" };
         _placement.Initialize(_manualMining, _miners);
+        _placement.InputEnabled = profile.AutomationAvailable;
         _sessionRoot.AddChild(_placement);
 
         if (profile.SkillTreeAvailable)
@@ -254,7 +286,9 @@ public partial class GameRoot : Node3D
         _sessionRoot.AddChild(_stressBenchmark);
 
         _camera.ApplyPreset(
-            profile.UsesSingleBlockGenerator ? OrbitCameraController.NearPreset : OrbitCameraController.MediumPreset,
+            profile.UsesSingleBlockGenerator || profile.UsesSolidCubeGenerator
+                ? OrbitCameraController.NearPreset
+                : OrbitCameraController.MediumPreset,
             immediate: true);
 
         if (profile.AutomationAvailable && persistSession && applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
@@ -277,6 +311,10 @@ public partial class GameRoot : Node3D
 
     private void TearDownWorldSession()
     {
+        _replayRecorder?.Dispose();
+        _replayRecorder = null;
+        _replayPath = string.Empty;
+
         if (_sessionRoot is null)
         {
             return;
@@ -308,6 +346,16 @@ public partial class GameRoot : Node3D
         else if (result.Source == MiningSource.Manual)
         {
             _manualBlocksThisWorld++;
+        }
+
+        if (result.Success && result.Removed && !string.IsNullOrWhiteSpace(result.BlockId))
+        {
+            BlockDefinition definition = _content.GetBlock(result.BlockId);
+            if (definition.Tags.Contains("gem"))
+            {
+                _specialResources.Grant(result.BlockId, Math.Max(1L, result.BlocksRemoved));
+                GD.Print($"Special resource acquired: {result.BlockId} = {_specialResources.Get(result.BlockId):N0}");
+            }
         }
 
         MarkAutosaveDirty();
@@ -360,6 +408,14 @@ public partial class GameRoot : Node3D
         }
         else
         {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            _save.CompletedWorldIds.Add(_world.Profile.Id);
+            if (next is not null) _save.UnlockedWorldIds.Add(next.Id);
+            if (_save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? existing))
+            {
+                existing.Completed = true;
+                if (existing.CompletedUnixSeconds <= 0) existing.CompletedUnixSeconds = now;
+            }
             CaptureCurrentSession();
             TrySaveCurrentSession(captureFirst: false);
         }
@@ -384,6 +440,7 @@ public partial class GameRoot : Node3D
         }
 
         _save.CurrentWorldId = _progression.CurrentWorldId;
+        _save.UnlockedWorldIds.Add(_progression.CurrentWorldId);
         _saveService.Save(_save);
         BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false, persistSession: true);
         MarkAutosaveDirty();
@@ -391,13 +448,15 @@ public partial class GameRoot : Node3D
 
     private void CaptureCurrentSession()
     {
-        if (!_sessionPersists || _world is null || _mining is null || _skills is null || _miners is null)
+        if (!_sessionPersists || _world is null || _mining is null || _skills is null || _miners is null || _manualMining is null)
         {
             return;
         }
 
         _save.Currency = _mining.Currency;
+        _save.SpecialResources = _specialResources.CreateSnapshot();
         _save.CurrentWorldId = _progression.CurrentWorldId;
+        _save.UnlockedWorldIds.Add(_world.Profile.Id);
 
         var skillRanks = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach ((string id, int rank) in _skills.Ranks)
@@ -406,12 +465,30 @@ public partial class GameRoot : Node3D
         }
         _save.SkillRanks = skillRanks;
 
+        _save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? previous);
+        bool completed = _save.CompletedWorldIds.Contains(_world.Profile.Id) || (previous?.Completed ?? false);
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long started = previous?.FirstStartedUnixSeconds > 0 ? previous.FirstStartedUnixSeconds : now;
+        long completedAt = previous?.CompletedUnixSeconds ?? 0L;
+        if (completed && completedAt <= 0) completedAt = now;
+
+        string replayFile = _replayPath;
+        if (_replayRecorder is not null && !string.IsNullOrWhiteSpace(_replayPath))
+        {
+            replayFile = _replayRecorder.FlushToUserPath(_replayPath);
+        }
+
         _save.Worlds[_world.Profile.Id] = new WorldSaveData
         {
             WorldId = _world.Profile.Id,
             GenerationVersion = _world.Profile.GenerationVersion,
             ManualBlocksMined = _manualBlocksThisWorld,
             AutomatedBlocksMined = _automatedBlocksThisWorld,
+            HoverMiningEnabled = _manualMining.HoverMiningEnabled,
+            Completed = completed,
+            FirstStartedUnixSeconds = started,
+            CompletedUnixSeconds = completedAt,
+            ReplayFile = replayFile,
             MinedChunks = _world.State.CreateSnapshot(),
             ExhaustedRegions = _world.State.CreateExhaustedRegionSnapshot(),
             Miners = _miners.CreateSnapshot(),
@@ -444,6 +521,9 @@ public partial class GameRoot : Node3D
             GD.PushError($"Autosave failed: {exception}");
         }
     }
+
+    private static string ReplayPath(WorldProfile profile)
+        => $"user://replays/{profile.Id}_g{profile.GenerationVersion}.cmbr";
 
     private void AddLightingAndEnvironment()
     {
