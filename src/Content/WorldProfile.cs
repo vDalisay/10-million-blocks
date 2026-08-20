@@ -13,6 +13,7 @@ public sealed class WorldProfile
     public string IntroText { get; set; } = string.Empty;
     public int GenerationVersion { get; set; } = 1;
     public string GenerationMode { get; set; } = "procedural";
+    public string OverrideFile { get; set; } = string.Empty;
     public bool SkillTreeAvailable { get; set; } = true;
     public bool AutomationAvailable { get; set; } = true;
     public List<string> VisibleSkillCategories { get; set; } = new();
@@ -43,9 +44,6 @@ public sealed class WorldProfile
     public int RegionSizeInChunks { get; set; } = 8;
     public float BlockSpacing { get; set; } = 2.0f;
 
-    // auto: small worlds eager, large worlds macro+camera-detail.
-    // full_surface: large world renders every currently visible surface voxel with the real supplied
-    // block meshes. Interior voxels remain deterministic/on-demand until mining exposes them.
     public string RendererMode { get; set; } = "auto";
     public int StreamingThresholdMaxCoordinate { get; set; } = 96;
     public int StreamingChunkRadius { get; set; } = 1;
@@ -187,6 +185,18 @@ public sealed class WorldCatalog
             && !string.Equals(profile.GenerationMode, "solid_cube", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add($"World '{profile.Id}' has unknown generation mode '{profile.GenerationMode}'.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(profile.OverrideFile))
+        {
+            if (!profile.OverrideFile.StartsWith("res://", StringComparison.Ordinal))
+            {
+                errors.Add($"World '{profile.Id}' override file must use a res:// path.");
+            }
+            else if (!Godot.FileAccess.FileExists(profile.OverrideFile))
+            {
+                errors.Add($"World '{profile.Id}' override file does not exist: {profile.OverrideFile}");
+            }
         }
 
         if (profile.LogicalWidth <= 0 || profile.LogicalHeight <= 0 || profile.LogicalDepth <= 0)
