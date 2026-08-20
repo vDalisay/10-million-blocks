@@ -10,6 +10,10 @@ public sealed class WorldProfile
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string IntroText { get; set; } = string.Empty;
+    public int GenerationVersion { get; set; } = 1;
+    public string GenerationMode { get; set; } = "procedural";
+    public bool SkillTreeAvailable { get; set; } = true;
+    public bool AutomationAvailable { get; set; } = true;
     public int Seed { get; set; }
     public int LogicalWidth { get; set; }
     public int LogicalHeight { get; set; }
@@ -64,6 +68,9 @@ public sealed class WorldProfile
 
     public bool UsesFullSurfaceRenderer
         => RendererMode.Equals("full_surface", StringComparison.OrdinalIgnoreCase);
+
+    public bool UsesSingleBlockGenerator
+        => string.Equals(GenerationMode, "single_block", StringComparison.OrdinalIgnoreCase);
 
     public bool UsesStreamingRenderer
         => UsesFullSurfaceRenderer || MaxCoordinate > StreamingThresholdMaxCoordinate;
@@ -158,6 +165,17 @@ public sealed class WorldCatalog
         if (string.IsNullOrWhiteSpace(profile.DisplayName))
         {
             errors.Add($"World '{profile.Id}' has an empty display name.");
+        }
+
+        if (profile.GenerationVersion <= 0)
+        {
+            errors.Add($"World '{profile.Id}' must have a positive generation version.");
+        }
+
+        if (!string.Equals(profile.GenerationMode, "procedural", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(profile.GenerationMode, "single_block", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"World '{profile.Id}' has unknown generation mode '{profile.GenerationMode}'.");
         }
 
         if (profile.LogicalWidth <= 0 || profile.LogicalHeight <= 0 || profile.LogicalDepth <= 0)

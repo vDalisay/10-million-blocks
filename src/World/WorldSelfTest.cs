@@ -22,12 +22,26 @@ public static class WorldSelfTest
         BlockSample second = source.SampleVoxel(probe);
         Assert(first.Equals(second), "procedural generator determinism");
 
+        ValidateSingleBlockTutorial(catalog.Get("tutorial_single_block"));
         ValidateReferenceEcology(reference, source);
         ValidateSparseState(reference);
         ValidateStressScale(catalog.Get("stress_1000"));
         ValidateMillionTarget(catalog.Get("final_target_1m"));
 
-        GD.Print("World self-tests passed: ecology, sparse state, 1000 address-space streaming counters, region aggregates, and the one-million-block final target.");
+        GD.Print("World self-tests passed: single-block tutorial, ecology, sparse state, 1000 address-space streaming counters, region aggregates, and the one-million-block final target.");
+    }
+
+    private static void ValidateSingleBlockTutorial(WorldProfile profile)
+    {
+        var world = new VirtualWorld(profile);
+        long physicalBlocks = world.CountMineableBlocksExact();
+        Assert(physicalBlocks == 1L, "tutorial world contains exactly one physical mineable block");
+        Assert(physicalBlocks == profile.TargetMineableBlocks, "tutorial physical count matches authored target");
+        Assert(world.IsExposed(Vector3I.Zero), "tutorial block is exposed");
+        Assert(world.TryMine(Vector3I.Zero, out _), "tutorial block can be mined");
+        Assert(world.RemainingMineableBlocks == 0L, "tutorial block completes the world");
+        Assert(!profile.SkillTreeAvailable && !profile.AutomationAvailable,
+            "tutorial progression systems remain unavailable");
     }
 
     private static void ValidateSparseState(WorldProfile reference)

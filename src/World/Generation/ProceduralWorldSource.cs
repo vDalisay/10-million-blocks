@@ -36,6 +36,13 @@ public sealed class ProceduralWorldSource
 
     public BlockSample SampleVoxel(Vector3I coordinate)
     {
+        if (_profile.UsesSingleBlockGenerator)
+        {
+            return coordinate == Vector3I.Zero
+                ? new BlockSample(true, _profile.SurfaceBlock, true)
+                : BlockSample.Empty;
+        }
+
         int maxCoordinate = _profile.MaxCoordinate;
         if (Math.Abs(coordinate.X) > maxCoordinate || Math.Abs(coordinate.Y) > maxCoordinate || Math.Abs(coordinate.Z) > maxCoordinate)
         {

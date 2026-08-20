@@ -10,6 +10,7 @@ namespace TenMillionBlocks.Save;
 public sealed class WorldSaveData
 {
     public string WorldId { get; set; } = string.Empty;
+    public int GenerationVersion { get; set; }
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
     public List<MinedChunkSnapshot> MinedChunks { get; set; } = new();
@@ -19,9 +20,9 @@ public sealed class WorldSaveData
 
 public sealed class GameSaveData
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = SaveService.SupportedSchemaVersion;
     public long SavedAtUnixSeconds { get; set; }
-    public int ProgressionIndex { get; set; }
+    public string CurrentWorldId { get; set; } = string.Empty;
     public long Currency { get; set; }
     public Dictionary<string, int> SkillRanks { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, WorldSaveData> Worlds { get; set; } = new(StringComparer.Ordinal);
@@ -29,8 +30,8 @@ public sealed class GameSaveData
 
 public sealed class SaveService
 {
-    public const int SupportedSchemaVersion = 1;
-    public const string DefaultPath = "user://savegame.json";
+    public const int SupportedSchemaVersion = 2;
+    public const string DefaultPath = "user://savegame_v2.json";
 
     private readonly JsonSerializerOptions _jsonOptions = new()
     {

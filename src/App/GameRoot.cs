@@ -59,7 +59,7 @@ public partial class GameRoot : Node3D
             AddLightingAndEnvironment();
             BuildPersistentPresentation();
             BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: true, persistSession: true);
-            GD.Print("Gameplay ready. LMB mines, RMB drag orbits, MMB drag pans, wheel zooms, [A] automation menu, [K] skill tree. Debug: [F8] stress world, [F9] performance HUD, [F7] stress benchmark.");
+            GD.Print("Gameplay ready. LMB mines; RMB/MMB/wheel control the camera. World-specific systems appear when available. Debug: [F8] stress world, [F9] performance HUD, [F7] stress benchmark.");
         }
         catch (Exception exception)
         {
@@ -129,7 +129,7 @@ public partial class GameRoot : Node3D
         _saveService = new SaveService();
         _save = _saveService.LoadOrCreate();
         _loadedSaveTimestamp = _save.SavedAtUnixSeconds;
-        _progression.RestoreIndex(_save.ProgressionIndex);
+        _progression.RestoreWorld(_save.CurrentWorldId);
     }
 
     private void BuildPersistentPresentation()
@@ -161,6 +161,7 @@ public partial class GameRoot : Node3D
         _completionShown = false;
 
         float worldExtent = profile.BlockSpacing * (profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude + MathF.Max(0.0f, profile.SeaLevelOffset));
+        _clouds.Visible = !profile.UsesSingleBlockGenerator;
         _clouds.SetWorldExtent(worldExtent);
         _camera.ConfigureWorldExtent(worldExtent);
 
@@ -174,6 +175,13 @@ public partial class GameRoot : Node3D
         WorldSaveData? savedWorld = null;
         if (persistSession && _save.Worlds.TryGetValue(profile.Id, out WorldSaveData? existing))
         {
+            if (existing.GenerationVersion != profile.GenerationVersion)
+            {
+                throw new InvalidOperationException(
+                    $"Save world '{profile.Id}' uses generation version {existing.GenerationVersion}; " +
+                    $"this build requires {profile.GenerationVersion}. Reset or migrate the save explicitly.");
+            }
+
             savedWorld = existing;
             _world.State.RestoreSnapshot(existing.MinedChunks, existing.ExhaustedRegions);
             _manualBlocksThisWorld = existing.ManualBlocksMined;
@@ -219,17 +227,23 @@ public partial class GameRoot : Node3D
         _placement.Initialize(_manualMining, _miners);
         _sessionRoot.AddChild(_placement);
 
-        _skillTree = new SkillTreeView { Name = "SkillTreeView" };
-        _skillTree.Initialize(_skills, _mining, _manualMining);
-        _sessionRoot.AddChild(_skillTree);
+        if (profile.SkillTreeAvailable)
+        {
+            _skillTree = new SkillTreeView { Name = "SkillTreeView" };
+            _skillTree.Initialize(_skills, _mining, _manualMining);
+            _sessionRoot.AddChild(_skillTree);
+        }
 
         var hud = new MiningHud { Name = "MiningHud" };
         hud.Initialize(_world, _mining, _worldView, _skills, _miners, _manualMining, _placement);
         _sessionRoot.AddChild(hud);
 
-        var automationAttention = new AutomationAttentionView { Name = "AutomationAttentionView" };
-        automationAttention.Initialize(_miners, _worldView);
-        _sessionRoot.AddChild(automationAttention);
+        if (profile.AutomationAvailable)
+        {
+            var automationAttention = new AutomationAttentionView { Name = "AutomationAttentionView" };
+            automationAttention.Initialize(_miners, _worldView);
+            _sessionRoot.AddChild(automationAttention);
+        }
 
         _performanceHud = new PerformanceHud { Name = "PerformanceHud" };
         _performanceHud.Initialize(_world, _worldView, _camera);
@@ -239,9 +253,11 @@ public partial class GameRoot : Node3D
         _stressBenchmark.Initialize(_world, _worldView, _mining, _camera);
         _sessionRoot.AddChild(_stressBenchmark);
 
-        _camera.ApplyPreset(OrbitCameraController.MediumPreset, immediate: true);
+        _camera.ApplyPreset(
+            profile.UsesSingleBlockGenerator ? OrbitCameraController.NearPreset : OrbitCameraController.MediumPreset,
+            immediate: true);
 
-        if (persistSession && applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
+        if (profile.AutomationAvailable && persistSession && applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
         {
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             double elapsed = Math.Max(0L, now - _loadedSaveTimestamp);
@@ -360,14 +376,14 @@ public partial class GameRoot : Node3D
 
         if (!_progression.Advance())
         {
-            _save.ProgressionIndex = _progression.CurrentIndex;
+            _save.CurrentWorldId = _progression.CurrentWorldId;
             _saveService.Save(_save);
             _completionView.HideCompletion();
             GD.Print("Current authored test progression is complete.");
             return;
         }
 
-        _save.ProgressionIndex = _progression.CurrentIndex;
+        _save.CurrentWorldId = _progression.CurrentWorldId;
         _saveService.Save(_save);
         BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false, persistSession: true);
         MarkAutosaveDirty();
@@ -381,7 +397,7 @@ public partial class GameRoot : Node3D
         }
 
         _save.Currency = _mining.Currency;
-        _save.ProgressionIndex = _progression.CurrentIndex;
+        _save.CurrentWorldId = _progression.CurrentWorldId;
 
         var skillRanks = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach ((string id, int rank) in _skills.Ranks)
@@ -393,6 +409,7 @@ public partial class GameRoot : Node3D
         _save.Worlds[_world.Profile.Id] = new WorldSaveData
         {
             WorldId = _world.Profile.Id,
+            GenerationVersion = _world.Profile.GenerationVersion,
             ManualBlocksMined = _manualBlocksThisWorld,
             AutomatedBlocksMined = _automatedBlocksThisWorld,
             MinedChunks = _world.State.CreateSnapshot(),

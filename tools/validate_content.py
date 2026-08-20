@@ -108,13 +108,29 @@ for skill_id in skills:
 for world_id in progression_doc["world_ids"]:
     assert world_id in worlds, f"progression references missing world {world_id}"
 
-# The product focus is now the opening ~2-hour arc. Keep three authored normal-scale worlds before the
-# one-million finale so later renderer work cannot accidentally collapse the playable introduction into
-# two tiny worlds followed immediately by the stress-scale target. The separate future progression plan
-# documents the intended tutorial-world replacement, but does not alter runtime progression yet.
-early_worlds = progression_doc["world_ids"][:3]
+for world_id, profile in worlds.items():
+    assert int(profile.get("generationVersion", 0)) > 0, (
+        f"world {world_id} must commit a positive generationVersion"
+    )
+    assert profile.get("generationMode", "procedural") in {"procedural", "single_block"}, (
+        f"world {world_id} has an unknown generationMode"
+    )
+
+tutorial_id = progression_doc["world_ids"][0]
+assert tutorial_id == "tutorial_single_block", f"expected single-block tutorial first, got {tutorial_id}"
+tutorial = worlds[tutorial_id]
+assert tutorial.get("generationMode") == "single_block", "opening tutorial must use single_block generation"
+assert int(tutorial.get("targetMineableBlocks", 0)) == 1, "opening tutorial must target exactly one block"
+assert [int(tutorial.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight", "logicalDepth")] == [1, 1, 1], (
+    "opening tutorial must remain 1 x 1 x 1"
+)
+assert tutorial.get("skillTreeAvailable") is False, "opening tutorial must hide the skill tree"
+assert tutorial.get("automationAvailable") is False, "opening tutorial must hide automation"
+
+# Keep the existing authored worlds as a temporary playable bridge after the first tutorial slice.
+early_worlds = progression_doc["world_ids"][1:4]
 assert early_worlds == ["reference_natural", "reference_lakes", "reference_ridges"], (
-    f"expected the three authored early worlds first, got {early_worlds}"
+    f"expected the three provisional authored worlds after the tutorial, got {early_worlds}"
 )
 for world_id in early_worlds:
     profile = worlds[world_id]

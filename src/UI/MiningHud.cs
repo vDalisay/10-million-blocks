@@ -159,6 +159,7 @@ public partial class MiningHud : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         _automationToggle.Pressed += ToggleAutomationMenu;
+        _automationToggle.Visible = _world.Profile.AutomationAvailable;
         root.AddChild(_automationToggle);
 
         _placementHint = new Label
@@ -176,6 +177,7 @@ public partial class MiningHud : CanvasLayer
         root.AddChild(_placementHint);
 
         BuildAutomationDrawer(root);
+        _automationDrawer.Visible = _world.Profile.AutomationAvailable;
         SetAutomationMenuOpen(false, immediate: true);
         Refresh();
     }
@@ -471,6 +473,7 @@ public partial class MiningHud : CanvasLayer
 
     private void OpenAutomationMenu(string? preferredMinerId = null)
     {
+        if (!_world.Profile.AutomationAvailable) return;
         _placement.CancelPlacement();
         SetAutomationMenuOpen(true);
         if (preferredMinerId is not null && _automationEntries.TryGetValue(preferredMinerId, out AutomationEntry? entry))
@@ -588,12 +591,21 @@ public partial class MiningHud : CanvasLayer
 
         if (_automation is not null)
         {
-            string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill" : "Drill locked";
-            string shovel = _skills.IsMinerUnlocked("shovel_miner") ? "Shovel" : "Shovel locked";
-            string rock = _skills.IsMinerUnlocked("pickaxe_miner") ? "Rock" : "Rock locked";
-            string forest = _skills.IsMinerUnlocked("axe_miner") ? "Forest" : "Forest locked";
-            _automation.Text =
-                $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} blocks/s  |  {drill} · {shovel} · {rock} · {forest}  |  [A] automation  [H] details";
+            if (_world.Profile.AutomationAvailable)
+            {
+                string drill = _skills.IsMinerUnlocked("line_miner") ? "Drill" : "Drill locked";
+                string shovel = _skills.IsMinerUnlocked("shovel_miner") ? "Shovel" : "Shovel locked";
+                string rock = _skills.IsMinerUnlocked("pickaxe_miner") ? "Rock" : "Rock locked";
+                string forest = _skills.IsMinerUnlocked("axe_miner") ? "Forest" : "Forest locked";
+                _automation.Text =
+                    $"{_miners.Miners.Count} miners  |  {_miners.BlocksPerSecond:0.##} blocks/s  |  {drill} · {shovel} · {rock} · {forest}  |  [A] automation  [H] details";
+            }
+            else
+            {
+                _automation.Text = _world.Profile.SkillTreeAvailable
+                    ? "LMB: mine the highlighted block  |  [K] skill tree"
+                    : "LMB: mine the highlighted block";
+            }
         }
 
         RefreshAutomationMenu();
@@ -603,7 +615,7 @@ public partial class MiningHud : CanvasLayer
 
     private void RefreshAutomationMenu()
     {
-        if (_automationResources is null || _skills is null) return;
+        if (!_world.Profile.AutomationAvailable || _automationResources is null || _skills is null) return;
 
         _automationResources.Text = $"Resources: {_mining.Currency:N0}  |  Placement preview is free until accepted";
         foreach (AutomationEntry entry in _automationEntries.Values)
@@ -665,8 +677,11 @@ public partial class MiningHud : CanvasLayer
         string slope = _skills.Derived.ShovelHeightTolerance > 0
             ? $"+/-{_skills.Derived.ShovelHeightTolerance} height"
             : "same height only";
+        string controls = "Controls: LMB mine   RMB orbit   Wheel zoom";
+        if (_world.Profile.SkillTreeAvailable) controls += "   [K] Skill Tree";
+        if (_world.Profile.AutomationAvailable) controls += "   [A] Automation   [M/N/P/C] Tool menus";
         _details.Text =
-            $"Controls: [A] Automation   [K] Skill Tree   [M] Drill menu   [N] Shovel menu   [P] Rock   [C] Forest\n" +
+            $"{controls}\n" +
             $"Mined: {_mining.TotalMined:N0}   render chunks: {_view.VisibleChunkCount}   dirty: {_view.PendingChunkRebuilds}   modified: {_world.State.ModifiedChunkCount}\n" +
             $"Drill: {_skills.Derived.DrillPatternId}, width {_skills.Derived.MinerPatternWidth}, speed x{_skills.Derived.MinerRateMultiplier:0.##}\n" +
             $"Shovel: {_skills.Derived.ShovelRateMultiplier:0.##}x speed, {slope}, search radius {_skills.Derived.ShovelSearchRadius}";
