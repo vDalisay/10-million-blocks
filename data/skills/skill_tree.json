@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 10,
+  "content_version": 11,
   "nodes": [
     {
       "id": "manual_2x",
@@ -119,7 +119,7 @@
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Transform the Drill into a slower 3x3 bore. The future progression adds a red-gem special-resource cost to this transformation.",
+      "description": "Consume the central red gem to permanently transform every current and future Drill into a slower 3x3 Wide Bore.",
       "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
@@ -128,6 +128,7 @@
         { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 1 }, { "grid_x": 4, "grid_y": 1 }] }
       ],
       "cost": 140,
+      "special_costs": [{ "resource_id": "gem_red", "amount": 1 }],
       "max_rank": 1,
       "effects": [
         { "type": "unlock_pattern", "string_value": "wide_line" },
