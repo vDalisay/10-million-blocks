@@ -11,6 +11,22 @@ public partial class GameRoot
 {
     private WorldSelectView? _worldBrowser;
 
+    public override void _PhysicsProcess(double delta)
+    {
+        _ = delta;
+        if (!_sessionPersists || _sessionRoot is null || _world is null) return;
+
+        // World sessions are rebuilt in-place. Attach the browser lazily to the active session so the
+        // core session construction path stays focused on gameplay services and replay sessions remain
+        // read-only. The parent comparison also handles the one-frame QueueFree handoff cleanly.
+        if (_worldBrowser is null
+            || !IsInstanceValid(_worldBrowser)
+            || _worldBrowser.GetParent() != _sessionRoot)
+        {
+            AttachWorldBrowser(_world.Profile);
+        }
+    }
+
     private void AttachWorldBrowser(WorldProfile profile)
     {
         if (_sessionRoot is null) return;
@@ -27,7 +43,10 @@ public partial class GameRoot
     {
         _skillTree?.Close();
         if (_manualMining is not null) _manualMining.InputEnabled = !open && !_completionShown;
-        if (_placement is not null) _placement.InputEnabled = !open && !_completionShown && (_world?.Profile.AutomationAvailable ?? false);
+        if (_placement is not null)
+        {
+            _placement.InputEnabled = !open && !_completionShown && (_world?.Profile.AutomationAvailable ?? false);
+        }
     }
 
     private void OnWorldRevisitRequested(string worldId)
