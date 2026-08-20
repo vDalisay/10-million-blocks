@@ -43,6 +43,13 @@ public sealed class ProceduralWorldSource
                 : BlockSample.Empty;
         }
 
+        if (_profile.UsesSolidCubeGenerator)
+        {
+            return IsInsideAuthoredBox(coordinate)
+                ? new BlockSample(true, _profile.SurfaceBlock, true)
+                : BlockSample.Empty;
+        }
+
         int maxCoordinate = _profile.MaxCoordinate;
         if (Math.Abs(coordinate.X) > maxCoordinate || Math.Abs(coordinate.Y) > maxCoordinate || Math.Abs(coordinate.Z) > maxCoordinate)
         {
@@ -71,6 +78,16 @@ public sealed class ProceduralWorldSource
         if (!IsCardinal(outwardNormal))
         {
             return false;
+        }
+
+        if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
+        {
+            // These authored tutorial modes use the eager exact renderer. Keep this method predictable
+            // for diagnostics without routing them through procedural terrain noise.
+            int radial = AuthoredBoxSurfaceRadius(outwardNormal);
+            voxel = FaceVoxel(outwardNormal, radial, tangentU, tangentV);
+            sample = SampleVoxel(voxel);
+            return sample.Present;
         }
 
         // Terrain fields are functions of cube-surface direction. Build one stable reference point
@@ -132,9 +149,6 @@ public sealed class ProceduralWorldSource
         // surface, which naturally creates contiguous lakes/oceans and visible depth.
         if (terrain.HasWater && radius > terrain.GroundRadius + 0.001f && radius <= terrain.WaterRadius + 0.001f)
         {
-            // Tier purely by how deep the whole column is. Mixing in the individual block's own
-            // depth used to tint neighbouring blocks of the same column differently, which read as
-            // speckle instead of a lake; keying off the column alone gives clean concentric bands.
             float totalDepth = MathF.Max(0.0f, terrain.WaterRadius - terrain.GroundRadius);
 
             if (totalDepth <= 1.60f)
@@ -176,7 +190,6 @@ public sealed class ProceduralWorldSource
 
         if (depth <= 2.85f)
         {
-            // Beaches continue down into sand, while ordinary land gets a coherent soil layer.
             if (terrain.HasWater && depth < 1.85f)
             {
                 return new BlockSample(true, _profile.SandBlock, true);
@@ -216,7 +229,12 @@ public sealed class ProceduralWorldSource
         return new BlockSample(true, stoneMix < -0.12f ? _profile.DarkStoneBlock : _profile.StoneBlock, true);
     }
 
-    public float SampleSurfaceRadius(Vector3I coordinate) => SampleTerrain(coordinate).GroundRadius;
+    public float SampleSurfaceRadius(Vector3I coordinate)
+    {
+        if (_profile.UsesSingleBlockGenerator) return 0.0f;
+        if (_profile.UsesSolidCubeGenerator) return MaxAbs(coordinate);
+        return SampleTerrain(coordinate).GroundRadius;
+    }
 
     public Vector3I GetOutwardNormal(Vector3I coordinate)
     {
@@ -240,6 +258,11 @@ public sealed class ProceduralWorldSource
     public bool TrySampleTree(Vector3I surfaceVoxel, out FeatureSample feature)
     {
         feature = default;
+        if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
+        {
+            return false;
+        }
+
         BlockSample sample = SampleVoxel(surfaceVoxel);
         if (!sample.Present || (sample.BlockId != _profile.SurfaceBlock && sample.BlockId != _profile.SurfaceEdgeBlock))
         {
@@ -258,9 +281,6 @@ public sealed class ProceduralWorldSource
             return false;
         }
 
-        // Feature placement is its own pass, similar to Minecraft's feature rules. A broad forest
-        // field creates contiguous groves; humidity/temperature then decide whether the biome is
-        // suitable, and a final hash controls individual tree spacing.
         float temperate = 1.0f - MathF.Min(1.0f, MathF.Abs(terrain.Temperature) * 0.82f);
         float suitability = terrain.ForestField * 0.48f + terrain.Humidity * 0.40f + temperate * 0.22f;
         if (suitability < _profile.ForestThreshold)
@@ -284,9 +304,6 @@ public sealed class ProceduralWorldSource
     {
         Vector3 point = ToCubeSurfacePoint(coordinate);
 
-        // Stage 1: base landforms. The field names deliberately mirror the useful mental model in
-        // modern Minecraft terrain generation: continentalness controls broad land/ocean placement,
-        // erosion controls how strongly terrain variation survives, and ridges create mountains.
         float continentalness = DeterministicNoise.Fractal3D(
             point.X * _profile.ClimateFrequency,
             point.Y * _profile.ClimateFrequency,
@@ -341,8 +358,6 @@ public sealed class ProceduralWorldSource
             + plateauBias;
         float groundRadius = Quantize(rawGroundRadius, _profile.PlateauStep);
 
-        // Stage 2: climate fields. These drive surface material and feature placement rather than
-        // being baked into every individual voxel as random color noise.
         float humidity = DeterministicNoise.Fractal3D(
             point.X * _profile.ClimateFrequency * 1.42f,
             point.Y * _profile.ClimateFrequency * 1.42f,
@@ -368,9 +383,6 @@ public sealed class ProceduralWorldSource
             _profile.Seed + 5101,
             3);
 
-        // Stage 3: hydrology. Continental lows form larger seas; a separate basin field punches
-        // smaller inland lakes. Ground is lowered beneath one shared water surface instead of
-        // turning random grass blocks into water.
         float hydrology = continentalness * 0.72f + basin * 0.28f;
         bool ocean = hydrology < _profile.OceanThreshold;
         float lakeSignal = basin - continentalness * 0.38f + humidity * 0.10f;
@@ -383,9 +395,6 @@ public sealed class ProceduralWorldSource
             : Smooth01((lakeSignal - _profile.WaterThreshold) / 0.26f);
         if (hasWater)
         {
-            // Water bodies are bowls, not sheets. The rim keeps a single shallow block against the
-            // shore while the interior floor drops away, so mining the surface layer of a lake
-            // centre reveals more water underneath.
             float minimumDepth = ocean ? 1.60f : 1.40f;
             float maximumExtraDepth = ocean ? 3.60f : 2.60f;
             float bowl = waterStrength * waterStrength * (3.0f - 2.0f * waterStrength);
@@ -400,8 +409,6 @@ public sealed class ProceduralWorldSource
             ? 1.0f
             : 1.0f - Smooth01(shoreDistance / MathF.Max(0.001f, _profile.ShoreBand));
 
-        // Low erosion preserves cliffs/ridges. This is a cheap surface-rule proxy for slope until
-        // the medium-distance mesher gets explicit neighboring-height derivatives.
         float cliffiness = MathF.Min(1.0f,
             mountainMask * (0.48f + ridge * 0.52f)
             + MathF.Abs(detail) * (1.0f - erosion) * 0.34f);
@@ -417,6 +424,31 @@ public sealed class ProceduralWorldSource
             cliffiness,
             shoreFactor,
             forestField);
+    }
+
+    private bool IsInsideAuthoredBox(Vector3I coordinate)
+        => IsInsideAxis(coordinate.X, _profile.LogicalWidth)
+            && IsInsideAxis(coordinate.Y, _profile.LogicalHeight)
+            && IsInsideAxis(coordinate.Z, _profile.LogicalDepth);
+
+    private static bool IsInsideAxis(int coordinate, int size)
+    {
+        int minimum = -(size / 2);
+        int maximumExclusive = minimum + size;
+        return coordinate >= minimum && coordinate < maximumExclusive;
+    }
+
+    private int AuthoredBoxSurfaceRadius(Vector3I normal)
+    {
+        int size = Math.Abs(normal.X) == 1
+            ? _profile.LogicalWidth
+            : Math.Abs(normal.Y) == 1
+                ? _profile.LogicalHeight
+                : _profile.LogicalDepth;
+        int minimum = -(size / 2);
+        return normal.X < 0 || normal.Y < 0 || normal.Z < 0
+            ? -minimum
+            : minimum + size - 1;
     }
 
     private static Vector3I FaceVoxel(Vector3I normal, int radial, int u, int v)
