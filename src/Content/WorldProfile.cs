@@ -14,6 +14,7 @@ public sealed class WorldProfile
     public string GenerationMode { get; set; } = "procedural";
     public bool SkillTreeAvailable { get; set; } = true;
     public bool AutomationAvailable { get; set; } = true;
+    public List<string> VisibleSkillCategories { get; set; } = new();
     public int Seed { get; set; }
     public int LogicalWidth { get; set; }
     public int LogicalHeight { get; set; }
@@ -63,8 +64,10 @@ public sealed class WorldProfile
     public string SilverBlock { get; set; } = "silver";
     public string GoldBlock { get; set; } = "gold";
 
-    public int MaxCoordinate => (int)MathF.Ceiling(
-        BaseRadius + TerrainAmplitude + DetailAmplitude + MathF.Max(0.0f, SeaLevelOffset) + 3.0f);
+    public int MaxCoordinate => UsesSolidCubeGenerator
+        ? Math.Max(Math.Max(LogicalWidth, LogicalHeight), LogicalDepth) / 2 + 1
+        : (int)MathF.Ceiling(
+            BaseRadius + TerrainAmplitude + DetailAmplitude + MathF.Max(0.0f, SeaLevelOffset) + 3.0f);
 
     public bool UsesFullSurfaceRenderer
         => RendererMode.Equals("full_surface", StringComparison.OrdinalIgnoreCase);
@@ -72,8 +75,14 @@ public sealed class WorldProfile
     public bool UsesSingleBlockGenerator
         => string.Equals(GenerationMode, "single_block", StringComparison.OrdinalIgnoreCase);
 
+    public bool UsesSolidCubeGenerator
+        => string.Equals(GenerationMode, "solid_cube", StringComparison.OrdinalIgnoreCase);
+
     public bool UsesStreamingRenderer
         => UsesFullSurfaceRenderer || MaxCoordinate > StreamingThresholdMaxCoordinate;
+
+    public bool IsSkillCategoryVisible(string category)
+        => VisibleSkillCategories.Count == 0 || VisibleSkillCategories.Contains(category, StringComparer.Ordinal);
 }
 
 public sealed class WorldCatalog
@@ -173,7 +182,8 @@ public sealed class WorldCatalog
         }
 
         if (!string.Equals(profile.GenerationMode, "procedural", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(profile.GenerationMode, "single_block", StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(profile.GenerationMode, "single_block", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(profile.GenerationMode, "solid_cube", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add($"World '{profile.Id}' has unknown generation mode '{profile.GenerationMode}'.");
         }
@@ -213,6 +223,15 @@ public sealed class WorldCatalog
             && !profile.RendererMode.Equals("full_surface", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add($"World '{profile.Id}' has unknown renderer_mode '{profile.RendererMode}'.");
+        }
+
+        var categories = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string category in profile.VisibleSkillCategories)
+        {
+            if (string.IsNullOrWhiteSpace(category) || !categories.Add(category))
+            {
+                errors.Add($"World '{profile.Id}' has an empty or duplicate visible skill category.");
+            }
         }
     }
 }
