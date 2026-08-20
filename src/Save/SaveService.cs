@@ -43,6 +43,7 @@ public sealed class GameSaveData
     public Dictionary<string, int> SkillRanks { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> UnlockedWorldIds { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> CompletedWorldIds { get; set; } = new(StringComparer.Ordinal);
+    public HashSet<string> SeenTutorialEvents { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, WorldSaveData> Worlds { get; set; } = new(StringComparer.Ordinal);
 }
 
@@ -162,6 +163,7 @@ public sealed class SaveService
         data.SkillRanks ??= new Dictionary<string, int>(StringComparer.Ordinal);
         data.UnlockedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
         data.CompletedWorldIds ??= new HashSet<string>(StringComparer.Ordinal);
+        data.SeenTutorialEvents ??= new HashSet<string>(StringComparer.Ordinal);
         data.Worlds ??= new Dictionary<string, WorldSaveData>(StringComparer.Ordinal);
 
         foreach ((string worldId, WorldSaveData world) in data.Worlds)
