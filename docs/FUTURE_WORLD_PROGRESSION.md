@@ -189,6 +189,68 @@ The approximately 15 x 15 x 15 world introduces the concept. The implementation 
 
 Do not create a separate transformation subsystem until the existing skill-effect model measurably cannot express a required upgrade.
 
+## Incremental-game feedback and reward presentation
+
+This game is structurally an incremental game, so the presentation must continually reinforce the core loop of **action -> visible gain -> larger number -> new purchase/automation -> faster visible gain**. This is not optional end-of-project polish; it is part of the gameplay readability and satisfaction layer.
+
+Research context used for this decision:
+
+- Incremental/clicker games are defined around repeated resource accumulation and increasing automation; the resource counters are therefore primary gameplay information, not secondary HUD decoration.
+- Incremental-game UI guidance consistently treats numbers increasing, meters filling, particles and microinteractions as confirmation that the player's action produced progress.
+- General game-feedback guidance recommends immediate, hierarchical feedback, but also warns that high-frequency particles must be pooled/capped so feedback does not become frame-time spikes or visual noise.
+
+Required counter hierarchy:
+
+- **Blocks mined** is a prominent always-visible counter for the current world/run.
+- **Ordinary resources/value** is a separate prominent counter because it is spendable progression currency, not the same thing as block count.
+- **Special resources** such as red/blue/green gems have separate resource icons/counters rather than disappearing into the ordinary value total.
+- Counters update authoritatively immediately. Their visual animation may ease/pulse afterward, but the displayed state must never lag behind the actual value enough to become ambiguous.
+- Large values should use readable abbreviated formatting while still allowing the exact value to be inspected later.
+
+Mining feedback loop:
+
+1. A successful authoritative removal occurs.
+2. The removed block produces a small world-space/2D burst and a readable `+value`/`+count` response at or near the mined location.
+3. A miniature representation of the mined thing should travel toward the relevant HUD target when presentation budget allows. Preferred v1 is a cached miniature render of the actual block mesh; tree-clearing feedback should use a tree miniature rather than pretending a tree was only a grass block.
+4. Ordinary blocks feed the mined-block counter and pulse the ordinary-resource counter when they have value.
+5. Special-resource blocks additionally send a distinct gem/resource pickup toward that resource's own icon, and the special counter gives a stronger pulse.
+6. On arrival, the destination counter/icon reacts with a short scale/glow pulse so the cause-and-effect chain is readable even in peripheral vision.
+
+Automation/high-rate rules:
+
+- Do **not** spawn one full effect node for every block once automation reaches high throughput.
+- Aggregate events into short presentation buckets by source/block/resource and show `xN` or `+N` batches while the authoritative counters continue updating exactly.
+- Cap active flying pickups and per-frame spawns.
+- Pool/reuse hot-path feedback nodes instead of repeatedly constructing/freeing particle systems.
+- Off-screen/back-side automation remains computational. It may pulse/aggregate the counters but should not create fake particles from an invisible world position.
+- Lightning, meteor craters, bombs and future batch miners should create a stronger burst plus aggregated reward flights rather than hundreds of individual pickups.
+- Replay at high speed should coalesce or disable ordinary mining pickups so replay remains readable and fast.
+
+Feedback intensity hierarchy:
+
+- Common dirt/stone removal: small, fast, low visual weight.
+- Ore: slightly stronger color/number emphasis.
+- Gem/special resource: clearly stronger pickup arc, icon pulse and floating text.
+- Upgrade purchase/transformation: stronger UI pulse than ordinary mining.
+- Lightning/meteor/bomb: event-scale burst and grouped reward result.
+- World completion: strongest progression celebration, but still readable rather than covering the entire cube.
+
+Accessibility/performance requirements:
+
+- Add a future feedback/particle intensity control (`Off / Reduced / Full` or equivalent) without changing simulation.
+- Reduced-motion mode should replace long pickup travel with short fades/pulses while keeping numeric confirmation.
+- Never couple mining success, currency credit, special-resource credit, replay recording or save state to a particle completing its animation.
+- Presentation failures/dropped effects must be harmless; authoritative state is already complete before feedback is emitted.
+- Expose debug counters for active/pooled/dropped/aggregated feedback so the 40³/50³ automation stress tests can verify this layer is bounded.
+
+Implementation order:
+
+- Build the feedback event/presentation layer now on top of `MiningService.BlockMined`/batch results and current counters.
+- Start with mined-block, ordinary-resource and gem counters plus pooled/aggregated pickup flights.
+- Add semantic feature-harvest feedback for trees so Forest Cutter can display the removed tree model.
+- Reuse the same destination/pulse system for later upgrade purchases and world events.
+- Final sound design, exact easing, screen shake and art-direction tuning remain in the demo polish phase, but the architecture and core visual loop must exist before balancing the 40³/50³ worlds.
+
 ## Pacing policy
 
 The plan does not prescribe target completion times for individual worlds or for the Steam demo. World sizes, costs and mining speeds should be built and then adjusted through playtesting.
@@ -203,7 +265,11 @@ Clear time may be observed as diagnostic information, but it is not an implement
 - WHEN hover mining is enabled over a valid block THEN mining repeats only at the controlled authored interval and obeys every pause condition.
 - WHEN the central gem is removed by any authoritative source THEN exactly one special token is credited and persisted.
 - WHEN Wide Bore is purchased THEN one token is consumed and every existing/future basic Drill uses the Wide Bore form.
-- WHEN lightning or a meteor removes blocks THEN normal counters, rewards, special-resource credit, save state and completion accounting remain authoritative.
+- WHEN any block is mined THEN the authoritative mined/resource counters update immediately even if presentation effects are capped or disabled.
+- WHEN a visible ordinary block is mined THEN a bounded pickup/number feedback event makes the gain legible and resolves toward the mined/resource HUD.
+- WHEN a special resource is mined THEN its separate resource icon/counter receives distinct pickup feedback and the token is credited exactly once.
+- WHEN high-rate/off-screen automation mines blocks THEN feedback is aggregated/capped rather than creating unbounded effect nodes.
+- WHEN lightning or a meteor removes blocks THEN normal counters, rewards, special-resource credit, save state and completion accounting remain authoritative, while presentation uses grouped reward feedback.
 - WHEN a meteor is ignored or missed THEN the player loses nothing and automation continues normally.
 - WHEN a save's world generation version differs from the available profile THEN the game migrates or explicitly resets/rejects it rather than silently generating different untouched terrain.
 
