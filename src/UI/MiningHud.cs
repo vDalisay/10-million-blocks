@@ -165,10 +165,10 @@ public partial class MiningHud : CanvasLayer
         {
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -360.0f,
+            OffsetLeft = -400.0f,
             OffsetTop = 58.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 100.0f,
+            OffsetBottom = 122.0f,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             Visible = false,
             MouseFilter = Control.MouseFilterEnum.Ignore,
@@ -343,25 +343,25 @@ public partial class MiningHud : CanvasLayer
             "line_miner",
             "automation_unlock",
             "DRILL",
-            "Straight-line miner. Buy it once, then select a visible cube surface to place it.");
+            "Straight-line miner. Buy-and-place uses a green/red ghost; resources are charged only after a valid placement is accepted.");
         AddAutomationEntry(
             list,
             "shovel_miner",
             "shovel_unlock",
             "POWERED SHOVEL",
-            "Sand crawler. It follows exposed sand and can be placed on a sand surface.");
+            "Surface crawler for sand and grass-topped dirt terrain. Green/red placement preview is shared with moving stopped tools.");
         AddAutomationEntry(
             list,
             "pickaxe_miner",
             "pickaxe_unlock",
             "ROCK BREAKER",
-            "Stone and ore miner. Select it, then place it on a visible cube surface.");
+            "Stone and ore miner. Preview its real model before committing placement.");
         AddAutomationEntry(
             list,
             "axe_miner",
             "axe_unlock",
             "FOREST CUTTER",
-            "Surface tool. Select it, then place it on a visible tree-bearing surface.");
+            "Surface tool for tree-bearing terrain. Preview its real model before committing placement.");
     }
 
     private void AddAutomationEntry(
@@ -421,40 +421,40 @@ public partial class MiningHud : CanvasLayer
         {
             if (_placement.BeginPlacement(minerId))
             {
-                ShowAutomationFeedback($"{entry.DisplayName} selected. Click a highlighted cube surface to place it.");
+                ShowAutomationFeedback($"{entry.DisplayName} selected. Green = valid, red = blocked. LMB place; RMB/Esc cancel.");
                 CloseAutomationMenu();
             }
             else
             {
                 ShowAutomationFeedback($"{entry.DisplayName} is not available yet.");
             }
-
             return;
         }
 
-        SkillPurchaseResult result = _skills.Purchase(entry.SkillId);
-        if (result.Success)
+        SkillNodeDefinition node = _skills.Catalog.Get(entry.SkillId);
+        int rank = _skills.GetRank(entry.SkillId);
+        if (!_skills.PrerequisitesMet(node))
         {
-            ShowAutomationFeedback($"Bought {entry.DisplayName}. Select it again to place it.");
+            ShowAutomationFeedback($"Requires: {string.Join(", ", MissingPrerequisites(entry.SkillId))}.");
+            return;
+        }
+
+        long cost = checked(node.Cost * (rank + 1L));
+        if (_mining.Currency < cost)
+        {
+            ShowAutomationFeedback($"Not enough resources. Need {cost:N0}.");
+            return;
+        }
+
+        if (_placement.BeginPurchasePlacement(minerId, entry.SkillId))
+        {
+            ShowAutomationFeedback($"Preview {entry.DisplayName}. {cost:N0} resources are charged only after a green placement is accepted.");
+            CloseAutomationMenu();
         }
         else
         {
-            ShowAutomationFeedback(PurchaseFailureText(entry.SkillId, result));
+            ShowAutomationFeedback($"{entry.DisplayName} could not enter placement mode.");
         }
-
-        RefreshAutomationMenu();
-    }
-
-    private string PurchaseFailureText(string skillId, SkillPurchaseResult result)
-    {
-        return result.Failure switch
-        {
-            SkillPurchaseFailure.InsufficientResources => "Not enough resources.",
-            SkillPurchaseFailure.MissingPrerequisite =>
-                $"Requires: {string.Join(", ", MissingPrerequisites(skillId))}.",
-            SkillPurchaseFailure.MaxRank => "Already owned.",
-            _ => "Automation could not be bought.",
-        };
     }
 
     private IEnumerable<string> MissingPrerequisites(string skillId)
@@ -605,7 +605,7 @@ public partial class MiningHud : CanvasLayer
     {
         if (_automationResources is null || _skills is null) return;
 
-        _automationResources.Text = $"Resources: {_mining.Currency:N0}  |  Scroll for automation";
+        _automationResources.Text = $"Resources: {_mining.Currency:N0}  |  Placement preview is free until accepted";
         foreach (AutomationEntry entry in _automationEntries.Values)
         {
             SkillNodeDefinition node = _skills.Catalog.Get(entry.SkillId);
@@ -616,8 +616,8 @@ public partial class MiningHud : CanvasLayer
 
             if (unlocked)
             {
-                entry.Status.Text = "OWNED  |  Select to place on the cube";
-                entry.Action.Text = "SELECT TO PLACE";
+                entry.Status.Text = "OWNED  |  Green/red ghost placement";
+                entry.Action.Text = "PLACE";
                 entry.Action.Disabled = false;
             }
             else if (!prerequisites)
@@ -628,8 +628,8 @@ public partial class MiningHud : CanvasLayer
             }
             else
             {
-                entry.Status.Text = $"AVAILABLE  |  {cost:N0} resources";
-                entry.Action.Text = $"BUY  |  {cost:N0} RESOURCES";
+                entry.Status.Text = $"AVAILABLE  |  {cost:N0} resources · charged after placement";
+                entry.Action.Text = $"BUY & PLACE  |  {cost:N0}";
                 entry.Action.Disabled = false;
             }
         }
@@ -641,7 +641,14 @@ public partial class MiningHud : CanvasLayer
 
         if (_placement.IsPlacing && _automationEntries.TryGetValue(_placement.PendingMinerId!, out AutomationEntry? entry))
         {
-            _placementHint.Text = $"Placing {entry.DisplayName}\nClick a highlighted cube surface · RMB/Esc cancels";
+            string action = _placement.IsMoving
+                ? "Moving"
+                : _placement.IsDeferredPurchase ? "Buying + placing" : "Placing";
+            string payment = _placement.IsDeferredPurchase
+                ? "\nResources are charged only after a valid placement is accepted."
+                : string.Empty;
+            _placementHint.Text =
+                $"{action} {entry.DisplayName}\nGreen = valid · Red = blocked · LMB place · RMB/Esc cancel{payment}";
             _placementHint.Visible = true;
         }
         else
