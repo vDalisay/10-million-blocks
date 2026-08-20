@@ -46,7 +46,6 @@ public partial class AutomationAttentionView : CanvasLayer
         _button = new Button
         {
             Text = "Automation needs attention",
-            AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         _button.Pressed += CycleAttention;
