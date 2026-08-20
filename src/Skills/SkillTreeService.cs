@@ -34,6 +34,7 @@ public enum SkillPurchaseFailure
     MaxRank,
     MissingPrerequisite,
     InsufficientResources,
+    CommitRejected,
 }
 
 public readonly record struct SkillPurchaseResult(
@@ -69,23 +70,12 @@ public sealed class SkillTreeService
 
     public SkillPurchaseResult Purchase(string skillId)
     {
-        if (!_catalog.Nodes.TryGetValue(skillId, out SkillNodeDefinition? node))
+        SkillPurchaseResult validation = ValidatePurchase(skillId, out SkillNodeDefinition? node, out int currentRank, out long cost);
+        if (!validation.Success || node is null)
         {
-            return new SkillPurchaseResult(false, skillId, 0, SkillPurchaseFailure.UnknownSkill);
+            return validation;
         }
 
-        int currentRank = GetRank(skillId);
-        if (currentRank >= node.MaxRank)
-        {
-            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.MaxRank);
-        }
-
-        if (!PrerequisitesMet(node))
-        {
-            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.MissingPrerequisite);
-        }
-
-        long cost = checked(node.Cost * (currentRank + 1L));
         if (!_mining.TrySpend(cost))
         {
             return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientResources);
@@ -93,6 +83,53 @@ public sealed class SkillTreeService
 
         _ranks[skillId] = currentRank + 1;
         RebuildDerivedStats();
+        Changed?.Invoke();
+        return new SkillPurchaseResult(true, skillId, currentRank + 1, SkillPurchaseFailure.None);
+    }
+
+    /// <summary>
+    /// Transaction used by buy-and-place automation UI. The prospective rank is applied temporarily so
+    /// the placement callback sees the miner as unlocked, but no resources are deducted until that
+    /// callback has successfully created the accepted placement. Cancelled/red previews therefore cost
+    /// nothing and a failed commit rolls the temporary unlock back.
+    /// </summary>
+    public SkillPurchaseResult PurchaseAfterCommit(string skillId, Func<bool> commit)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        SkillPurchaseResult validation = ValidatePurchase(skillId, out SkillNodeDefinition? node, out int currentRank, out long cost);
+        if (!validation.Success || node is null)
+        {
+            return validation;
+        }
+
+        _ranks[skillId] = currentRank + 1;
+        RebuildDerivedStats();
+
+        bool committed;
+        try
+        {
+            committed = commit();
+        }
+        catch
+        {
+            RestorePurchaseRank(skillId, currentRank);
+            throw;
+        }
+
+        if (!committed)
+        {
+            RestorePurchaseRank(skillId, currentRank);
+            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.CommitRejected);
+        }
+
+        // ValidatePurchase checked the same currency value immediately before the synchronous callback;
+        // placement itself never spends currency, so this is an invariant rather than an expected fail.
+        if (!_mining.TrySpend(cost))
+        {
+            RestorePurchaseRank(skillId, currentRank);
+            throw new InvalidOperationException($"Deferred purchase '{skillId}' lost its reserved affordability during placement commit.");
+        }
+
         Changed?.Invoke();
         return new SkillPurchaseResult(true, skillId, currentRank + 1, SkillPurchaseFailure.None);
     }
@@ -111,6 +148,48 @@ public sealed class SkillTreeService
 
         RebuildDerivedStats();
         Changed?.Invoke();
+    }
+
+    private SkillPurchaseResult ValidatePurchase(
+        string skillId,
+        out SkillNodeDefinition? node,
+        out int currentRank,
+        out long cost)
+    {
+        node = null;
+        currentRank = 0;
+        cost = 0L;
+
+        if (!_catalog.Nodes.TryGetValue(skillId, out node))
+        {
+            return new SkillPurchaseResult(false, skillId, 0, SkillPurchaseFailure.UnknownSkill);
+        }
+
+        currentRank = GetRank(skillId);
+        if (currentRank >= node.MaxRank)
+        {
+            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.MaxRank);
+        }
+
+        if (!PrerequisitesMet(node))
+        {
+            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.MissingPrerequisite);
+        }
+
+        cost = checked(node.Cost * (currentRank + 1L));
+        if (_mining.Currency < cost)
+        {
+            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientResources);
+        }
+
+        return new SkillPurchaseResult(true, skillId, currentRank + 1, SkillPurchaseFailure.None);
+    }
+
+    private void RestorePurchaseRank(string skillId, int previousRank)
+    {
+        if (previousRank <= 0) _ranks.Remove(skillId);
+        else _ranks[skillId] = previousRank;
+        RebuildDerivedStats();
     }
 
     private void RebuildDerivedStats()
