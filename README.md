@@ -6,7 +6,7 @@ The intended late-game progression target is **1,000,000 mineable blocks total**
 
 ## Current implementation
 
-The branch now includes the main architectural/gameplay systems from `docs/IMPLEMENTATION_PLAN.md`:
+The branch now includes the main architectural/gameplay systems from `docs/IMPLEMENTATION_PLAN.md` plus the active future-world-progression work:
 
 - deterministic cube-world generation with plateaus, beaches, shallow/deep water, ores and trees
 - small-world eager rendering plus a real-block full-surface renderer for the one-million end world
@@ -21,11 +21,15 @@ The branch now includes the main architectural/gameplay systems from `docs/IMPLE
 - deterministic deep gem pockets with high-value rewards
 - deterministic unstable blocks that require repeated manual hits and then clear a bounded blast radius
 - data-driven skill tree, repeatable/rank-gated upgrades and standalone visual skill-tree editor
-- world completion -> overview -> Continue progression, ending in the one-million world
+- authored 1³ / 5³ / 10³ / 15³ tutorial progression foundations
+- explicit tutorial-local wallets plus a persistent main-game wallet, including schema-2 development-save migration
+- world completion -> overview -> Continue progression
+- compact mutation-stream replay recording plus a read-only completed-run replay viewer with 1x–32x playback
+- runtime-backed world-authoring candidate preview, exact terrain metrics, deterministic seed browsing and draft export
 - save/load and bounded offline automation foundation
 - compact gameplay HUD, mining feedback, camera safety/zoom smoothing and performance diagnostics
 
-See `docs/IMPLEMENTATION_STATUS.md` for current verification status and `docs/ONE_MILLION_WORLD_RENDERING.md` for the large-world rendering decision.
+See `docs/IMPLEMENTATION_STATUS.md` for current verification status, `docs/FUTURE_WORLD_PROGRESSION_IMPLEMENTATION_PLAN.md` for the progression design, and `docs/ONE_MILLION_WORLD_RENDERING.md` for the large-world rendering decision.
 
 ## Run on Windows
 
@@ -54,6 +58,14 @@ Edit the skill tree visually:
 skill_tree_editor.bat
 ```
 
+Browse deterministic world candidates using the exact runtime generator and block renderer:
+
+```bat
+world_authoring.bat
+```
+
+The world-authoring tool can select an existing procedural profile, edit/randomize its seed, preview it with the runtime meshes, calculate exact material/surface/tree/gem metrics, rank eight deterministic candidate seeds, and export a draft under `user://world_authoring_drafts`. The shipping freeze backend is separate and deliberately refuses to overwrite an existing frozen world version.
+
 ## Gameplay controls
 
 - `LMB`: mine highlighted block / select a placement target
@@ -70,6 +82,14 @@ skill_tree_editor.bat
 - `P`: open the automation menu focused on the Rock Breaker
 - `C`: open the automation menu focused on the Forest Cutter
 
+Completed-run replay viewer:
+
+- `Space`: play/pause; pressing it after the end restarts playback
+- `R`: restart replay from the untouched deterministic baseline
+- Replay panel buttons: `1x`, `2x`, `4x`, `8x`, `16x`, `32x`
+- `Esc`: exit replay back to the persistent completed world
+- normal RMB/MMB/wheel camera controls remain available during replay
+
 Debug-build controls:
 
 - `F8`: toggle the real-block one-million debug world
@@ -82,9 +102,9 @@ Debug-build controls:
 Primary editable runtime content lives under `data/`:
 
 - `data/blocks/blocks.json` — block definitions, model paths, values and material tags
-- `data/worlds/worlds.json` — world-generation/render profiles
-- `data/miners/miners.json` — automation definitions and material affinities
-- `data/skills/skill_tree.json` — skill graph, costs, ranks and effects
+- `data/worlds/worlds.json` — world-generation/render profiles and currency scope
+- `data/miners/miners.json` — automation definitions, fixed unit prices and material affinities
+- `data/skills/skill_tree.json` — skill graph, ordinary/special costs, ranks and effects
 - `data/progression/world_progression.json` — authored world order
 
 Runtime model paths primarily use `Assets/gltf`, with forest models under `Assets/forest` and the Powered Shovel under `Assets/godeeper`. The current Rock Breaker/Forest Cutter are procedural placeholder presentations so their mechanics are testable without blocking on final art. Gem/unstable blocks currently reuse supplied colored block meshes. See `docs/ASSET_CATALOG.md` for batching and asset-scale notes.
