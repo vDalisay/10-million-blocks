@@ -17,7 +17,11 @@ public partial class MinerPlacementController : Node
     private Node3D? _ghost;
     private string? _pendingPurchaseSkillId;
     private MinerInstance? _movingMiner;
+    private MinerInstance? _ambientHoveredMiner;
+    private bool _movingFromAmbientHover;
     private bool _attentionClickHeld;
+    private CanvasLayer? _cancelLayer;
+    private Button? _cancelButton;
 
     public bool InputEnabled { get; set; } = true;
     public string? PendingMinerId { get; private set; }
@@ -36,6 +40,12 @@ public partial class MinerPlacementController : Node
         _camera = manual.CameraController;
     }
 
+    public override void _Ready()
+    {
+        BuildCancelUi();
+        RefreshCancelUi();
+    }
+
     public override void _Process(double delta)
     {
         _ = delta;
@@ -43,6 +53,7 @@ public partial class MinerPlacementController : Node
         {
             _manual.PlacementMode = false;
             _miners.HidePlacementGhost(_ghost);
+            ClearAmbientHoverHighlight();
             return;
         }
 
@@ -66,11 +77,53 @@ public partial class MinerPlacementController : Node
             return;
         }
 
-        bool attentionHovered = _miners.HighlightedAttentionMiner is not null
-            && _miners.UpdateAttentionHover(GetViewport().GetMousePosition(), _camera.Camera);
-        // While the cursor is over the x-ray automation silhouette, reserve LMB for selecting/moving it
-        // rather than allowing the surface block underneath to be mined by ManualMiningController.
-        _manual.PlacementMode = attentionHovered;
+        Vector2 mouse = GetViewport().GetMousePosition();
+
+        // If an ambient hover was active but another system (the explicit attention-cycle popup)
+        // selected a different miner, relinquish ambient ownership without clearing that selection.
+        if (_ambientHoveredMiner is not null
+            && _miners.HighlightedAttentionMiner?.InstanceId != _ambientHoveredMiner.InstanceId)
+        {
+            _ambientHoveredMiner = null;
+        }
+
+        if (_ambientHoveredMiner is not null)
+        {
+            bool stillHovered = _miners.UpdateAttentionHover(mouse, _camera.Camera);
+            if (!stillHovered)
+            {
+                _miners.SetAttentionHighlight(null);
+                _ambientHoveredMiner = null;
+                _manual.PlacementMode = false;
+            }
+            else
+            {
+                _manual.PlacementMode = true;
+            }
+            return;
+        }
+
+        // Explicit attention focus remains visible even when not hovered so it can locate a buried
+        // stopped machine. Hover simply reserves LMB for selecting that machine instead of mining.
+        if (_miners.HighlightedAttentionMiner is not null)
+        {
+            _manual.PlacementMode = _miners.UpdateAttentionHover(mouse, _camera.Camera);
+            return;
+        }
+
+        // Normal world browsing can discover any visible stopped automation without first entering
+        // the attention/cycle flow. Its orange outline exists only while directly hovered.
+        MinerInstance? ambient = _miners.FindVisibleStoppedMinerUnderMouse(mouse, _camera.Camera);
+        if (ambient is not null)
+        {
+            _ambientHoveredMiner = ambient;
+            _miners.SetAttentionHighlight(ambient);
+            _manual.PlacementMode = _miners.UpdateAttentionHover(mouse, _camera.Camera);
+        }
+        else
+        {
+            _manual.PlacementMode = false;
+        }
     }
 
     public bool BeginPlacement(string minerId)
@@ -108,10 +161,14 @@ public partial class MinerPlacementController : Node
             return false;
         }
 
+        bool fromAmbientHover = _ambientHoveredMiner?.InstanceId == miner.InstanceId;
+        _ambientHoveredMiner = null;
         _miners.SetMinerHiddenForMove(miner, hidden: true);
         _miners.SetAttentionHighlight(null);
         StartPlacement(miner.DefinitionId, purchaseSkillId: null, movingMiner: miner);
-        Feedback?.Invoke($"Moving {miner.DefinitionId}. Place the green ghost; RMB/Esc cancels.");
+        _movingFromAmbientHover = fromAmbientHover;
+        RefreshCancelUi();
+        Feedback?.Invoke($"Moving {miner.DefinitionId}. RMB still orbits the camera; Esc or the Cancel button returns it to its original position.");
         return true;
     }
 
@@ -119,12 +176,13 @@ public partial class MinerPlacementController : Node
     {
         bool changed = PendingMinerId is not null;
         MinerInstance? moving = _movingMiner;
+        bool restoreAttentionFocus = moving is not null && !_movingFromAmbientHover;
 
         ResetPlacementState();
         if (moving is not null)
         {
             _miners.SetMinerHiddenForMove(moving, hidden: false);
-            if (moving.Exhausted)
+            if (moving.Exhausted && restoreAttentionFocus)
             {
                 _miners.SetAttentionHighlight(moving);
             }
@@ -192,10 +250,10 @@ public partial class MinerPlacementController : Node
             return;
         }
 
-        if (button.ButtonIndex == MouseButton.Right && button.Pressed)
+        // RMB deliberately remains unhandled while placing/moving so the normal orbit camera remains
+        // usable. Cancellation is explicit via Esc or the bottom-right Cancel button.
+        if (button.ButtonIndex == MouseButton.Right)
         {
-            CancelPlacement();
-            GetViewport().SetInputAsHandled();
             return;
         }
 
@@ -276,6 +334,7 @@ public partial class MinerPlacementController : Node
         _movingMiner = movingMiner;
         _manual.PlacementMode = true;
         EnsureGhost(minerId);
+        RefreshCancelUi();
         Changed?.Invoke();
     }
 
@@ -291,6 +350,7 @@ public partial class MinerPlacementController : Node
         PendingMinerId = null;
         _pendingPurchaseSkillId = null;
         _movingMiner = null;
+        _movingFromAmbientHover = false;
         _attentionClickHeld = false;
         _manual.PlacementMode = false;
         if (_ghost is not null)
@@ -298,12 +358,66 @@ public partial class MinerPlacementController : Node
             _miners.DestroyPlacementGhost(_ghost);
             _ghost = null;
         }
+        RefreshCancelUi();
     }
 
     private void EnsureGhost(string minerId)
     {
         if (_ghost is not null && GodotObject.IsInstanceValid(_ghost)) return;
         _ghost = _miners.CreatePlacementGhost(minerId);
+    }
+
+    private void ClearAmbientHoverHighlight()
+    {
+        if (_ambientHoveredMiner is null) return;
+        if (_miners.HighlightedAttentionMiner?.InstanceId == _ambientHoveredMiner.InstanceId)
+        {
+            _miners.SetAttentionHighlight(null);
+        }
+        _ambientHoveredMiner = null;
+    }
+
+    private void BuildCancelUi()
+    {
+        _cancelLayer = new CanvasLayer
+        {
+            Name = "PlacementCancelLayer",
+            Layer = 35,
+        };
+        AddChild(_cancelLayer);
+
+        var root = new Control
+        {
+            Name = "PlacementCancelRoot",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _cancelLayer.AddChild(root);
+
+        _cancelButton = new Button
+        {
+            Text = "CANCEL [ESC]",
+            AnchorLeft = 1.0f,
+            AnchorTop = 1.0f,
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            OffsetLeft = -210.0f,
+            OffsetTop = -66.0f,
+            OffsetRight = -18.0f,
+            OffsetBottom = -18.0f,
+            CustomMinimumSize = new Vector2(192.0f, 48.0f),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            Visible = false,
+        };
+        _cancelButton.Pressed += CancelPlacement;
+        root.AddChild(_cancelButton);
+    }
+
+    private void RefreshCancelUi()
+    {
+        if (_cancelButton is null) return;
+        _cancelButton.Visible = IsPlacing;
+        _cancelButton.Text = IsMoving ? "CANCEL MOVE [ESC]" : "CANCEL [ESC]";
     }
 
     private static string PurchaseFailureText(SkillPurchaseResult result)
