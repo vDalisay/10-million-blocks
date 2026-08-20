@@ -109,7 +109,10 @@ public partial class WorldCompleteView : CanvasLayer
         long automatedBlocks,
         bool replayAvailable)
     {
-        _title.Text = $"{completed.DisplayName.ToUpperInvariant()} CLEARED";
+        bool demoFinale = next is null && completed.Id == "reference_ridges";
+        _title.Text = demoFinale
+            ? "STEAM DEMO COMPLETE"
+            : $"{completed.DisplayName.ToUpperInvariant()} CLEARED";
         _stats.Text =
             $"Blocks mined: {blocksMined:N0}\n" +
             $"Manual: {manualBlocks:N0}   Automation: {automatedBlocks:N0}\n" +
@@ -117,7 +120,9 @@ public partial class WorldCompleteView : CanvasLayer
 
         if (next is null)
         {
-            _next.Text = "Current test progression complete.";
+            _next.Text = demoFinale
+                ? "You cleared every mineable block in the 50-cube finale. The 100-cube world is reserved for the full release."
+                : "Current authored progression complete.";
             _continue.Text = "Close";
         }
         else
