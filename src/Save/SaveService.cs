@@ -12,6 +12,7 @@ namespace TenMillionBlocks.Save;
 public sealed class WorldSaveData
 {
     public string WorldId { get; set; } = string.Empty;
+    public int WorldVersion { get; set; }
     public int GenerationVersion { get; set; }
     public long TutorialLocalCurrency { get; set; }
     public long ManualBlocksMined { get; set; }
@@ -93,7 +94,7 @@ public sealed class SaveService
                 $"Unsupported save schema {data.SchemaVersion}; expected {SupportedSchemaVersion} or migratable schema 2.");
         }
 
-        Normalize(data);
+        Normalize(data, worlds);
 
         // When the default schema-3 file does not exist, migrate the old development save forward
         // once and leave the old file untouched as a rollback copy.
@@ -147,6 +148,7 @@ public sealed class SaveService
                 world = new WorldSaveData
                 {
                     WorldId = active.Id,
+                    WorldVersion = active.WorldVersion,
                     GenerationVersion = active.GenerationVersion,
                 };
                 data.Worlds[active.Id] = world;
@@ -162,7 +164,7 @@ public sealed class SaveService
         data.SchemaVersion = SupportedSchemaVersion;
     }
 
-    private static void Normalize(GameSaveData data)
+    private static void Normalize(GameSaveData data, WorldCatalog worlds)
     {
         data.PersistentMainCurrency = Math.Max(0L, data.PersistentMainCurrency);
         data.Currency = 0L;
@@ -175,6 +177,14 @@ public sealed class SaveService
         foreach ((string worldId, WorldSaveData world) in data.Worlds)
         {
             world.WorldId = string.IsNullOrWhiteSpace(world.WorldId) ? worldId : world.WorldId;
+            if (worlds.Worlds.TryGetValue(world.WorldId, out WorldProfile? profile))
+            {
+                // Schema 2 and the earliest schema-3 development saves did not store WorldVersion.
+                // Adopt the currently authored v1 identity once; subsequent mismatches are rejected by
+                // GameRoot rather than silently moving a run onto a changed frozen definition.
+                if (world.WorldVersion <= 0) world.WorldVersion = profile.WorldVersion;
+                if (world.GenerationVersion <= 0) world.GenerationVersion = profile.GenerationVersion;
+            }
             world.TutorialLocalCurrency = Math.Max(0L, world.TutorialLocalCurrency);
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
             world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
