@@ -207,7 +207,7 @@ public partial class GameRoot : Node3D
         _sessionRoot.AddChild(_worldView);
         _worldView.Initialize(_assets, _world, _camera);
 
-        _mining = new MiningService(_world, _content);
+        _mining = new MiningService(_world, _content, _specialResources);
         _mining.RestoreCurrency(persistSession ? _save.Currency : 0L);
         _mining.BlockMined += OnBlockMined;
         _mining.BulkMined += OnBulkMined;
@@ -346,16 +346,6 @@ public partial class GameRoot : Node3D
         else if (result.Source == MiningSource.Manual)
         {
             _manualBlocksThisWorld++;
-        }
-
-        if (result.Success && result.Removed && !string.IsNullOrWhiteSpace(result.BlockId))
-        {
-            BlockDefinition definition = _content.GetBlock(result.BlockId);
-            if (definition.Tags.Contains("gem"))
-            {
-                _specialResources.Grant(result.BlockId, Math.Max(1L, result.BlocksRemoved));
-                GD.Print($"Special resource acquired: {result.BlockId} = {_specialResources.Get(result.BlockId):N0}");
-            }
         }
 
         MarkAutosaveDirty();
