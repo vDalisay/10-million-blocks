@@ -13,6 +13,7 @@ public sealed class WorldSaveData
     public int GenerationVersion { get; set; }
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
+    public bool HoverMiningEnabled { get; set; }
     public bool Completed { get; set; }
     public long FirstStartedUnixSeconds { get; set; }
     public long CompletedUnixSeconds { get; set; }
