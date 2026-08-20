@@ -69,16 +69,20 @@ public partial class MinerSimulationService : Node3D
         _lastShovelSearchRadius = Math.Max(1, skills.Derived.ShovelSearchRadius);
         _lastShovelHeightTolerance = Math.Max(0, skills.Derived.ShovelHeightTolerance);
         _lastDrillPatternId = skills.Derived.DrillPatternId;
+        _lastDrillMaterialTier = Math.Max(0, skills.Derived.DrillMaterialTier);
         skills.Changed += OnSkillsChanged;
     }
 
     public override void _Process(double delta)
     {
+        RefreshAutomationVisualVisibility(delta);
+
         float dt = (float)delta;
         foreach ((long id, Node3D rotor) in _rotors)
         {
             MinerInstance? miner = _miners.FirstOrDefault(candidate => candidate.InstanceId == id);
             if (miner is null || miner.Exhausted) continue;
+            if (_visuals.TryGetValue(id, out Node3D? visual) && !visual.Visible) continue;
             rotor.RotateY(dt * 9.5f);
         }
 
@@ -169,6 +173,11 @@ public partial class MinerSimulationService : Node3D
             BlocksMined = miner.BlocksMined,
             WorkAccumulator = miner.WorkAccumulator,
             Exhausted = miner.Exhausted,
+            StopReason = miner.StopReason,
+            BlockedX = miner.BlockedVoxel.X,
+            BlockedY = miner.BlockedVoxel.Y,
+            BlockedZ = miner.BlockedVoxel.Z,
+            BlockedBlockId = miner.BlockedBlockId,
         }).ToList();
 
     public void RestoreSnapshot(IEnumerable<MinerSnapshot> snapshots)
@@ -180,8 +189,6 @@ public partial class MinerSimulationService : Node3D
         {
             if (!_catalog.Miners.ContainsKey(snapshot.DefinitionId)) continue;
             MinerDefinition definition = _catalog.Get(snapshot.DefinitionId);
-            bool smarterShovel = IsShovel(definition)
-                && (_skills.Derived.ShovelSearchRadius > 1 || _skills.Derived.ShovelHeightTolerance > 0);
 
             var miner = new MinerInstance
             {
@@ -193,13 +200,28 @@ public partial class MinerSimulationService : Node3D
                 CandidateIndex = Math.Max(0, snapshot.CandidateIndex),
                 BlocksMined = Math.Max(0L, snapshot.BlocksMined),
                 WorkAccumulator = Math.Max(0.0, snapshot.WorkAccumulator),
-                Exhausted = snapshot.Exhausted && !smarterShovel,
+                Exhausted = snapshot.Exhausted,
+                StopReason = snapshot.StopReason,
+                BlockedVoxel = new Vector3I(snapshot.BlockedX, snapshot.BlockedY, snapshot.BlockedZ),
+                BlockedBlockId = snapshot.BlockedBlockId ?? string.Empty,
             };
 
             if (miner.Direction == Vector3I.Zero) continue;
             _miners.Add(miner);
             BuildVisual(miner, -miner.Direction);
-            UpdateVisual(miner);
+
+            bool smarterShovel = IsShovel(definition)
+                && miner.StopReason == MinerStopReason.NoReachableTarget
+                && (_skills.Derived.ShovelSearchRadius > 1 || _skills.Derived.ShovelHeightTolerance > 0);
+            if (smarterShovel || BlockerIsNowSupported(miner))
+            {
+                ResumeMiner(miner, grantImmediateWork: false);
+            }
+            else
+            {
+                UpdateVisual(miner);
+            }
+
             maxId = Math.Max(maxId, miner.InstanceId);
         }
 
@@ -256,21 +278,57 @@ public partial class MinerSimulationService : Node3D
     {
         if (miner.CandidateIndex >= definition.Range)
         {
-            miner.Exhausted = true;
-            UpdateVisual(miner);
+            StopMiner(miner, MinerStopReason.RangeComplete);
             return false;
         }
 
-        int depth = miner.CandidateIndex++;
+        int depth = miner.CandidateIndex;
         Vector3I inward = LineMiningPattern.Cardinal(miner.Direction);
         Vector3I center = miner.Origin + inward * depth;
+        bool centerAlreadyMined = _world.State.IsMined(center);
+        BlockSample centerSample = _world.SampleVoxel(center);
+
+        if (!centerSample.Present && !centerAlreadyMined)
+        {
+            StopMiner(miner, MinerStopReason.RangeComplete, center);
+            return false;
+        }
+
+        if (centerSample.Present && !CanPrimaryDrillMine(centerSample))
+        {
+            StopMiner(miner, MinerStopReason.BlockedMaterial, center, centerSample.BlockId);
+            return false;
+        }
+
         string patternId = EffectivePatternId(definition);
         int width = patternId == "wide_line" ? 3 : 1;
+        (Vector3I axisA, Vector3I axisB) = LineMiningPattern.PerpendicularAxes(inward);
+
+        // Wide drills preflight the whole cutter face. One unsupported block physically blocks the
+        // machine instead of being silently skipped. Empty/already-mined cells are harmless cavities.
+        if (patternId == "wide_line")
+        {
+            int radius = Math.Max(1, width / 2);
+            for (int a = -radius; a <= radius; a++)
+            for (int b = -radius; b <= radius; b++)
+            {
+                Vector3I candidate = center + axisA * a + axisB * b;
+                if (_world.State.IsMined(candidate)) continue;
+                BlockSample sample = _world.SampleVoxel(candidate);
+                if (!sample.Present) continue;
+                if (!CanPrimaryDrillMine(sample))
+                {
+                    StopMiner(miner, MinerStopReason.BlockedMaterial, candidate, sample.BlockId);
+                    return false;
+                }
+            }
+        }
+
+        miner.CandidateIndex++;
         int minedThisStep = 0;
 
         if (patternId == "wide_line")
         {
-            (Vector3I axisA, Vector3I axisB) = LineMiningPattern.PerpendicularAxes(inward);
             int radius = Math.Max(1, width / 2);
             for (int a = -radius; a <= radius && minedThisStep < MaxDrillSliceBlocks; a++)
             for (int b = -radius; b <= radius && minedThisStep < MaxDrillSliceBlocks; b++)
@@ -282,15 +340,21 @@ public partial class MinerSimulationService : Node3D
                 }
             }
         }
-        else if (TryMineAutomated(miner, definition, center, emitPresentation))
+        else if (!centerAlreadyMined && TryMineAutomated(miner, definition, center, emitPresentation))
         {
             minedThisStep = 1;
         }
 
         miner.LastMinedVoxel = center;
-        if (miner.CandidateIndex >= definition.Range) miner.Exhausted = true;
-        UpdateVisual(miner);
-        return true;
+        if (miner.CandidateIndex >= definition.Range)
+        {
+            StopMiner(miner, MinerStopReason.RangeComplete);
+        }
+        else
+        {
+            UpdateVisual(miner);
+        }
+        return minedThisStep > 0 || centerAlreadyMined;
     }
 
     private bool AdvanceGenericPatternMiner(MinerInstance miner, MinerDefinition definition, bool emitPresentation)
@@ -305,8 +369,7 @@ public partial class MinerSimulationService : Node3D
             Vector3I? candidate = CandidateAt(pattern, miner, definition, width, miner.CandidateIndex++);
             if (candidate is null)
             {
-                miner.Exhausted = true;
-                UpdateVisual(miner);
+                StopMiner(miner, MinerStopReason.RangeComplete);
                 return false;
             }
 
@@ -338,8 +401,14 @@ public partial class MinerSimulationService : Node3D
 
         miner.BlocksMined++;
         ApplyAffinityCredit(miner, definition, block);
-        _view.MarkDirtyAround(result.Voxel);
-        if (emitPresentation) EmitDebris(miner, result);
+
+        // State always changes, presentation only changes when this area can currently contribute
+        // pixels. Off-screen/back-side/interior automation stays computational-only until revisited.
+        _view.MarkAutomationDirty(result.Voxel);
+        if (emitPresentation && ShouldEmitPresentation(miner, result.Voxel))
+        {
+            EmitDebris(miner, result);
+        }
         return true;
     }
 
@@ -362,8 +431,7 @@ public partial class MinerSimulationService : Node3D
 
         if (candidate is null)
         {
-            miner.Exhausted = true;
-            UpdateVisual(miner);
+            StopMiner(miner, MinerStopReason.NoReachableTarget);
             return false;
         }
 
@@ -375,8 +443,8 @@ public partial class MinerSimulationService : Node3D
 
         miner.BlocksMined++;
         miner.LastMinedVoxel = result.Voxel;
-        _view.MarkDirtyAround(result.Voxel);
-        if (emitPresentation) EmitDebris(miner, result);
+        _view.MarkAutomationDirty(result.Voxel);
+        if (emitPresentation && ShouldEmitPresentation(miner, result.Voxel)) EmitDebris(miner, result);
         UpdateVisual(miner);
         return true;
     }
@@ -443,7 +511,7 @@ public partial class MinerSimulationService : Node3D
 
     private bool IsShovelMaterial(BlockSample sample)
     {
-        if (sample.BlockId == _world.Profile.SandBlock) return true;
+        if (sample.BlockId == _world.Profile.SandBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock) return true;
         BlockDefinition block = _mining.GetBlockDefinition(sample.BlockId);
         return block.Tags.Contains("sand", StringComparer.Ordinal);
     }
@@ -457,8 +525,7 @@ public partial class MinerSimulationService : Node3D
 
         if (candidate is null)
         {
-            miner.Exhausted = true;
-            UpdateVisual(miner);
+            StopMiner(miner, MinerStopReason.NoTreeTarget);
             return false;
         }
 
@@ -471,8 +538,8 @@ public partial class MinerSimulationService : Node3D
         miner.BlocksMined++;
         miner.LastMinedVoxel = result.Voxel;
         ApplyAffinityCredit(miner, definition, block);
-        _view.MarkDirtyAround(result.Voxel);
-        if (emitPresentation) EmitDebris(miner, result);
+        _view.MarkAutomationDirty(result.Voxel);
+        if (emitPresentation && ShouldEmitPresentation(miner, result.Voxel)) EmitDebris(miner, result);
         UpdateVisual(miner);
         return true;
     }
@@ -517,8 +584,10 @@ public partial class MinerSimulationService : Node3D
     {
         int searchRadius = Math.Max(1, _skills.Derived.ShovelSearchRadius);
         int heightTolerance = Math.Max(0, _skills.Derived.ShovelHeightTolerance);
+        int materialTier = Math.Max(0, _skills.Derived.DrillMaterialTier);
         bool intelligenceIncreased = searchRadius > _lastShovelSearchRadius
             || heightTolerance > _lastShovelHeightTolerance;
+        bool materialCapabilityIncreased = materialTier > _lastDrillMaterialTier;
         bool drillPatternChanged = !string.Equals(
             _skills.Derived.DrillPatternId,
             _lastDrillPatternId,
@@ -530,40 +599,46 @@ public partial class MinerSimulationService : Node3D
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
             if (IsShovel(definition))
             {
-                if (intelligenceIncreased && miner.Exhausted)
+                if (intelligenceIncreased
+                    && miner.Exhausted
+                    && miner.StopReason == MinerStopReason.NoReachableTarget)
                 {
-                    miner.Exhausted = false;
-                    miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
-                    UpdateVisual(miner);
+                    ResumeMiner(miner);
                     changed = true;
                 }
                 continue;
             }
 
-            // Pattern upgrades apply to existing drills as well as newly placed ones. Restart pattern
-            // enumeration from the drill origin; already-mined coordinates are skipped naturally, so
-            // A Wide Bore upgrade fills a fixed 3x3 front around the old tunnel instead of jumping
-            // ahead arbitrarily.
-            if (drillPatternChanged && IsPrimaryDrill(definition))
+            if (IsPrimaryDrill(definition))
             {
-                miner.CandidateIndex = 0;
-                miner.Exhausted = false;
-                miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
-                UpdateVisual(miner);
-                changed = true;
+                if (materialCapabilityIncreased && miner.Exhausted && BlockerIsNowSupported(miner))
+                {
+                    ResumeMiner(miner);
+                    changed = true;
+                }
+
+                if (drillPatternChanged)
+                {
+                    miner.CandidateIndex = 0;
+                    if (miner.StopReason != MinerStopReason.BlockedMaterial || BlockerIsNowSupported(miner))
+                    {
+                        ResumeMiner(miner);
+                    }
+                    UpdateVisual(miner);
+                    changed = true;
+                }
             }
         }
 
         _lastShovelSearchRadius = searchRadius;
         _lastShovelHeightTolerance = heightTolerance;
         _lastDrillPatternId = _skills.Derived.DrillPatternId;
+        _lastDrillMaterialTier = materialTier;
         if (changed) Changed?.Invoke();
     }
 
     private double EffectiveRateMultiplier(MinerDefinition definition)
     {
-        // General Faster Motors deliberately does not make the primitive shovel faster. The shovel has
-        // its own upgrade branch so its initial one-block-per-second behavior is predictable.
         double multiplier = IsShovel(definition)
             ? _skills.Derived.ShovelRateMultiplier
             : IsPrimaryDrill(definition)
@@ -810,6 +885,7 @@ public partial class MinerSimulationService : Node3D
             : new Vector3(footprint, 1.0f, footprint);
         if (miner.Exhausted) scale *= 0.82f;
         root.Scale = scale;
+        RefreshVisualVisibility(miner);
     }
 
     private float DrillFootprint(MinerDefinition definition)
@@ -842,24 +918,24 @@ public partial class MinerSimulationService : Node3D
         burst.Initialize(position, outward, result.BlockId, spacing, seed);
     }
 
-    private static Vector3 MinerPosition(MinerInstance miner, MinerDefinition definition, Vector3I outward, float spacing)
+    private static Vector3I MinerAnchorVoxel(MinerInstance miner, MinerDefinition definition)
     {
-        Vector3I anchor;
         if (IsShovel(definition) || IsAxe(definition))
         {
-            anchor = miner.LastMinedVoxel;
+            return miner.LastMinedVoxel;
         }
-        else if (IsPrimaryDrill(definition))
+
+        if (IsPrimaryDrill(definition))
         {
             int processedDepth = Math.Max(0, miner.CandidateIndex - 1);
-            anchor = miner.Origin + miner.Direction * processedDepth;
+            return miner.Origin + miner.Direction * processedDepth;
         }
-        else
-        {
-            anchor = miner.LastMinedVoxel;
-        }
-        return ((Vector3)anchor + (Vector3)outward * 0.78f) * spacing;
+
+        return miner.LastMinedVoxel;
     }
+
+    private static Vector3 MinerPosition(MinerInstance miner, MinerDefinition definition, Vector3I outward, float spacing)
+        => ((Vector3)MinerAnchorVoxel(miner, definition) + (Vector3)outward * 0.78f) * spacing;
 
     private static Basis BasisForNormal(Vector3I normal)
     {
