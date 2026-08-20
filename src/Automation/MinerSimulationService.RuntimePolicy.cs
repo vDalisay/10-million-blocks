@@ -34,9 +34,7 @@ public partial class MinerSimulationService
     public string DescribeStop(MinerInstance miner)
         => miner.StopReason switch
         {
-            MinerStopReason.BlockedMaterial => string.IsNullOrWhiteSpace(miner.BlockedBlockId)
-                ? "blocked by an unsupported material"
-                : $"blocked by {miner.BlockedBlockId}",
+            MinerStopReason.BlockedMaterial => DescribeBlockedMaterial(miner.BlockedBlockId),
             MinerStopReason.NoReachableTarget when IsShovel(_catalog.Get(miner.DefinitionId)) =>
                 "stopped: no reachable shovel terrain",
             MinerStopReason.NoTreeTarget => "stopped: no reachable tree target",
@@ -51,6 +49,38 @@ public partial class MinerSimulationService
             return miner.Origin;
         }
         return miner.LastMinedVoxel;
+    }
+
+    private string DescribeBlockedMaterial(string blockId)
+    {
+        if (string.IsNullOrWhiteSpace(blockId))
+        {
+            return "blocked by unsupported material; clear it manually or upgrade the drill bit";
+        }
+
+        if (blockId == _world.Profile.DarkStoneBlock)
+        {
+            return $"blocked by {blockId}; clear it manually or buy Hardened Bit";
+        }
+
+        if (blockId == _world.Profile.CopperBlock
+            || blockId == _world.Profile.SilverBlock
+            || blockId == _world.Profile.GoldBlock)
+        {
+            return $"blocked by {blockId}; clear it manually or buy Ore-Cutting Bit";
+        }
+
+        BlockDefinition block = _mining.GetBlockDefinition(blockId);
+        if (block.Tags.Contains("gem", StringComparer.Ordinal))
+        {
+            return $"blocked by {blockId}; clear the gem with Rock Breaker/manual mining";
+        }
+        if (block.Tags.Contains("bomb", StringComparer.Ordinal))
+        {
+            return $"blocked by {blockId}; handle the unstable block manually";
+        }
+
+        return $"blocked by {blockId}; clear it manually or unlock a compatible tool";
     }
 
     private static bool NeedsAttention(MinerInstance miner)
@@ -143,9 +173,6 @@ public partial class MinerSimulationService
         bool resumed = false;
         foreach (MinerInstance miner in _miners)
         {
-            // A player may manually remove an unsupported block after following the alert to this
-            // drill. Poll only already-stopped drills at the low presentation cadence; once the exact
-            // blocker is gone (or has become supported) the drill wakes without requiring re-placement.
             if (miner.Exhausted && miner.StopReason == MinerStopReason.BlockedMaterial && BlockerIsNowSupported(miner))
             {
                 ResumeMiner(miner);
