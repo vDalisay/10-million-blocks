@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 8,
+  "content_version": 9,
   "nodes": [
     {
       "id": "manual_2x",
@@ -33,7 +33,7 @@
     {
       "id": "automation_unlock",
       "display_name": "Automation",
-      "description": "Unlock the starter drill. It advances exactly one block of depth per second.",
+      "description": "Unlock the starter drill. It advances exactly one block of depth per second and initially only cuts ordinary stone.",
       "grid_x": 2,
       "grid_y": 0,
       "category": "automation",
@@ -42,6 +42,36 @@
       "cost": 30,
       "max_rank": 1,
       "effects": [{ "type": "unlock_miner", "string_value": "line_miner" }]
+    },
+    {
+      "id": "drill_hardened_bit",
+      "display_name": "Hardened Bit",
+      "description": "Upgrade the Drill so dark stone no longer blocks it. Existing drills stopped on dark stone resume automatically.",
+      "grid_x": 4,
+      "grid_y": 0,
+      "category": "drill",
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 0 }] }
+      ],
+      "cost": 85,
+      "max_rank": 1,
+      "effects": [{ "type": "set_drill_material_tier", "value": 1.0 }]
+    },
+    {
+      "id": "drill_ore_bit",
+      "display_name": "Ore-Cutting Bit",
+      "description": "Upgrade the Drill to cut copper, silver and gold ore instead of stopping when it reaches an ore vein.",
+      "grid_x": 6,
+      "grid_y": 1,
+      "category": "drill",
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "drill_hardened_bit", "required_rank": 1, "route": [{ "grid_x": 5, "grid_y": 0 }, { "grid_x": 6, "grid_y": 0 }] }
+      ],
+      "cost": 190,
+      "max_rank": 1,
+      "effects": [{ "type": "set_drill_material_tier", "value": 2.0 }]
     },
     {
       "id": "miner_speed_1",
@@ -61,13 +91,13 @@
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Requires Faster Motors rank 3. Upgrade the placed drill to a slower 3x3 bore.",
+      "description": "Upgrade the placed drill to a slower 3x3 bore.",
       "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 0 }, { "grid_x": 4, "grid_y": 1 }] }
+        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 1 }, { "grid_x": 4, "grid_y": 1 }] }
       ],
       "cost": 140,
       "max_rank": 1,
