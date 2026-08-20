@@ -3,6 +3,7 @@
   "world_ids": [
     "reference_natural",
     "reference_lakes",
+    "reference_ridges",
     "final_target_1m"
   ]
 }
