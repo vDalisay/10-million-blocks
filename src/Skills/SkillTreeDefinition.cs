@@ -55,6 +55,9 @@ public sealed class SkillTreeCatalog
     private static readonly HashSet<string> KnownEffectTypes = new(StringComparer.Ordinal)
     {
         "add_manual_blocks_per_click",
+        "multiply_manual_mining_rate",
+        "set_manual_footprint",
+        "unlock_hover_mining",
         "multiply_miner_rate",
         "multiply_shovel_rate",
         "unlock_miner",
@@ -83,6 +86,9 @@ public sealed class SkillTreeCatalog
 
     public int ContentVersion { get; }
     public IReadOnlyDictionary<string, SkillNodeDefinition> Nodes => _nodes;
+
+    public static WorldStageSkillFilter BuildStageFilter(IEnumerable<string> visibleCategories)
+        => new(visibleCategories);
 
     public static SkillTreeCatalog Load(string path = "res://data/skills/skill_tree.json")
     {
@@ -214,4 +220,21 @@ public sealed class SkillTreeCatalog
             }
         }
     }
+}
+
+/// <summary>
+/// Lightweight stage-level skill visibility contract. Runtime UI can use the same catalog while early
+/// tutorial worlds expose only the categories relevant to their current lesson.
+/// </summary>
+public sealed class WorldStageSkillFilter
+{
+    private readonly HashSet<string> _visibleCategories;
+
+    public WorldStageSkillFilter(IEnumerable<string> visibleCategories)
+    {
+        _visibleCategories = new HashSet<string>(visibleCategories ?? Array.Empty<string>(), StringComparer.Ordinal);
+    }
+
+    public bool IsVisible(SkillNodeDefinition node)
+        => _visibleCategories.Count == 0 || _visibleCategories.Contains(node.Category);
 }
