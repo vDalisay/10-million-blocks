@@ -336,12 +336,42 @@ public sealed class ProceduralWorldSource
 
     private bool HasAdjacentResolvedWater(Vector3I coordinate)
     {
+        // First catch literal voxel-neighbour water.
         foreach (Vector3I direction in FaceNormals)
         {
             if (WouldResolveToWater(coordinate + direction)) return true;
         }
+
+        // A cube-face height field can step by one radial voxel between two adjacent 2D columns. In
+        // that case the visible shoreline neighbours are diagonally offset in XYZ (for example one
+        // tangent step plus one radial step) even though they are cardinal neighbours on the owning
+        // Minecraft-like face grid. Inspect every face capable of owning this surface/seam cell and
+        // classify the dry top as beach when one of those adjacent columns contains water at roughly
+        // the same visible level.
+        float outer = MaxAbs(coordinate);
+        foreach (Vector3I normal in FaceNormals)
+        {
+            GetFaceTangents(coordinate, normal, out int u, out int v, out float radial);
+            if (radial < outer - 1.001f) continue;
+
+            TerrainContext a = SampleTerrain(normal, u + 1, v);
+            TerrainContext b = SampleTerrain(normal, u - 1, v);
+            TerrainContext c = SampleTerrain(normal, u, v + 1);
+            TerrainContext d = SampleTerrain(normal, u, v - 1);
+            if (TouchesVisibleWaterLevel(a, radial)
+                || TouchesVisibleWaterLevel(b, radial)
+                || TouchesVisibleWaterLevel(c, radial)
+                || TouchesVisibleWaterLevel(d, radial))
+            {
+                return true;
+            }
+        }
+
         return false;
     }
+
+    private static bool TouchesVisibleWaterLevel(TerrainContext terrain, float dryRadial)
+        => terrain.HasWater && MathF.Abs(terrain.WaterRadius - dryRadial) <= 1.05f;
 
     private bool IsWaterBlockId(string blockId)
         => blockId == _profile.WaterBlock
@@ -389,10 +419,8 @@ public sealed class ProceduralWorldSource
     {
         if (depth <= 0.78f)
         {
-            // Shoreline classification is based on the final resolved six-neighbour topology, not
-            // only this face's raw hydrology field. That matters at cube seams where a visible water
-            // cell can be controlled by one face while its touching dry cell is controlled by another.
-            // Any surface solid directly touching resolved water becomes beach/sand.
+            // Shoreline classification follows final visible topology, including one-level face-grid
+            // steps and cube seams, rather than relying only on the controlling face's raw noise.
             if (terrain.HasWater || terrain.ShoreFactor > 0.38f || HasAdjacentResolvedWater(coordinate))
             {
                 return new BlockSample(true, _profile.SandBlock, true);
