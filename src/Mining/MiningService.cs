@@ -13,6 +13,7 @@ public enum MiningSource
     Manual,
     Automated,
     Offline,
+    WorldEvent,
     Debug,
 }
 
@@ -38,6 +39,17 @@ public readonly record struct BulkMiningResult(
     long TotalMined,
     long Remaining,
     MiningSource Source);
+
+public readonly record struct AreaMiningResult(
+    bool Success,
+    Vector3I Center,
+    int Radius,
+    long BlocksMined,
+    long Reward,
+    long TotalMined,
+    long Remaining,
+    MiningSource Source,
+    IReadOnlyList<Vector3I> RemovedVoxels);
 
 public sealed class MiningService
 {
@@ -139,6 +151,73 @@ public sealed class MiningService
         BlockMined?.Invoke(result);
         CurrencyChanged?.Invoke(Currency);
         return result;
+    }
+
+    /// <summary>
+    /// Authoritative bounded area removal used by lightning, meteors and future world events. It does
+    /// not shortcut through aggregate region accounting: every accepted voxel is removed through
+    /// VirtualWorld, credited once, and emitted as BlockMined so saves/replays/statistics observe the
+    /// exact same mutation stream as manual and automation mining.
+    /// </summary>
+    public AreaMiningResult TryMineCrater(
+        Vector3I center,
+        int radius,
+        MiningSource source = MiningSource.WorldEvent)
+    {
+        if (radius < 0 || radius > 12)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius), "World-event crater radius must be between 0 and 12.");
+        }
+
+        var removedVoxels = new List<Vector3I>();
+        long totalReward = 0L;
+        int radiusSquared = radius * radius;
+
+        for (int z = -radius; z <= radius; z++)
+        for (int y = -radius; y <= radius; y++)
+        for (int x = -radius; x <= radius; x++)
+        {
+            if (x * x + y * y + z * z > radiusSquared) continue;
+
+            Vector3I candidate = center + new Vector3I(x, y, z);
+            if (!_world.TryMine(candidate, requireExposed: false, out BlockSample mined)) continue;
+
+            _bombHits.Remove(candidate);
+            BlockDefinition definition = _content.GetBlock(mined.BlockId);
+            long reward = definition.BaseValue;
+            Currency = checked(Currency + reward);
+            totalReward = checked(totalReward + reward);
+            CreditSpecialResource(definition, mined.BlockId);
+            removedVoxels.Add(candidate);
+
+            BlockMined?.Invoke(new MiningResult(
+                true,
+                candidate,
+                mined.BlockId,
+                reward,
+                TotalMined,
+                Remaining,
+                source,
+                BlocksRemoved: 1L,
+                Removed: true,
+                EffectRadius: radius));
+        }
+
+        if (removedVoxels.Count > 0)
+        {
+            CurrencyChanged?.Invoke(Currency);
+        }
+
+        return new AreaMiningResult(
+            removedVoxels.Count > 0,
+            center,
+            radius,
+            removedVoxels.Count,
+            totalReward,
+            TotalMined,
+            Remaining,
+            source,
+            removedVoxels);
     }
 
     private MiningResult Detonate(Vector3I center, MiningSource source)
