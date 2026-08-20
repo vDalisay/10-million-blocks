@@ -8,6 +8,23 @@ namespace TenMillionBlocks.World;
 
 public sealed class VirtualWorld
 {
+    // Exact modified-chunk rebuilds repeatedly ask for the same voxel and its six neighbours. Terrain
+    // generation is deterministic, so cache the generated/reclassified value in a fixed direct-mapped
+    // table. Mined state is checked before this cache, which means no invalidation is needed when a
+    // block is removed. The table is bounded (~tens of thousands of entries), so a million-block world
+    // never grows a million-entry dictionary merely because the player has looked around.
+    private const int GeneratedSampleCacheSize = 1 << 15;
+
+    private struct GeneratedSampleCacheEntry
+    {
+        public Vector3I Coordinate;
+        public BlockSample Sample;
+        public bool Valid;
+    }
+
+    private readonly GeneratedSampleCacheEntry[] _generatedSampleCache =
+        new GeneratedSampleCacheEntry[GeneratedSampleCacheSize];
+
     public VirtualWorld(WorldProfile profile)
     {
         Profile = profile;
@@ -20,6 +37,8 @@ public sealed class VirtualWorld
     public WorldStateStore State { get; }
     public long InitialMineableBlocks { get; private set; }
     public long RemainingMineableBlocks => Math.Max(0L, InitialMineableBlocks - State.MinedVoxelCount);
+    public long GeneratedSampleCacheHits { get; private set; }
+    public long GeneratedSampleCacheMisses { get; private set; }
 
     public int MaxCoordinate => Profile.MaxCoordinate;
     public int MinChunkCoordinate => VoxelMath.FloorDiv(-MaxCoordinate, Profile.ChunkSize);
@@ -36,8 +55,7 @@ public sealed class VirtualWorld
             return BlockSample.Empty;
         }
 
-        BlockSample sample = Source.SampleVoxel(coordinate);
-        return ReclassifyDeepSpecialBlock(coordinate, sample);
+        return SampleGeneratedCached(coordinate);
     }
 
     public bool IsPresent(Vector3I coordinate) => SampleVoxel(coordinate).Present;
@@ -127,7 +145,8 @@ public sealed class VirtualWorld
         for (int y = -max; y <= max; y++)
         for (int x = -max; x <= max; x++)
         {
-            BlockSample sample = ReclassifyDeepSpecialBlock(new Vector3I(x, y, z), Source.SampleVoxel(new Vector3I(x, y, z)));
+            Vector3I coordinate = new(x, y, z);
+            BlockSample sample = ReclassifyDeepSpecialBlock(coordinate, Source.SampleVoxel(coordinate));
             if (sample.Present && sample.Mineable)
             {
                 count++;
@@ -195,6 +214,34 @@ public sealed class VirtualWorld
         return new Aabb(new Vector3(min, min, min), new Vector3(size, size, size));
     }
 
+    private BlockSample SampleGeneratedCached(Vector3I coordinate)
+    {
+        int index = GeneratedSampleCacheIndex(coordinate);
+        ref GeneratedSampleCacheEntry entry = ref _generatedSampleCache[index];
+        if (entry.Valid && entry.Coordinate == coordinate)
+        {
+            GeneratedSampleCacheHits++;
+            return entry.Sample;
+        }
+
+        GeneratedSampleCacheMisses++;
+        BlockSample sample = ReclassifyDeepSpecialBlock(coordinate, Source.SampleVoxel(coordinate));
+        entry.Coordinate = coordinate;
+        entry.Sample = sample;
+        entry.Valid = true;
+        return sample;
+    }
+
+    private static int GeneratedSampleCacheIndex(Vector3I coordinate)
+    {
+        // Three odd spatial hash constants distribute neighbouring voxel coordinates across the power-
+        // of-two table while retaining a very cheap mask. Collisions simply replace the older entry.
+        uint hash = unchecked((uint)coordinate.X * 73856093u)
+            ^ unchecked((uint)coordinate.Y * 19349663u)
+            ^ unchecked((uint)coordinate.Z * 83492791u);
+        return (int)(hash & (GeneratedSampleCacheSize - 1));
+    }
+
     /// <summary>
     /// Adds rare late-game content without storing it. Untouched gem pockets and unstable blocks are
     /// pure functions of world seed + voxel address, so save files remain sparse and deterministic.
@@ -227,8 +274,6 @@ public sealed class VirtualWorld
             coordinate.Z,
             Profile.Seed + 51047);
 
-        // Unstable blocks are intentionally rare. They are promoted to multi-hit blast events by
-        // MiningService; this sampler only owns deterministic placement.
         float bombRoll = DeterministicNoise.Hash01(
             coordinate.X,
             coordinate.Y,
