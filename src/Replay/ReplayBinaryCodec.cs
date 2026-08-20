@@ -9,8 +9,8 @@ namespace TenMillionBlocks.Replay;
 
 /// <summary>
 /// Compact replay codec. The event payload uses tick deltas and ZigZag-varint linear-index deltas,
-/// then Brotli-compresses the stream. The header stays small and self-describing so future schema
-/// versions can reject incompatible files before touching the payload.
+/// then Brotli-compresses the stream. Schema 2 pins the replay to a world version + canonical content
+/// hash while retaining read compatibility with development schema-1 files.
 /// </summary>
 public static class ReplayBinaryCodec
 {
@@ -21,6 +21,14 @@ public static class ReplayBinaryCodec
         ArgumentException.ThrowIfNullOrWhiteSpace(absolutePath);
         ArgumentNullException.ThrowIfNull(header);
         ArgumentNullException.ThrowIfNull(events);
+        if (header.WorldVersion <= 0)
+        {
+            throw new InvalidDataException("Replay schema 2 requires a positive world version.");
+        }
+        if (string.IsNullOrWhiteSpace(header.WorldContentHash))
+        {
+            throw new InvalidDataException("Replay schema 2 requires a frozen world content hash.");
+        }
 
         byte[] eventBytes = EncodeEvents(events);
         byte[] checksum = SHA256.HashData(eventBytes);
@@ -34,7 +42,9 @@ public static class ReplayBinaryCodec
             writer.Write(Magic);
             writer.Write(ReplayHeader.CurrentSchemaVersion);
             WriteString(writer, header.WorldId);
+            writer.Write(header.WorldVersion);
             writer.Write(header.GenerationVersion);
+            WriteString(writer, header.WorldContentHash);
             writer.Write(header.MinCoordinate);
             writer.Write(header.AxisSize);
             writer.Write(header.TickRate);
@@ -62,13 +72,28 @@ public static class ReplayBinaryCodec
         }
 
         int schema = reader.ReadInt32();
-        if (schema != ReplayHeader.CurrentSchemaVersion)
+        if (schema < ReplayHeader.MinimumReadableSchemaVersion || schema > ReplayHeader.CurrentSchemaVersion)
         {
             throw new InvalidDataException($"Unsupported replay schema {schema}.");
         }
 
         string worldId = ReadString(reader);
-        int generationVersion = reader.ReadInt32();
+        int worldVersion = 0;
+        int generationVersion;
+        string worldContentHash = string.Empty;
+        if (schema >= 2)
+        {
+            worldVersion = reader.ReadInt32();
+            generationVersion = reader.ReadInt32();
+            worldContentHash = ReadString(reader);
+        }
+        else
+        {
+            // Schema 1 predates immutable world-version/hash identity. It can still be viewed and
+            // upgraded by a development build after its older generation/bounds checks pass.
+            generationVersion = reader.ReadInt32();
+        }
+
         int minCoordinate = reader.ReadInt32();
         int axisSize = reader.ReadInt32();
         int tickRate = reader.ReadInt32();
@@ -83,6 +108,14 @@ public static class ReplayBinaryCodec
         if (rawLength < 0 || compressedLength < 0 || eventCount < 0 || axisSize <= 0 || tickRate <= 0)
         {
             throw new InvalidDataException("Replay header contains invalid sizes.");
+        }
+        if (schema >= 2 && (worldVersion <= 0 || string.IsNullOrWhiteSpace(worldContentHash)))
+        {
+            throw new InvalidDataException("Replay schema 2 is missing frozen world identity.");
+        }
+        if (checksumLength <= 0 || checksumLength > 1024)
+        {
+            throw new InvalidDataException("Replay checksum length is invalid.");
         }
         if (compressed.Length != compressedLength || checksum.Length != checksumLength)
         {
@@ -103,7 +136,9 @@ public static class ReplayBinaryCodec
             {
                 SchemaVersion = schema,
                 WorldId = worldId,
+                WorldVersion = worldVersion,
                 GenerationVersion = generationVersion,
+                WorldContentHash = worldContentHash,
                 MinCoordinate = minCoordinate,
                 AxisSize = axisSize,
                 TickRate = tickRate,
@@ -141,7 +176,12 @@ public static class ReplayBinaryCodec
 
     public static List<ReplayRemovalEvent> DecodeEvents(ReadOnlySpan<byte> bytes, long expectedCount)
     {
-        var result = new List<ReplayRemovalEvent>(expectedCount > int.MaxValue ? 0 : (int)expectedCount);
+        if (expectedCount > int.MaxValue)
+        {
+            throw new InvalidDataException($"Replay event count {expectedCount:N0} exceeds supported in-memory playback size.");
+        }
+
+        var result = new List<ReplayRemovalEvent>((int)Math.Max(0L, expectedCount));
         int offset = 0;
         uint tick = 0;
         long index = 0;
@@ -158,6 +198,10 @@ public static class ReplayBinaryCodec
             index = checked(index + UnZigZag(ReadVarUInt(bytes, ref offset)));
             if (offset >= bytes.Length) throw new EndOfStreamException("Replay source byte is missing.");
             ReplayMiningSource source = (ReplayMiningSource)bytes[offset++];
+            if (!Enum.IsDefined(source))
+            {
+                throw new InvalidDataException($"Replay contains unknown mining source {(byte)source}.");
+            }
             result.Add(new ReplayRemovalEvent(tick, index, source));
         }
 
