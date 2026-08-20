@@ -250,6 +250,21 @@ public sealed class ProceduralWorldSource
     public bool TrySampleTree(Vector3I surfaceVoxel, out FeatureSample feature)
     {
         feature = default;
+
+        if (_overrides is not null && _overrides.TryGetFeature(surfaceVoxel, out FeatureSample authoredFeature))
+        {
+            // Authored features remain support-owned: once the supporting terrain cell is removed the
+            // feature disappears automatically, and a block occupying its outward cell invalidates it.
+            BlockSample support = SampleVoxel(surfaceVoxel);
+            if (!support.Present || SampleVoxel(surfaceVoxel + authoredFeature.OutwardNormal).Present)
+            {
+                return false;
+            }
+
+            feature = authoredFeature;
+            return string.Equals(feature.BlockId, "tree", StringComparison.Ordinal);
+        }
+
         if (_profile.UsesSingleBlockGenerator || _profile.UsesSolidCubeGenerator)
         {
             return false;
