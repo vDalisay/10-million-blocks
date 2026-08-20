@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using TenMillionBlocks.World;
+using TenMillionBlocks.World.Authoring;
 using TenMillionBlocks.World.Rendering;
 using TenMillionBlocks.World.Storage;
 
@@ -194,6 +195,22 @@ public partial class ReplayPlayer : Node
         {
             throw new InvalidOperationException(
                 $"Replay baseline does not match world '{_world.Profile.Id}' generation {_world.Profile.GenerationVersion}.");
+        }
+
+        if (header.HasFrozenBaselineIdentity)
+        {
+            string currentHash = WorldFreezeService.ComputeContentHash(_world.Profile);
+            if (header.WorldVersion != _world.Profile.WorldVersion
+                || !string.Equals(header.WorldContentHash, currentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Replay targets frozen world '{header.WorldId}' v{header.WorldVersion} with a different content hash.");
+            }
+        }
+
+        if (header.FinalMinedCount < 0 || header.EventCount != _data.Events.Count)
+        {
+            throw new InvalidOperationException("Replay header final/event counts are inconsistent.");
         }
 
         uint previousTick = 0;
