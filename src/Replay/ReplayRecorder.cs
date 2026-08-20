@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.World;
+using TenMillionBlocks.World.Authoring;
 
 namespace TenMillionBlocks.Replay;
 
@@ -21,6 +22,7 @@ public sealed class ReplayRecorder : IDisposable
     private readonly ulong _startedUsec;
     private readonly int _minCoordinate;
     private readonly int _axisSize;
+    private readonly string _worldContentHash;
     private readonly uint _tickOffset;
     private bool _disposed;
 
@@ -30,6 +32,7 @@ public sealed class ReplayRecorder : IDisposable
         _mining = mining ?? throw new ArgumentNullException(nameof(mining));
         _minCoordinate = -world.MaxCoordinate;
         _axisSize = checked(world.MaxCoordinate * 2 + 1);
+        _worldContentHash = WorldFreezeService.ComputeContentHash(world.Profile);
         _startedUsec = Time.GetTicksUsec();
 
         if (!string.IsNullOrWhiteSpace(existingAbsolutePath) && System.IO.File.Exists(existingAbsolutePath))
@@ -62,7 +65,9 @@ public sealed class ReplayRecorder : IDisposable
         => new()
         {
             WorldId = _world.Profile.Id,
+            WorldVersion = _world.Profile.WorldVersion,
             GenerationVersion = _world.Profile.GenerationVersion,
+            WorldContentHash = _worldContentHash,
             MinCoordinate = _minCoordinate,
             AxisSize = _axisSize,
             TickRate = DefaultTickRate,
@@ -118,14 +123,24 @@ public sealed class ReplayRecorder : IDisposable
 
     private void ValidateExisting(ReplayHeader header)
     {
-        if (!string.Equals(header.WorldId, _world.Profile.Id, StringComparison.Ordinal)
-            || header.GenerationVersion != _world.Profile.GenerationVersion
-            || header.MinCoordinate != _minCoordinate
-            || header.AxisSize != _axisSize
-            || header.TickRate != DefaultTickRate)
+        bool legacyBaselineMatches = string.Equals(header.WorldId, _world.Profile.Id, StringComparison.Ordinal)
+            && header.GenerationVersion == _world.Profile.GenerationVersion
+            && header.MinCoordinate == _minCoordinate
+            && header.AxisSize == _axisSize
+            && header.TickRate == DefaultTickRate;
+
+        if (!legacyBaselineMatches)
         {
             throw new InvalidOperationException(
                 $"Replay baseline does not match world '{_world.Profile.Id}' generation {_world.Profile.GenerationVersion}.");
+        }
+
+        if (header.HasFrozenBaselineIdentity
+            && (header.WorldVersion != _world.Profile.WorldVersion
+                || !string.Equals(header.WorldContentHash, _worldContentHash, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                $"Replay was recorded for a different frozen version/content hash of world '{_world.Profile.Id}'.");
         }
     }
 }
