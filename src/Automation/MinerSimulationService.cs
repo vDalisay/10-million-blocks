@@ -24,6 +24,7 @@ public partial class MinerSimulationService : Node3D
     private readonly Dictionary<long, Node3D> _visuals = new();
     private readonly Dictionary<long, Node3D> _rotors = new();
     private readonly Dictionary<long, ulong> _lastDebrisAtMs = new();
+    private readonly HashSet<long> _pendingVisualUpdateIds = new();
 
     private VirtualWorld _world = null!;
     private MiningService _mining = null!;
@@ -35,6 +36,7 @@ public partial class MinerSimulationService : Node3D
     private int _lastShovelSearchRadius = 1;
     private int _lastShovelHeightTolerance;
     private string _lastDrillPatternId = "line";
+    private bool _deferVisualUpdates;
 
     public event Action? Changed;
     public event Action<MinerInstance>? MinerPlaced;
@@ -95,24 +97,32 @@ public partial class MinerSimulationService : Node3D
 
         int budget = MaxMiningOperationsPerFrame;
         bool changed = false;
-
-        foreach (MinerInstance miner in _miners)
+        _deferVisualUpdates = true;
+        try
         {
-            if (budget <= 0) break;
-            if (miner.Exhausted) continue;
-
-            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * delta;
-
-            while (budget > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
+            foreach (MinerInstance miner in _miners)
             {
-                miner.WorkAccumulator -= 1.0;
-                budget--;
-                if (Advance(miner, definition, emitPresentation: true) || miner.Exhausted)
+                if (budget <= 0) break;
+                if (miner.Exhausted) continue;
+
+                MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+                miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * delta;
+
+                while (budget > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
                 {
-                    changed = true;
+                    miner.WorkAccumulator -= 1.0;
+                    budget--;
+                    if (Advance(miner, definition, emitPresentation: true) || miner.Exhausted)
+                    {
+                        changed = true;
+                    }
                 }
             }
+        }
+        finally
+        {
+            _deferVisualUpdates = false;
+            FlushDeferredVisualUpdates();
         }
 
         if (changed) Changed?.Invoke();
@@ -247,20 +257,28 @@ public partial class MinerSimulationService : Node3D
         double seconds = Math.Min(elapsedSeconds, 7.0 * 24.0 * 60.0 * 60.0);
         long operationsLeft = operationCap;
         long minedBefore = _mining.TotalMined;
-
-        foreach (MinerInstance miner in _miners)
+        _deferVisualUpdates = true;
+        try
         {
-            if (operationsLeft <= 0) break;
-            if (miner.Exhausted) continue;
-            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * seconds;
-
-            while (operationsLeft > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
+            foreach (MinerInstance miner in _miners)
             {
-                miner.WorkAccumulator -= 1.0;
-                operationsLeft--;
-                _ = Advance(miner, definition, emitPresentation: false);
+                if (operationsLeft <= 0) break;
+                if (miner.Exhausted) continue;
+                MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+                miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * seconds;
+
+                while (operationsLeft > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
+                {
+                    miner.WorkAccumulator -= 1.0;
+                    operationsLeft--;
+                    _ = Advance(miner, definition, emitPresentation: false);
+                }
             }
+        }
+        finally
+        {
+            _deferVisualUpdates = false;
+            FlushDeferredVisualUpdates();
         }
 
         long mined = _mining.TotalMined - minedBefore;
@@ -276,6 +294,8 @@ public partial class MinerSimulationService : Node3D
         _miners.Clear();
         _minersById.Clear();
         _lastDebrisAtMs.Clear();
+        _pendingVisualUpdateIds.Clear();
+        _deferVisualUpdates = false;
         _nextInstanceId = 1;
     }
 
@@ -939,6 +959,29 @@ public partial class MinerSimulationService : Node3D
     }
 
     private void UpdateVisual(MinerInstance miner)
+    {
+        if (_deferVisualUpdates)
+        {
+            _pendingVisualUpdateIds.Add(miner.InstanceId);
+            return;
+        }
+        UpdateVisualNow(miner);
+    }
+
+    private void FlushDeferredVisualUpdates()
+    {
+        if (_pendingVisualUpdateIds.Count == 0) return;
+        foreach (long id in _pendingVisualUpdateIds)
+        {
+            if (_minersById.TryGetValue(id, out MinerInstance? miner))
+            {
+                UpdateVisualNow(miner);
+            }
+        }
+        _pendingVisualUpdateIds.Clear();
+    }
+
+    private void UpdateVisualNow(MinerInstance miner)
     {
         if (!_visuals.TryGetValue(miner.InstanceId, out Node3D? root)) return;
         MinerDefinition definition = _catalog.Get(miner.DefinitionId);
