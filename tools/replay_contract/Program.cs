@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using TenMillionBlocks.Replay;
 
 static void Require(bool condition, string message)
@@ -18,6 +19,33 @@ static void ExpectReadFailure(string path, string label)
     }
 
     throw new InvalidOperationException($"Replay decoder accepted {label} fixture.");
+}
+
+static void WriteString(BinaryWriter writer, string value)
+{
+    byte[] bytes = Encoding.UTF8.GetBytes(value);
+    writer.Write(bytes.Length);
+    writer.Write(bytes);
+}
+
+static void WriteOversizedHeaderFixture(string path)
+{
+    using FileStream stream = File.Create(path);
+    using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: false);
+    writer.Write(Encoding.ASCII.GetBytes("CMBR"));
+    writer.Write(ReplayHeader.CurrentSchemaVersion);
+    WriteString(writer, "reference_ridges");
+    writer.Write(2); // world version
+    writer.Write(2); // generation version
+    WriteString(writer, new string('a', 64));
+    writer.Write(-32); // min coordinate
+    writer.Write(65); // axis size
+    writer.Write(20); // tick rate
+    writer.Write(1L); // event count
+    writer.Write(1L); // final mined count
+    writer.Write(int.MaxValue); // raw payload length: must be rejected before allocation/decompression
+    writer.Write(int.MaxValue); // compressed payload length: must be rejected before ReadBytes
+    writer.Write(32); // SHA-256 checksum length
 }
 
 const int eventCount = 125_000;
@@ -85,6 +113,10 @@ byte[] future = (byte[])fileBytes.Clone();
 BitConverter.GetBytes(ReplayHeader.CurrentSchemaVersion + 99).CopyTo(future, 4);
 File.WriteAllBytes(futurePath, future);
 ExpectReadFailure(futurePath, "unsupported future schema");
+
+string oversizedPath = Path.Combine(directory, "oversized-header.cmbreplay");
+WriteOversizedHeaderFixture(oversizedPath);
+ExpectReadFailure(oversizedPath, "oversized allocation header");
 
 double packedPerBlock = packed.Length / (double)eventCount;
 double filePerBlock = fileBytes.Length / (double)eventCount;
