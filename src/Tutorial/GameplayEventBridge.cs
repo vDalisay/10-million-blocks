@@ -182,7 +182,16 @@ public partial class GameplayEventBridge : Node
         if (!string.Equals(miner.DefinitionId, "shovel_miner", StringComparison.Ordinal)) return;
 
         string blocker = miner.BlockedBlockId;
-        if (blocker == _profile.WaterBlock
+        if (miner.StopReason == MinerStopReason.BlockedFeature && blocker == "tree")
+        {
+            _hub.Publish(new GameplayEvent(
+                GameplayEventKind.TreeBlockedShovel,
+                _profile.Id,
+                blocker,
+                miner.BlockedVoxel,
+                miner.InstanceId));
+        }
+        else if (blocker == _profile.WaterBlock
             || blocker == _profile.ShallowWaterBlock
             || blocker == _profile.DeepWaterBlock)
         {
