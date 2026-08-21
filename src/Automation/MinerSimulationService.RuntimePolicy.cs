@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using Godot;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.World.Generation;
@@ -13,8 +12,31 @@ public partial class MinerSimulationService
 
     public event Action<MinerInstance>? MinerStopped;
 
-    public int AttentionMinerCount => _miners.Count(NeedsAttention);
-    public int PresentedMinerCount => _visuals.Values.Count(root => root.Visible);
+    public int AttentionMinerCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (MinerInstance miner in _miners)
+            {
+                if (NeedsAttention(miner)) count++;
+            }
+            return count;
+        }
+    }
+
+    public int PresentedMinerCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (Node3D root in _visuals.Values)
+            {
+                if (root.Visible) count++;
+            }
+            return count;
+        }
+    }
 
     public MinerInstance? GetAttentionMiner(int index)
     {
@@ -193,7 +215,7 @@ public partial class MinerSimulationService
                         Vector3I candidate = start + tangentA * a + tangentB * b + outward * radialOffset;
                         BlockSample sample = _world.SampleVoxel(candidate);
                         if (!sample.Present
-                            || !_world.IsExposed(candidate)
+                            || !_world.IsExposed(candidate, sample)
                             || _world.Source.GetOutwardNormal(candidate) != outward)
                         {
                             continue;
