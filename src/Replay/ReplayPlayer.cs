@@ -20,6 +20,7 @@ public partial class ReplayPlayer : Node
     public const double MinSpeed = 1.0;
     public const double MaxSpeed = 64.0;
 
+    private readonly List<Vector3I> _changedVoxels = new();
     private VirtualWorld _world = null!;
     private WorldView _view = null!;
     private ReplayData _data = null!;
@@ -115,12 +116,13 @@ public partial class ReplayPlayer : Node
 
         if (previouslyApplied > 0)
         {
-            var restored = new List<Vector3I>(previouslyApplied);
+            _changedVoxels.Clear();
+            _changedVoxels.EnsureCapacity(previouslyApplied);
             for (int i = 0; i < previouslyApplied && i < _data.Events.Count; i++)
             {
-                restored.Add(FromLinearIndex(_data.Events[i].LinearIndex));
+                _changedVoxels.Add(FromLinearIndex(_data.Events[i].LinearIndex));
             }
-            _view.MarkDirtyBatch(restored);
+            _view.MarkDirtyBatch(_changedVoxels);
         }
 
         _cursor = 0;
@@ -144,8 +146,10 @@ public partial class ReplayPlayer : Node
     private void ApplyNextEvents(int count)
     {
         int appliedBefore = _cursor;
-        List<Vector3I>? changedVoxels = null;
+        _changedVoxels.Clear();
         int remaining = Math.Max(0, count);
+        _changedVoxels.EnsureCapacity(Math.Min(remaining, Math.Max(0, _data.Events.Count - _cursor)));
+
         while (remaining-- > 0 && _cursor < _data.Events.Count)
         {
             ReplayRemovalEvent item = _data.Events[_cursor];
@@ -163,7 +167,7 @@ public partial class ReplayPlayer : Node
                     $"Replay event {_cursor:N0} duplicates voxel {voxel} in '{_world.Profile.Id}'.");
             }
 
-            (changedVoxels ??= new List<Vector3I>()).Add(voxel);
+            _changedVoxels.Add(voxel);
             _view.SpawnManualMinePop(voxel, sample.BlockId);
             int seed = unchecked(voxel.X * 73856093
                 ^ voxel.Y * 19349663
@@ -175,7 +179,7 @@ public partial class ReplayPlayer : Node
 
         if (_cursor != appliedBefore)
         {
-            _view.MarkDirtyBatch(changedVoxels!);
+            _view.MarkDirtyBatch(_changedVoxels);
             Changed?.Invoke();
         }
 
