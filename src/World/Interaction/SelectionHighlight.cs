@@ -5,14 +5,15 @@ using Godot;
 namespace TenMillionBlocks.World.Interaction;
 
 /// <summary>
-/// Displays the exact set of voxels that the next manual/hover mining tick will affect. Instances share
-/// one mesh/material so large footprint upgrades can preview their removal area without creating a new
-/// material for every highlighted block.
+/// Displays the exact set of voxels that the next manual/hover mining tick will affect. The complete
+/// footprint is one MultiMesh draw primitive instead of one MeshInstance3D/draw call per highlighted
+/// block, which keeps large overmining previews cheap while preserving the same breathing/pulse effect.
 /// </summary>
 public partial class SelectionHighlight : Node3D
 {
-    private readonly List<MeshInstance3D> _instances = new();
-    private BoxMesh? _mesh;
+    private readonly List<Vector3> _positions = new();
+    private MultiMesh? _multiMesh;
+    private MultiMeshInstance3D? _instance;
     private float _spacing = 2.0f;
     private float _time;
     private float _hitPulse;
@@ -31,33 +32,51 @@ public partial class SelectionHighlight : Node3D
             NoDepthTest = false,
         };
 
-        _mesh = new BoxMesh
+        var mesh = new BoxMesh
         {
             Size = Vector3.One * spacing * 1.055f,
             Material = material,
         };
 
+        _multiMesh = new MultiMesh
+        {
+            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            Mesh = mesh,
+            InstanceCount = 1,
+            VisibleInstanceCount = 0,
+        };
+        _instance = new MultiMeshInstance3D
+        {
+            Name = "SelectionBatch",
+            Multimesh = _multiMesh,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(_instance);
         Visible = false;
     }
 
     public override void _Process(double delta)
     {
-        if (!Visible || _activeCount <= 0) return;
+        if (!Visible || _activeCount <= 0 || _multiMesh is null) return;
 
-        float dt = (float)delta;
+        float dt = Math.Max(0.0f, (float)delta);
         _time += dt;
         _hitPulse = MathF.Max(0.0f, _hitPulse - dt * 7.0f);
         float breathing = 1.0f + MathF.Sin(_time * 4.0f) * 0.010f;
         float hit = 1.0f + _hitPulse * 0.09f;
-        Vector3 scale = Vector3.One * breathing * hit;
+        Basis basis = Basis.Identity.Scaled(Vector3.One * breathing * hit);
         for (int i = 0; i < _activeCount; i++)
         {
-            _instances[i].Scale = scale;
+            _multiMesh.SetInstanceTransform(i, new Transform3D(basis, _positions[i]));
         }
     }
 
     public void ShowVoxel(Vector3I voxel)
-        => ShowVoxels(new[] { voxel });
+    {
+        Span<Vector3I> one = stackalloc Vector3I[1];
+        one[0] = voxel;
+        ShowVoxels(one.ToArray());
+    }
 
     public void ShowVoxels(IReadOnlyList<Vector3I> voxels)
     {
@@ -66,18 +85,22 @@ public partial class SelectionHighlight : Node3D
             HideVoxel();
             return;
         }
-
-        EnsureInstances(voxels.Count);
-        _activeCount = voxels.Count;
-        for (int i = 0; i < _instances.Count; i++)
+        if (_multiMesh is null)
         {
-            MeshInstance3D instance = _instances[i];
-            bool active = i < _activeCount;
-            instance.Visible = active;
-            if (!active) continue;
-            instance.Position = (Vector3)voxels[i] * _spacing;
-            instance.Scale = Vector3.One;
+            throw new InvalidOperationException("SelectionHighlight must be initialized before use.");
         }
+
+        EnsureCapacity(voxels.Count);
+        _positions.Clear();
+        for (int i = 0; i < voxels.Count; i++)
+        {
+            Vector3 position = (Vector3)voxels[i] * _spacing;
+            _positions.Add(position);
+            _multiMesh.SetInstanceTransform(i, new Transform3D(Basis.Identity, position));
+        }
+
+        _activeCount = voxels.Count;
+        _multiMesh.VisibleInstanceCount = _activeCount;
         Visible = true;
     }
 
@@ -90,31 +113,19 @@ public partial class SelectionHighlight : Node3D
     {
         Visible = false;
         _activeCount = 0;
-        foreach (MeshInstance3D instance in _instances)
-        {
-            instance.Visible = false;
-            instance.Scale = Vector3.One;
-        }
+        _positions.Clear();
+        if (_multiMesh is not null) _multiMesh.VisibleInstanceCount = 0;
     }
 
-    private void EnsureInstances(int count)
+    private void EnsureCapacity(int count)
     {
-        if (_mesh is null)
-        {
-            throw new InvalidOperationException("SelectionHighlight must be initialized before use.");
-        }
+        if (_multiMesh is null) return;
+        if (_multiMesh.InstanceCount >= count) return;
 
-        while (_instances.Count < count)
-        {
-            var instance = new MeshInstance3D
-            {
-                Name = $"Selection_{_instances.Count}",
-                Mesh = _mesh,
-                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-                Visible = false,
-            };
-            AddChild(instance);
-            _instances.Add(instance);
-        }
+        int capacity = 1;
+        while (capacity < count) capacity <<= 1;
+        _multiMesh.InstanceCount = capacity;
+        _multiMesh.VisibleInstanceCount = 0;
+        _positions.EnsureCapacity(capacity);
     }
 }
