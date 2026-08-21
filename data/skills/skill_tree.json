@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 12,
+  "content_version": 13,
   "nodes": [
     {
       "id": "manual_2x",
@@ -165,6 +165,21 @@
       "cost": 260,
       "max_rank": 1,
       "effects": [{ "type": "unlock_miner", "string_value": "pickaxe_miner" }]
+    },
+    {
+      "id": "cloud_charger_unlock",
+      "display_name": "Cloud Charger",
+      "description": "Partially automate thunder: eligible clouds gain one charge every 3 seconds. Manual clicks still add charge, so active play can accelerate each strike.",
+      "grid_x": 8,
+      "grid_y": 3,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "pickaxe_unlock", "required_rank": 1, "route": [{ "grid_x": 7, "grid_y": 3 }] }
+      ],
+      "cost": 650,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_auto_cloud_charger" }]
     },
     {
       "id": "axe_unlock",
