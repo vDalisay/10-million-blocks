@@ -48,6 +48,13 @@ public sealed class VirtualWorld
     public long RegionAxisCount => (long)MaxRegionCoordinate - MinRegionCoordinate + 1L;
     public long TotalLogicalRegionCount => checked(checked(RegionAxisCount * RegionAxisCount) * RegionAxisCount);
 
+    // Region quotas are only an aggregate optimization for truly large streamed worlds. Applying the
+    // same evenly-divided quota to a small exact cube is incorrect because the cube's physical voxels
+    // are not evenly distributed across signed chunk/region coordinates. That was able to exhaust a
+    // region early, visually hide still-unmined blocks, and leave a 5^3 tutorial stuck at 105/125.
+    private bool UsesAggregateRegionAccounting
+        => Profile.TargetMineableBlocks > 0 && Profile.UsesStreamingRenderer;
+
     public BlockSample SampleVoxel(Vector3I coordinate)
     {
         if (State.IsMined(coordinate))
@@ -92,7 +99,7 @@ public sealed class VirtualWorld
         }
 
         RegionCoord region = RegionForVoxel(coordinate);
-        long regionQuota = Profile.TargetMineableBlocks > 0 ? GetRegionQuota(region) : 0L;
+        long regionQuota = UsesAggregateRegionAccounting ? GetRegionQuota(region) : 0L;
         long beforeInRegion = 0L;
         if (regionQuota > 0)
         {
@@ -121,13 +128,21 @@ public sealed class VirtualWorld
 
     public long InitializeMineableBlockCount()
     {
-        if (Profile.TargetMineableBlocks > 0)
+        if (UsesAggregateRegionAccounting)
         {
             InitialMineableBlocks = Profile.TargetMineableBlocks;
             return InitialMineableBlocks;
         }
 
-        return CountMineableBlocksExact();
+        long exact = CountMineableBlocksExact();
+        if (Profile.TargetMineableBlocks > 0 && exact != Profile.TargetMineableBlocks)
+        {
+            throw new InvalidOperationException(
+                $"Exact world '{Profile.Id}' authored target says {Profile.TargetMineableBlocks:N0} mineable blocks, " +
+                $"but deterministic generation contains {exact:N0}. Fix the content instead of allowing a stuck completion counter.");
+        }
+
+        return exact;
     }
 
     public long CountMineableBlocksExact()
@@ -167,7 +182,7 @@ public sealed class VirtualWorld
 
     public long GetRegionQuota(RegionCoord region)
     {
-        if (!IsRegionInBounds(region) || InitialMineableBlocks <= 0)
+        if (!UsesAggregateRegionAccounting || !IsRegionInBounds(region) || InitialMineableBlocks <= 0)
         {
             return 0L;
         }
