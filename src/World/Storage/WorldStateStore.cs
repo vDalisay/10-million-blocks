@@ -108,10 +108,17 @@ public sealed class WorldStateStore
     public bool IsMined(Vector3I voxel)
     {
         ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, _chunkSize);
-        RegionCoord region = RegionCoord.FromChunk(chunk, _regionSizeInChunks);
-        if (_exhaustedRegions.ContainsKey(region))
+
+        // Exact demo/full-surface worlds normally have no aggregate exhausted regions at all. Avoid
+        // three additional signed floor divisions on every SampleVoxel call in that overwhelmingly
+        // common case. Region addressing is only needed once at least one aggregate region exists.
+        if (_exhaustedRegions.Count > 0)
         {
-            return true;
+            RegionCoord region = RegionCoord.FromChunk(chunk, _regionSizeInChunks);
+            if (_exhaustedRegions.ContainsKey(region))
+            {
+                return true;
+            }
         }
 
         return _minedByChunk.TryGetValue(chunk, out ChunkBits? mined)
