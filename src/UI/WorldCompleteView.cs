@@ -123,9 +123,9 @@ public partial class WorldCompleteView : CanvasLayer
         if (next is null)
         {
             _next.Text = demoFinale
-                ? "You cleared every mineable block in the 50-cube finale. The 100-cube world is reserved for the full release."
+                ? "You cleared every mineable block in the 50-cube finale. The 100-cube world is reserved for the full release. Your completed worlds and replays remain available from the next session."
                 : "Current authored progression complete.";
-            _continue.Text = "Close";
+            _continue.Text = demoFinale ? "Return to Main Menu" : "Close";
         }
         else
         {
