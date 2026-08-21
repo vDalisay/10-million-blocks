@@ -7,6 +7,7 @@ namespace TenMillionBlocks.Replay;
 public enum ReplayEventKind : byte
 {
     RemoveVoxel = 1,
+    RemoveVoxelBatch = 2,
 }
 
 public enum ReplayMiningSource : byte
@@ -24,7 +25,9 @@ public readonly record struct ReplayRemovalEvent(
 
 public sealed class ReplayHeader
 {
-    public const int CurrentSchemaVersion = 2;
+    // Schema 3 adds packed same-tick/same-source RemoveVoxelBatch records. The logical decoded event
+    // model remains a flat removal stream, so playback and old schema-1/2 files need no migration.
+    public const int CurrentSchemaVersion = 3;
     public const int MinimumReadableSchemaVersion = 1;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
