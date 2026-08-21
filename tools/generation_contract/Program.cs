@@ -231,7 +231,7 @@ static IReadOnlyList<WorldProfile> LoadCommittedProfiles()
             {
                 PropertyNameCaseInsensitive = true,
             });
-            return document?.Worlds ?? Array.Empty<WorldProfile>();
+            return document?.Worlds is { } worlds ? worlds : Array.Empty<WorldProfile>();
         }
         current = Directory.GetParent(current)?.FullName;
     }
