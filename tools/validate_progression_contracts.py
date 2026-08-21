@@ -64,8 +64,24 @@ assert int(worlds["tutorial_dirt_5"].get("targetMineableBlocks", 0)) == 125
 assert int(worlds["tutorial_lake_core_10"].get("targetMineableBlocks", 0)) == 1000
 assert int(worlds["tutorial_trees_gem_15"].get("targetMineableBlocks", 0)) == 3375
 
+# The 15-cube tutorial demonstrates that trees obstruct a Shovel while the player still has to clear
+# them manually. Forest Cutter is the payoff introduced at 20-cube, not a solution handed out before
+# the obstruction lesson has landed.
+assert worlds["tutorial_trees_gem_15"].get("visibleSkillCategories", []) == [
+    "manual", "shovel", "automation", "drill", "patterns"
+], "15-cube tutorial must keep Forest Cutter hidden while teaching tree obstruction"
+assert "forest" not in worlds["tutorial_trees_gem_15"].get("visibleSkillCategories", []), (
+    "Forest Cutter must not leak into the 15-cube tree-obstruction tutorial"
+)
+assert "forest" in worlds["reference_natural"].get("visibleSkillCategories", []), (
+    "Forest Cutter must first become available in the 20-cube main world"
+)
+
 assert worlds["reference_natural"].get("visibleSkillIds", []) == [], (
     "active-event automation must not leak into the 20-cube world"
+)
+assert worlds["reference_natural"].get("overrideFile") == "res://data/worlds/overrides/reference_natural_v2.json", (
+    "20-cube world must retain the reviewed special-resource override"
 )
 for world_id in ("reference_lakes", "reference_ridges"):
     assert worlds[world_id].get("visibleSkillIds", []) == ["cloud_charger_unlock"], (
