@@ -58,7 +58,13 @@ public static class WorldStructuralRules
             // Collapse the raw hydrology column to exactly one water voxel one block inside the normal
             // cube face, carve every cap above it, and guarantee sand immediately behind it.
             if (radial > waterRadial) return BlockSample.Empty;
-            if (radial == waterRadial) return new BlockSample(true, waterBlockId, true);
+            if (radial == waterRadial)
+            {
+                return new BlockSample(
+                    true,
+                    ResolveStructuralWaterMaterial(profile, source, normal, u, v, waterRadial, waterBlockId),
+                    true);
+            }
             if (radial == waterRadial - 1) return new BlockSample(true, profile.SandBlock, true);
             if (generatedWater) return new BlockSample(true, profile.SandBlock, true);
         }
@@ -155,6 +161,27 @@ public static class WorldStructuralRules
         if (normal == Vector3I.Down) return new Vector3I(u, -radial, v);
         if (normal == Vector3I.Back) return new Vector3I(u, v, radial);
         return new Vector3I(u, v, -radial);
+    }
+
+    private static string ResolveStructuralWaterMaterial(
+        WorldProfile profile,
+        ProceduralWorldSource source,
+        Vector3I normal,
+        int u,
+        int v,
+        int minimumRadial,
+        string rawBlockId)
+    {
+        // Dark water is only meaningful in the visual middle of a basin. The raw terrain classifier
+        // cannot know that the structural pass may reject an adjacent edge/seam water column, so check
+        // the final accepted four-neighbour topology again here. Any boundary cell is always shallow.
+        bool interior = TryFindWaterColumn(profile, source, normal, u + 1, v, minimumRadial, out _)
+            && TryFindWaterColumn(profile, source, normal, u - 1, v, minimumRadial, out _)
+            && TryFindWaterColumn(profile, source, normal, u, v + 1, minimumRadial, out _)
+            && TryFindWaterColumn(profile, source, normal, u, v - 1, minimumRadial, out _);
+
+        if (!interior) return profile.ShallowWaterBlock;
+        return rawBlockId;
     }
 
     private static bool HasAdjacentWaterColumn(
