@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using Godot;
 using TenMillionBlocks.Content;
@@ -38,6 +39,7 @@ public sealed class WorldFeatureOverrideDefinition
 public sealed class WorldOverrideSet
 {
     public const int SupportedSchemaVersion = 1;
+    public const string ResourceRootEnvironmentVariable = "TEN_MILLION_BLOCKS_RESOURCE_ROOT";
 
     private sealed class Document
     {
@@ -69,12 +71,8 @@ public sealed class WorldOverrideSet
     public static WorldOverrideSet? Load(WorldProfile profile)
     {
         if (string.IsNullOrWhiteSpace(profile.OverrideFile)) return null;
-        if (!Godot.FileAccess.FileExists(profile.OverrideFile))
-        {
-            throw new InvalidOperationException($"World override file was not found: {profile.OverrideFile}");
-        }
 
-        string json = Godot.FileAccess.GetFileAsString(profile.OverrideFile);
+        string json = ReadOverrideJson(profile.OverrideFile);
         Document? document = JsonSerializer.Deserialize<Document>(json, new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -182,4 +180,31 @@ public sealed class WorldOverrideSet
 
     public bool SuppressesFeature(Vector3I anchor)
         => _suppressedFeatures.Contains(anchor);
+
+    private static string ReadOverrideJson(string resourcePath)
+    {
+        // Console contract tools reference the same runtime assembly but do not boot the Godot engine.
+        // Calling Godot.FileAccess from such a process can enter native engine code without an initialized
+        // project and terminate the process. Tools therefore opt into a managed res:// root explicitly;
+        // normal gameplay/export behavior still uses FileAccess so packed resources continue to work.
+        string? managedRoot = Environment.GetEnvironmentVariable(ResourceRootEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(managedRoot)
+            && resourcePath.StartsWith("res://", StringComparison.OrdinalIgnoreCase))
+        {
+            string relative = resourcePath["res://".Length..]
+                .Replace('/', Path.DirectorySeparatorChar);
+            string absolute = Path.Combine(managedRoot, relative);
+            if (!File.Exists(absolute))
+            {
+                throw new InvalidOperationException($"World override file was not found: {absolute}");
+            }
+            return File.ReadAllText(absolute);
+        }
+
+        if (!Godot.FileAccess.FileExists(resourcePath))
+        {
+            throw new InvalidOperationException($"World override file was not found: {resourcePath}");
+        }
+        return Godot.FileAccess.GetFileAsString(resourcePath);
+    }
 }
