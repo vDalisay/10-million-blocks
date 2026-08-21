@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Save;
@@ -6,13 +7,17 @@ using TenMillionBlocks.Save;
 namespace TenMillionBlocks.Tutorial;
 
 /// <summary>
-/// Minimal contextual tutorial presenter. It consumes semantic events instead of being embedded in
-/// mechanics, persists one-time milestones, and deliberately stays silent in main-game worlds except
-/// for the authored world-start intro. Final copy/art can be replaced without touching simulation.
+/// Contextual tutorial presenter. It consumes semantic events instead of being embedded in mechanics,
+/// persists one-time milestones, and deliberately stays silent in main-game worlds except for the
+/// authored world-start intro. Tips are queued so two milestones reached in quick succession cannot
+/// overwrite each other before the player has had a chance to read them.
 /// </summary>
 public partial class TutorialDirector : CanvasLayer
 {
     private const double DefaultVisibleSeconds = 6.5;
+    private const double WorldStartVisibleSeconds = 8.5;
+
+    private readonly record struct TutorialMessage(string Title, string Body, double VisibleSeconds);
 
     private WorldProfile _profile = null!;
     private GameSaveData _save = null!;
@@ -20,6 +25,7 @@ public partial class TutorialDirector : CanvasLayer
     private PanelContainer _panel = null!;
     private Label _title = null!;
     private Label _body = null!;
+    private readonly Queue<TutorialMessage> _pending = new();
     private double _hideTimer;
 
     public event Action? StateChanged;
@@ -47,7 +53,10 @@ public partial class TutorialDirector : CanvasLayer
     {
         if (!_panel.Visible || _hideTimer <= 0.0) return;
         _hideTimer -= Math.Max(0.0, delta);
-        if (_hideTimer <= 0.0) _panel.Visible = false;
+        if (_hideTimer <= 0.0)
+        {
+            DismissCurrent(showNext: true);
+        }
     }
 
     private void BuildUi()
@@ -96,7 +105,7 @@ public partial class TutorialDirector : CanvasLayer
             CustomMinimumSize = new Vector2(30, 30),
             TooltipText = "Dismiss",
         };
-        close.Pressed += () => _panel.Visible = false;
+        close.Pressed += () => DismissCurrent(showNext: true);
         header.AddChild(close);
         column.AddChild(header);
 
@@ -117,19 +126,52 @@ public partial class TutorialDirector : CanvasLayer
         if (!_save.SeenTutorialEvents.Add(milestone)) return;
 
         StateChanged?.Invoke();
-        _title.Text = title;
-        _body.Text = body;
+        var message = new TutorialMessage(
+            title,
+            body,
+            gameplayEvent.Kind == GameplayEventKind.WorldStarted
+                ? WorldStartVisibleSeconds
+                : DefaultVisibleSeconds);
+
+        if (_panel.Visible)
+        {
+            _pending.Enqueue(message);
+            return;
+        }
+
+        ShowMessage(message);
+    }
+
+    private void ShowMessage(TutorialMessage message)
+    {
+        _title.Text = message.Title;
+        _body.Text = message.Body;
         _panel.Visible = true;
         _panel.Modulate = Colors.White;
         _panel.Scale = Vector2.One;
         _panel.PivotOffset = _panel.Size * 0.5f;
-        _hideTimer = gameplayEvent.Kind == GameplayEventKind.WorldStarted ? 8.5 : DefaultVisibleSeconds;
+        _hideTimer = message.VisibleSeconds;
 
         _panel.Scale = Vector2.One * 0.96f;
         Tween tween = CreateTween();
         tween.SetEase(Tween.EaseType.Out);
         tween.SetTrans(Tween.TransitionType.Back);
         tween.TweenProperty(_panel, "scale", Vector2.One, 0.20f);
+    }
+
+    private void DismissCurrent(bool showNext)
+    {
+        _hideTimer = 0.0;
+        _panel.Visible = false;
+        if (!showNext || _pending.Count == 0) return;
+
+        // Defer by one frame so the outgoing Control has a clean visibility boundary. This avoids a
+        // same-frame close/open flicker while still making queued guidance feel continuous.
+        TutorialMessage next = _pending.Dequeue();
+        Callable.From(() =>
+        {
+            if (IsInsideTree()) ShowMessage(next);
+        }).CallDeferred();
     }
 
     private bool TryMessage(GameplayEvent gameplayEvent, out string title, out string body)
