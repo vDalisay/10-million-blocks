@@ -37,6 +37,7 @@ public partial class MinerSimulationService
             MinerStopReason.BlockedMaterial => DescribeBlockedMaterial(miner.BlockedBlockId),
             MinerStopReason.BlockedFeature when miner.BlockedBlockId == "tree" =>
                 "blocked by a tree; clear it manually or with the Forest Cutter",
+            MinerStopReason.BlockedTerrain => DescribeShovelTerrainBlocker(miner.BlockedBlockId),
             MinerStopReason.NoReachableTarget when IsShovel(_catalog.Get(miner.DefinitionId)) =>
                 "stopped: no reachable shovel terrain",
             MinerStopReason.NoTreeTarget => "stopped: no reachable tree target",
@@ -51,7 +52,7 @@ public partial class MinerSimulationService
             // Deep drill blockers are easier to understand from their tunnel entrance.
             return miner.Origin;
         }
-        if (miner.StopReason == MinerStopReason.BlockedFeature)
+        if (miner.StopReason is MinerStopReason.BlockedFeature or MinerStopReason.BlockedTerrain)
         {
             return miner.BlockedVoxel;
         }
@@ -90,10 +91,32 @@ public partial class MinerSimulationService
         return $"blocked by {blockId}; clear it manually or unlock a compatible tool";
     }
 
+    private string DescribeShovelTerrainBlocker(string blockId)
+    {
+        if (IsWaterId(blockId)) return "blocked by water; clear it manually or route the Shovel around the lake";
+        if (IsStoneId(blockId)) return "blocked by stone; clear it manually or with a stone-capable tool";
+        return string.IsNullOrWhiteSpace(blockId)
+            ? "blocked by a physical surface obstruction"
+            : $"blocked by {blockId}; clear the obstruction to resume the Shovel";
+    }
+
+    private bool IsWaterId(string blockId)
+        => blockId == _world.Profile.WaterBlock
+            || blockId == _world.Profile.ShallowWaterBlock
+            || blockId == _world.Profile.DeepWaterBlock;
+
+    private bool IsStoneId(string blockId)
+    {
+        if (blockId == _world.Profile.StoneBlock || blockId == _world.Profile.DarkStoneBlock) return true;
+        if (string.IsNullOrWhiteSpace(blockId)) return false;
+        return _mining.GetBlockDefinition(blockId).Tags.Contains("stone", StringComparer.Ordinal);
+    }
+
     private static bool NeedsAttention(MinerInstance miner)
         => miner.Exhausted && miner.StopReason is
             MinerStopReason.BlockedMaterial or
             MinerStopReason.BlockedFeature or
+            MinerStopReason.BlockedTerrain or
             MinerStopReason.NoReachableTarget or
             MinerStopReason.NoTreeTarget;
 
@@ -103,17 +126,20 @@ public partial class MinerSimulationService
         Vector3I blockedVoxel = default,
         string blockedBlockId = "")
     {
-        // A primitive Shovel previously reported only "no reachable target" when the next otherwise
-        // valid soft surface was occupied by a tree. Preserve the generic stop when terrain truly ends,
-        // but promote a nearby tree into an explicit feature blocker so tutorial/UI logic can explain
-        // the actual obstruction and automatically resume after the feature is cleared.
+        // The pathfinder only returns eligible soft cells. When none exists, inspect the same reachable
+        // surface vocabulary once more for the first meaningful obstruction so attention/tutorial UI can
+        // distinguish tree, water and stone from a route that simply ran out of terrain.
         if (reason == MinerStopReason.NoReachableTarget
             && IsShovel(_catalog.Get(miner.DefinitionId))
-            && TryFindTreeBlockedShovelSurface(miner, out Vector3I treeSupport))
+            && TryFindShovelSurfaceBlocker(
+                miner,
+                out MinerStopReason classifiedReason,
+                out Vector3I classifiedVoxel,
+                out string classifiedBlocker))
         {
-            reason = MinerStopReason.BlockedFeature;
-            blockedVoxel = treeSupport;
-            blockedBlockId = "tree";
+            reason = classifiedReason;
+            blockedVoxel = classifiedVoxel;
+            blockedBlockId = classifiedBlocker;
         }
 
         bool wasAttention = NeedsAttention(miner);
@@ -134,9 +160,16 @@ public partial class MinerSimulationService
         }
     }
 
-    private bool TryFindTreeBlockedShovelSurface(MinerInstance miner, out Vector3I blocked)
+    private bool TryFindShovelSurfaceBlocker(
+        MinerInstance miner,
+        out MinerStopReason reason,
+        out Vector3I blocked,
+        out string blockId)
     {
+        reason = MinerStopReason.None;
         blocked = default;
+        blockId = string.Empty;
+
         Vector3I start = miner.BlocksMined > 0 ? miner.LastMinedVoxel : miner.Origin;
         Vector3I outward = -LineMiningPattern.Cardinal(miner.Direction);
         (Vector3I tangentA, Vector3I tangentB) = LineMiningPattern.PerpendicularAxes(outward);
@@ -161,16 +194,38 @@ public partial class MinerSimulationService
                         BlockSample sample = _world.SampleVoxel(candidate);
                         if (!sample.Present
                             || !_world.IsExposed(candidate)
-                            || !IsShovelMaterial(sample)
                             || _world.Source.GetOutwardNormal(candidate) != outward)
                         {
                             continue;
                         }
 
-                        if (_world.Source.TrySampleTree(candidate, out FeatureSample feature)
-                            && feature.OutwardNormal == outward)
+                        if (IsShovelMaterial(sample))
                         {
+                            if (_world.Source.TrySampleTree(candidate, out FeatureSample feature)
+                                && feature.OutwardNormal == outward)
+                            {
+                                reason = MinerStopReason.BlockedFeature;
+                                blocked = candidate;
+                                blockId = "tree";
+                                return true;
+                            }
+
+                            BlockSample outwardObstruction = _world.SampleVoxel(candidate + outward);
+                            if (outwardObstruction.Present)
+                            {
+                                reason = MinerStopReason.BlockedTerrain;
+                                blocked = candidate + outward;
+                                blockId = outwardObstruction.BlockId;
+                                return true;
+                            }
+                            continue;
+                        }
+
+                        if (IsWaterId(sample.BlockId) || IsStoneId(sample.BlockId))
+                        {
+                            reason = MinerStopReason.BlockedTerrain;
                             blocked = candidate;
+                            blockId = sample.BlockId;
                             return true;
                         }
                     }
@@ -224,6 +279,13 @@ public partial class MinerSimulationService
             return !_world.Source.TrySampleTree(miner.BlockedVoxel, out _);
         }
 
+        if (miner.StopReason == MinerStopReason.BlockedTerrain)
+        {
+            // Shovel terrain capability itself does not widen. Resume only when the exact physical
+            // obstruction was removed, after which normal pathfinding decides where to continue.
+            return !_world.IsPresent(miner.BlockedVoxel);
+        }
+
         if (miner.StopReason != MinerStopReason.BlockedMaterial || !IsPrimaryDrill(_catalog.Get(miner.DefinitionId)))
         {
             return false;
@@ -249,7 +311,9 @@ public partial class MinerSimulationService
         foreach (MinerInstance miner in _miners)
         {
             if (miner.Exhausted
-                && miner.StopReason is MinerStopReason.BlockedMaterial or MinerStopReason.BlockedFeature
+                && miner.StopReason is MinerStopReason.BlockedMaterial
+                    or MinerStopReason.BlockedFeature
+                    or MinerStopReason.BlockedTerrain
                 && BlockerIsNowSupported(miner))
             {
                 ResumeMiner(miner);
