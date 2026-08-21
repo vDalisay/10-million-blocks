@@ -6,13 +6,13 @@ This review targets the 40³/50³ demo worlds and the 100³ / 1,000,000-block de
 
 1. **Profile before guessing** — retained the F9 runtime HUD and expanded it with pooled mining-FX active/pool/drop counters. Existing chunk-build, GC, cache, resident/presented chunk, automation-presentation, and feedback metrics remain the primary regression signal.
 2. **Batch repeated geometry / reduce draw calls** — terrain already uses per-chunk MultiMeshes. Mining debris now uses one MultiMesh per burst rather than 7–9 MeshInstance3D nodes; the entire mining-selection footprint is also one MultiMesh.
-3. **Pool short-lived effects** — manual/replay mine-pop meshes and debris bursts are pooled with hard active caps. Existing incremental pickup flights were already pooled. Automation debris still uses a standalone burst container, but now shares geometry/materials and contains a single MultiMesh instead of per-particle nodes.
+3. **Pool short-lived effects** — manual/replay mine-pop meshes and debris bursts are pooled with hard active caps. Existing incremental pickup flights were already pooled. Automation now routes through the same WorldView debris pool instead of allocating its own burst containers.
 4. **Cull work that cannot contribute pixels** — mining pop/debris is rejected before acquisition when behind the camera or outside a padded viewport. Full-surface chunk visibility remains camera-dependent and now skips redundant rescans when the camera and resident set did not change.
 5. **Reduce managed allocations and GC pressure** — replay dirty-voxel lists and renderer dirty-chunk sets are reused. Per-pop Tweens were removed. Large save JSON is streamed directly to/from files instead of materializing a complete JSON string first.
 6. **Use compact/data-oriented state** — per-chunk mined state now uses a fixed bitset instead of HashSet<int>. Save snapshot compatibility is preserved by converting the bitset to the existing sorted-index representation only when a snapshot is requested.
 7. **Time-slice expensive world work** — existing chunk loading/rebuild queues already stage expensive initial and modified chunk work across frames with explicit build budgets. This remains preferable to creating Godot rendering nodes from worker threads.
 8. **Spatial partitioning / streaming** — existing chunk + region addressing, shell rendering, streamed detail, macro context, and deferred off-screen automation are retained. These are the correct foundations for larger-than-demo worlds.
-9. **Reuse immutable resources** — debris fragments share one BoxMesh and one material globally; block assets remain registry-cached/preloaded. Avoid per-effect materials/meshes in future particle-like systems.
+9. **Reuse immutable resources** — debris fragments share one BoxMesh and one material globally; block assets remain registry-cached/preloaded. Drill/Axe/Pickaxe primitive meshes and materials are now shared by every physical automation instance as well.
 10. **Bound cosmetic work independently from simulation** — authoritative mining is never dropped, but cosmetic pop/debris has active caps and off-screen suppression. This prevents high automation/replay speeds from turning presentation into the simulation bottleneck.
 
 ## Second implementation review pass
@@ -33,6 +33,24 @@ A second static review followed the first pooling/batching pass and focused on w
 
 These changes deliberately preserve authoritative mining, rewards, save data, replay order, generation and visual semantics. They target scheduling, duplicate work, allocation rate and hidden presentation only.
 
+## Third implementation review pass
+
+The third pass concentrated on automation fleets and the state/event paths that become disproportionately expensive once dozens or hundreds of physical miners are active.
+
+- **Automation instance lookup is indexed.** A persistent instance-id dictionary replaces repeated linear `FirstOrDefault` / `Find` / `Contains` searches in rotor animation, attention highlighting and move validation. Per-frame rotor work is now O(rotors) rather than O(rotors × miners).
+- **Built-in mining-pattern indexing is O(1).** `line`, `wide_line` and `surface_strip` candidates are calculated directly from `CandidateIndex`; only unknown future custom patterns retain the enumerator fallback. Long-lived generic miners no longer re-enumerate their entire route prefix for every step.
+- **Automation debris uses the shared WorldView pool.** Live miners now submit explicit-direction debris to the same capped/cullable pool as manual/replay mining. This removes the last per-action `DrillDebrisBurst` container allocation and avoids a redundant procedural normal lookup at cube seams.
+- **Automation visual updates are coalesced.** A fast miner may advance several work units in one rendered frame, and offline progress may execute tens of thousands of operations. Transform/scale/visibility work is now deferred and flushed once per touched miner rather than once per work unit.
+- **Automation geometry/material resources are immutable and shared.** Drill housing, rotor, blades, axe and pickaxe meshes/materials are authored in one-block units and scaled per world. Placing another machine creates scene nodes, but no longer creates another full set of Mesh and Material resources.
+- **Simulation scheduling is fair under saturation.** All active miners accrue elapsed time every frame, then the mutation budget is consumed round-robin from a persistent cursor. A fleet larger than `MaxMiningOperationsPerFrame` can no longer starve units placed later in the list.
+- **Offline progress uses the same fairness rule.** Exhausted miners are skipped instead of terminating the entire offline pass, all active units receive the elapsed duration before the CPU operation cap is applied, and capped work is distributed round-robin. Remaining backlog stays in `WorkAccumulator` rather than silently losing elapsed time.
+- **High-rate currency observers are batched.** Currency remains authoritative immediately and `BlockMined` remains exact per block, but `CurrencyChanged` fan-out is coalesced across one automation simulation batch or one manual footprint. A 10×10 manual footprint or dense automation frame no longer wakes every currency observer dozens of times with intermediate values.
+- **Ambient stopped-miner hover performs one terrain DDA.** Terrain occlusion under the pointer is common to all candidate machines, so it is raycast once and reused while comparing candidates instead of raycasting again for each overlapping stopped miner.
+- **Ordinary world-state reads skip unnecessary region math.** Exact worlds normally contain no exhausted aggregate regions. `WorldStateStore.IsMined` now avoids computing a `RegionCoord` until aggregate exhaustion actually exists, removing signed floor divisions from the hottest voxel-sampling path in the demo/full-surface worlds.
+- **Known center samples propagate farther.** Placement, shovel/tree checks, automated mining and bomb exposure use `IsExposed(coordinate, sample)` / known-sample mining overloads so the mandatory six-neighbour test does not also re-read the center voxel.
+
+This pass also fixed a correctness problem exposed by the performance review: offline progress previously `break`-ed when it encountered the first exhausted miner, which could prevent every later active miner from receiving any offline work.
+
 ## Remaining large-world ceiling
 
 The most important remaining architectural cost is **exact modified-chunk reconstruction**. A dirty chunk currently replaces its renderer root and rebuilds its MultiMesh batches. The work is frame-budgeted and coalesced, so it is safe for the reviewed demo worlds, but sustained high-rate visible mining in a 100³ world can still make chunk reconstruction the dominant frame-time cost.
@@ -41,12 +59,9 @@ Before increasing the product world beyond the current 100³ target, profile F9 
 
 Additional review findings worth addressing only when profiling shows they matter:
 
-- `MinerSimulationService` currently searches the miner list for each rotor during its per-frame visual update. With a very large physical miner count, an instance-id dictionary would remove this O(miners × rotors) lookup pattern.
-- Generic mining-pattern `CandidateAt` re-enumerates a pattern from index zero to the requested index. Long-range generic miners would benefit from direct indexed candidate calculation/cursors rather than repeated prefix enumeration.
-- Automation debris still constructs a short-lived `DrillDebrisBurst` container even though its fragments already share one MultiMesh/material. Routing automation through the same `WorldView` debris pool used by manual/replay mining would remove that final effect-container churn.
 - Save schema 3 still expands mined chunk bitsets into JSON integer arrays at snapshot time for compatibility. If million-block saves become a measurable hitch or disk-size problem, a future save schema should serialize compact words/ranges rather than one JSON number per mined local index.
-
-These are intentionally separated from the low-risk pass because the first three touch the large central automation/renderer implementation and the last changes persistent save representation. They should be driven by F9/runtime measurements rather than changed speculatively.
+- `ProceduralWorldSource` keeps deterministic face-column/raw-terrain dictionaries for the life of a world. This is reasonable for the current 100³ target, but a substantially larger future cube should either bound those caches or replace them with a fixed direct-mapped cache like `VirtualWorld` already uses.
+- Exact full-surface chunk reconstruction remains the next change with enough architectural risk that it should be driven by an F9 trace rather than rewritten without local frame-time evidence.
 
 ## Validation
 
