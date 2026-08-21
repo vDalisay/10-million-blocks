@@ -21,6 +21,7 @@ public sealed class WorldFeatureOverrideDefinition
     public int X { get; set; }
     public int Y { get; set; }
     public int Z { get; set; }
+    public bool Present { get; set; } = true;
     public string BlockId { get; set; } = "tree";
     public int NormalX { get; set; }
     public int NormalY { get; set; } = 1;
@@ -30,7 +31,9 @@ public sealed class WorldFeatureOverrideDefinition
 /// <summary>
 /// Sparse authored corrections layered over a deterministic base generator. Approved worlds keep a
 /// compact set of hand-authored replacements/carves plus support-owned surface features without
-/// materializing the untouched cube into save or content data.
+/// materializing the untouched cube into save or content data. Feature entries may explicitly suppress
+/// a generated feature, which lets the authoring tool remove an unwanted procedural tree without
+/// changing the generator or filling the world with special-case voxel data.
 /// </summary>
 public sealed class WorldOverrideSet
 {
@@ -47,17 +50,21 @@ public sealed class WorldOverrideSet
 
     private readonly Dictionary<Vector3I, BlockSample> _voxels;
     private readonly Dictionary<Vector3I, FeatureSample> _features;
+    private readonly HashSet<Vector3I> _suppressedFeatures;
 
     private WorldOverrideSet(
         Dictionary<Vector3I, BlockSample> voxels,
-        Dictionary<Vector3I, FeatureSample> features)
+        Dictionary<Vector3I, FeatureSample> features,
+        HashSet<Vector3I> suppressedFeatures)
     {
         _voxels = voxels;
         _features = features;
+        _suppressedFeatures = suppressedFeatures;
     }
 
     public int Count => _voxels.Count;
     public int FeatureCount => _features.Count;
+    public int SuppressedFeatureCount => _suppressedFeatures.Count;
 
     public static WorldOverrideSet? Load(WorldProfile profile)
     {
@@ -114,15 +121,24 @@ public sealed class WorldOverrideSet
         }
 
         var features = new Dictionary<Vector3I, FeatureSample>();
+        var suppressedFeatures = new HashSet<Vector3I>();
+        var seenFeatures = new HashSet<Vector3I>();
         foreach (WorldFeatureOverrideDefinition item in document.Features)
         {
             var anchor = new Vector3I(item.X, item.Y, item.Z);
-            var normal = new Vector3I(item.NormalX, item.NormalY, item.NormalZ);
-            if (features.ContainsKey(anchor))
+            if (!seenFeatures.Add(anchor))
             {
                 throw new InvalidOperationException(
                     $"World override file '{profile.OverrideFile}' contains duplicate feature anchor {anchor}.");
             }
+
+            if (!item.Present)
+            {
+                suppressedFeatures.Add(anchor);
+                continue;
+            }
+
+            var normal = new Vector3I(item.NormalX, item.NormalY, item.NormalZ);
             if (string.IsNullOrWhiteSpace(item.BlockId))
             {
                 throw new InvalidOperationException($"World feature {anchor} has no block id.");
@@ -137,8 +153,9 @@ public sealed class WorldOverrideSet
         }
 
         GD.Print(
-            $"Loaded {voxels.Count} sparse voxel overrides and {features.Count} authored features for '{profile.Id}'.");
-        return new WorldOverrideSet(voxels, features);
+            $"Loaded {voxels.Count} sparse voxel overrides, {features.Count} authored features and " +
+            $"{suppressedFeatures.Count} feature suppressions for '{profile.Id}'.");
+        return new WorldOverrideSet(voxels, features, suppressedFeatures);
     }
 
     public BlockSample Apply(Vector3I coordinate, BlockSample generated)
@@ -149,4 +166,7 @@ public sealed class WorldOverrideSet
 
     public bool TryGetFeature(Vector3I anchor, out FeatureSample feature)
         => _features.TryGetValue(anchor, out feature);
+
+    public bool SuppressesFeature(Vector3I anchor)
+        => _suppressedFeatures.Contains(anchor);
 }
