@@ -75,6 +75,7 @@ public sealed class SkillTreeCatalog
         "set_shovel_height_tolerance",
         "set_shovel_search_radius",
         "unlock_resource_filter",
+        "unlock_auto_cloud_charger",
     };
 
     private static readonly HashSet<string> KnownPurchaseModes = new(StringComparer.Ordinal)
