@@ -5,26 +5,28 @@ namespace TenMillionBlocks.World.Rendering;
 
 public partial class WorldView
 {
+    private readonly HashSet<ChunkCoord> _dirtyBatchScratch = new();
+
     /// <summary>
     /// Coalesces a large authoritative mutation set into unique affected chunks before scheduling
-    /// rebuilds. Replay/world-event systems can remove hundreds of voxels in one logical burst without
-    /// paying seven HashSet insert paths per voxel all the way into the renderer queue.
+    /// rebuilds. The scratch set is retained and cleared between calls so replay/world-event bursts do
+    /// not allocate a new HashSet every rendered frame.
     /// </summary>
     public void MarkDirtyBatch(IEnumerable<Vector3I> voxels)
     {
         int chunkSize = _world.Profile.ChunkSize;
-        var chunks = new HashSet<ChunkCoord>();
+        _dirtyBatchScratch.Clear();
 
         foreach (Vector3I voxel in voxels)
         {
-            chunks.Add(ChunkCoord.FromVoxel(voxel, chunkSize));
+            _dirtyBatchScratch.Add(ChunkCoord.FromVoxel(voxel, chunkSize));
             foreach (Vector3I direction in VoxelMath.Neighbors)
             {
-                chunks.Add(ChunkCoord.FromVoxel(voxel + direction, chunkSize));
+                _dirtyBatchScratch.Add(ChunkCoord.FromVoxel(voxel + direction, chunkSize));
             }
         }
 
-        foreach (ChunkCoord chunk in chunks)
+        foreach (ChunkCoord chunk in _dirtyBatchScratch)
         {
             MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
         }
