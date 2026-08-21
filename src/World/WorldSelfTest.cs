@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Mining;
 using TenMillionBlocks.World.Generation;
+using TenMillionBlocks.World.Rendering;
 using TenMillionBlocks.World.Storage;
 
 namespace TenMillionBlocks.World;
@@ -21,8 +24,15 @@ public static class WorldSelfTest
         BlockSample first = source.SampleVoxel(probe);
         BlockSample second = source.SampleVoxel(probe);
         Assert(first.Equals(second), "procedural generator determinism");
+        Assert(WorldView.ResolveTerrainVisualBlockId("grass", "grass", "dirt_grass", "dirt", false) == "dirt_grass",
+            "ordinary surface grass keeps a brown core");
+        Assert(WorldView.ResolveTerrainVisualBlockId("dirt", "grass", "dirt_grass", "dirt", true) == "grass_outer",
+            "perimeter dirt uses stable solid green");
+        Assert(WorldView.ResolveTerrainVisualBlockId("dirt", "grass", "dirt_grass", "dirt", false) == "dirt",
+            "non-perimeter dirt remains brown");
 
         ValidateSingleBlockTutorial(catalog.Get("tutorial_single_block"));
+        ValidateManualMiningFootprint(catalog.Get("tutorial_dirt_5"));
         ValidateReferenceEcology(reference, source);
         ValidateSparseState(reference);
         ValidateStressScale(catalog.Get("stress_1000"));
@@ -42,6 +52,22 @@ public static class WorldSelfTest
         Assert(world.RemainingMineableBlocks == 0L, "tutorial block completes the world");
         Assert(!profile.SkillTreeAvailable && !profile.AutomationAvailable,
             "tutorial progression systems remain unavailable");
+    }
+
+    private static void ValidateManualMiningFootprint(WorldProfile profile)
+    {
+        var world = new VirtualWorld(profile);
+        Vector3I center = new(0, 2, 0);
+        IReadOnlyList<Vector3I> footprint = ManualMiningFootprint.ResolveFromCenter(
+            world,
+            center,
+            ManualMiningFootprintKind.Square3,
+            Vector3I.Up);
+        Assert(footprint.Count == 9 && footprint[0] == center, "3x3 footprint stays centred on raycast hit");
+        foreach (Vector3I voxel in footprint)
+        {
+            Assert(voxel.Y == center.Y, "3x3 footprint stays on raycast face plane");
+        }
     }
 
     private static void ValidateSparseState(WorldProfile reference)

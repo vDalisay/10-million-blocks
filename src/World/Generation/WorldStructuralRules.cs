@@ -8,8 +8,7 @@ namespace TenMillionBlocks.World.Generation;
 /// Final deterministic structural pass shared by gameplay, authoring metrics and generation CI.
 /// ProceduralWorldSource owns the broad terrain language; this pass enforces hard visual/voxel
 /// invariants that must never depend on a lucky seed: water is a single inset surface layer with a
-/// solid basin immediately behind it, every visible shoreline is sand, and the literal outer cube
-/// border never uses dirt-sided grass.
+/// solid basin immediately behind it, and every visible shoreline is sand.
 /// </summary>
 public static class WorldStructuralRules
 {
@@ -88,22 +87,6 @@ public static class WorldStructuralRules
                 if (radial < waterRadial + 1) continue;
                 if (!HasAdjacentWaterColumn(profile, source, normal, u, v, waterRadial)) continue;
                 return new BlockSample(true, profile.SandBlock, generated.Mineable);
-            }
-        }
-
-        // The literal perimeter where two cube faces meet is read from several camera angles. A normal
-        // dirt-sided grass block (and occasionally the first soil block beneath it) exposes a brown
-        // third face there. Keep only that outer one-block border uniformly green; real inland ledges
-        // still use the dirt-sided material.
-        if (generated.Present
-            && (generated.BlockId == profile.SurfaceEdgeBlock || generated.BlockId == profile.SoilBlock))
-        {
-            foreach (Vector3I normal in FaceNormals)
-            {
-                GetFaceTangents(coordinate, normal, out int u, out int v, out int radial);
-                if (radial < Math.Max(0, faceBorder - 1)) continue;
-                if (Math.Max(Math.Abs(u), Math.Abs(v)) < faceBorder) continue;
-                return new BlockSample(true, profile.SurfaceBlock, generated.Mineable);
             }
         }
 

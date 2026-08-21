@@ -549,10 +549,11 @@ public partial class WorldView : Node3D
                 continue;
             }
 
-            Basis blockBasis = ShouldOrientToCubeFace(sample.BlockId)
+            string visualBlockId = ResolveSurfaceVisualBlockId(voxel, sample.BlockId);
+            Basis blockBasis = ShouldOrientToCubeFace(visualBlockId)
                 ? BasisForNormal(actualNormal)
                 : Basis.Identity;
-            AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
+            AddTransform(batches, visualBlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
             if (includeFeatures
                 && (sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
@@ -648,10 +649,11 @@ public partial class WorldView : Node3D
             }
 
             Vector3I outward = _world.Source.GetOutwardNormal(voxel);
-            Basis blockBasis = ShouldOrientToCubeFace(sample.BlockId)
+            string visualBlockId = ResolveSurfaceVisualBlockId(voxel, sample.BlockId);
+            Basis blockBasis = ShouldOrientToCubeFace(visualBlockId)
                 ? BasisForNormal(outward)
                 : Basis.Identity;
-            AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
+            AddTransform(batches, visualBlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
             if ((sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
                 && _world.Source.TrySampleTree(voxel, out FeatureSample feature)

@@ -239,16 +239,15 @@ public partial class ManualMiningController : Node3D
             _camera.Camera,
             mouse,
             rayDistance,
-            out Vector3I voxel))
+            out Vector3I voxel,
+            out Vector3I surfaceNormal))
         {
             _hoveredVoxel = voxel;
-            _hoverTargets = ManualMiningFootprint.ResolveScreenSpace(
+            _hoverTargets = ManualMiningFootprint.ResolveFromCenter(
                 _world,
-                _camera.Camera,
-                mouse,
-                rayDistance,
                 voxel,
-                _skills.Derived.ManualFootprint);
+                _skills.Derived.ManualFootprint,
+                surfaceNormal);
             _highlight.ShowVoxels(_hoverTargets);
         }
         else

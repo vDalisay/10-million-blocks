@@ -425,7 +425,7 @@ public sealed class ProceduralWorldSource
 
             if (IsCubeOuterSeam(coordinate))
             {
-                return new BlockSample(true, _profile.SurfaceBlock, true);
+                return new BlockSample(true, _profile.SoilBlock, true);
             }
 
             return new BlockSample(

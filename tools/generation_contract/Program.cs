@@ -55,6 +55,15 @@ static bool IsWater(WorldProfile p, string id)
 static int Radial(Vector3I voxel, Vector3I normal)
     => normal.X != 0 ? voxel.X * normal.X : normal.Y != 0 ? voxel.Y * normal.Y : voxel.Z * normal.Z;
 
+static bool IsCubeOuterSeam(Vector3I voxel)
+{
+    int ax = Math.Abs(voxel.X);
+    int ay = Math.Abs(voxel.Y);
+    int az = Math.Abs(voxel.Z);
+    int outer = Math.Max(ax, Math.Max(ay, az));
+    return outer > 0 && (ax == outer ? 1 : 0) + (ay == outer ? 1 : 0) + (az == outer ? 1 : 0) >= 2;
+}
+
 static void Require(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
@@ -154,6 +163,18 @@ static long ValidateProfile(WorldProfile profile)
         Vector3I normal = WorldStructuralRules.DominantNormal(voxel);
         WorldStructuralRules.GetFaceTangents(voxel, normal, out int u, out int v, out int radial);
 
+        BlockSample raw = world.Source.SampleVoxel(voxel);
+        Require(!(IsCubeOuterSeam(voxel) && raw.BlockId == profile.SurfaceBlock),
+            $"Cube seam at {voxel} generated textured surface grass instead of dirt in {profile.Id}.");
+        if (raw.Present
+            && radial >= Math.Max(0, faceBorder - 1)
+            && Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder
+            && (raw.BlockId == profile.SoilBlock || raw.BlockId == profile.SurfaceEdgeBlock))
+        {
+            Require(sample.BlockId == raw.BlockId,
+                $"Perimeter terrain at {voxel} changed from '{raw.BlockId}' to '{sample.BlockId}' in {profile.Id}; appearance must stay presentation-only.");
+        }
+
         if (IsWater(profile, sample.BlockId))
         {
             Require(radial == expectedWaterRadial,
@@ -175,9 +196,6 @@ static long ValidateProfile(WorldProfile profile)
         Require(
             world.SampleVoxel(inwardSolid).Present,
             $"Unsupported terrain at {voxel} ({sample.BlockId}); inward support {inwardSolid} is empty in {profile.Id}, seed {profile.Seed}.");
-        Require(
-            !(sample.BlockId == profile.SurfaceEdgeBlock && Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder),
-            $"Outer face border at {voxel} used dirt-sided surface-edge material in {profile.Id}, seed {profile.Seed}.");
     }
 
     Vector3I[] faces =
@@ -199,13 +217,6 @@ static long ValidateProfile(WorldProfile profile)
 
         foreach (((int u, int v), (Vector3I voxel, BlockSample sample)) in cells)
         {
-            if (sample.BlockId == profile.SurfaceEdgeBlock
-                && Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder)
-            {
-                throw new InvalidOperationException(
-                    $"Visible outer line on face {face} at {voxel} is dirt-sided instead of uniform '{profile.SurfaceBlock}'.");
-            }
-
             if (!IsWater(profile, sample.BlockId)) continue;
             bool boundary = false;
             int waterRadial = Radial(voxel, face);
