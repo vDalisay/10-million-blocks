@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using TenMillionBlocks.Presentation;
+using TenMillionBlocks.UI;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Rendering;
 
@@ -32,10 +33,10 @@ public partial class PerformanceHud : CanvasLayer
             Visible = false,
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -510.0f,
+            OffsetLeft = -540.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 394.0f,
+            OffsetBottom = 430.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -94,6 +95,11 @@ public partial class PerformanceHud : CanvasLayer
             ? "macro: disabled (real blocks only)"
             : $"macro: {(_view.MacroVisible ? "visible" : "hidden")} opacity {_view.MacroOpacity:0.00}";
 
+        IncrementalFeedbackView? feedback = GetParent()?.GetNodeOrNull<IncrementalFeedbackView>("IncrementalFeedbackView");
+        string feedbackMetrics = feedback is null
+            ? "incremental feedback: unavailable"
+            : $"incremental feedback active/pool: {feedback.ActiveFeedbackCount}/{feedback.PooledFeedbackCount}  spawned/aggregated/dropped: {feedback.SpawnedFeedbackCount:N0}/{feedback.AggregatedFeedbackCount:N0}/{feedback.DroppedFeedbackCount:N0}";
+
         _label.Text =
             "PERFORMANCE [F9]\n" +
             $"world: {_world.Profile.Id}  logical: {_world.Profile.LogicalWidth:N0} x {_world.Profile.LogicalHeight:N0} x {_world.Profile.LogicalDepth:N0}\n" +
@@ -102,6 +108,7 @@ public partial class PerformanceHud : CanvasLayer
             $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
             $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred chunks: {_view.DeferredAutomationChunkCount:N0}\n" +
+            feedbackMetrics + "\n" +
             $"generated sample cache hit/miss: {_world.GeneratedSampleCacheHits:N0}/{_world.GeneratedSampleCacheMisses:N0}  hit rate: {cacheHitPercent:0.0}%\n" +
             $"chunk build ms last/avg: {_view.LastChunkBuildMilliseconds:0.00} / {_view.AverageChunkBuildMilliseconds:0.00}\n" +
             $"chunk builds: {_view.TotalChunkBuilds:N0}  samples: {_view.TotalVoxelCandidatesScanned:N0}\n" +
