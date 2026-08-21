@@ -169,33 +169,24 @@ public partial class WorldCompleteView : CanvasLayer
 
     private void OnReplayPressed()
     {
-        if (_replay.Disabled) return;
-        _replay.Disabled = true;
+        // The global loading screen serializes transitions. Keep this button enabled so a missing or
+        // corrupt replay can recover back to the completion panel instead of leaving a permanently
+        // disabled control after the loader dismisses itself.
         WorldLoadingScreen.RunTransition(this, "LOADING REPLAY", () => ReplayRequested?.Invoke());
     }
 
     private void OnContinuePressed()
     {
-        if (_continue.Disabled) return;
-        _continue.Disabled = true;
-
-        _transition?.Kill();
-        _transition = CreateTween();
-        _transition.SetParallel(true);
-        _transition.SetEase(Tween.EaseType.In);
-        _transition.SetTrans(Tween.TransitionType.Quad);
-        _transition.TweenProperty(_root, "modulate:a", 0.0f, 0.16f);
-        _transition.TweenProperty(_panel, "scale", Vector2.One * 0.97f, 0.16f);
-        _transition.Chain().TweenCallback(Callable.From(() =>
+        if (_hasNextWorld)
         {
-            if (_hasNextWorld)
-            {
-                WorldLoadingScreen.RunTransition(this, "LOADING NEXT WORLD", () => ContinueRequested?.Invoke());
-            }
-            else
-            {
-                ContinueRequested?.Invoke();
-            }
-        }));
+            // Keep the completion panel intact underneath the loader. If the next world fails to build,
+            // the loader can dismiss and the player still has a usable recovery surface.
+            WorldLoadingScreen.RunTransition(this, "LOADING NEXT WORLD", () => ContinueRequested?.Invoke());
+            return;
+        }
+
+        // Terminal completion has no world transition: the GameRoot handler hides this panel and opens
+        // the completed-world browser immediately.
+        ContinueRequested?.Invoke();
     }
 }
