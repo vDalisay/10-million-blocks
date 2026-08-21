@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - agent/one-million-squared-plan
+      - codex/future-world-progression
   pull_request:
     branches:
       - main
