@@ -20,7 +20,9 @@ public partial class WorldView
     /// instances; modified interior chunks follow their nearest outward face.
     ///
     /// This can be requested by several presentation systems. A stationary camera with an unchanged
-    /// resident set now exits immediately instead of rescanning every chunk several times per second.
+    /// resident set exits immediately instead of rescanning every chunk several times per second. When
+    /// a scan is required, shell-face tests are performed directly rather than allocating one yield
+    /// iterator per resident chunk through RelevantFullSurfaceNormals().
     /// </summary>
     public void RefreshViewDependentPresentation()
     {
@@ -55,29 +57,12 @@ public partial class WorldView
 
         foreach ((ChunkCoord chunk, Node3D root) in _chunkRoots)
         {
-            Vector3I min = chunk.MinVoxel(chunkSize);
-            Vector3I centerVoxel = min + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
+            Vector3I minVoxel = chunk.MinVoxel(chunkSize);
+            Vector3I centerVoxel = minVoxel + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
             Vector3 centerWorld = VoxelToWorld(centerVoxel);
             Vector3 toCamera = cameraPosition - centerWorld;
 
-            bool visible = false;
-            bool hadShellNormal = false;
-            foreach (Vector3I normal in RelevantFullSurfaceNormals(chunk))
-            {
-                hadShellNormal = true;
-                if (toCamera.Dot((Vector3)normal) > 0.0f)
-                {
-                    visible = true;
-                    break;
-                }
-            }
-
-            if (!hadShellNormal)
-            {
-                Vector3I outward = _world.Source.GetOutwardNormal(centerVoxel);
-                visible = toCamera.Dot((Vector3)outward) > 0.0f;
-            }
-
+            bool visible = IsFullSurfaceChunkCameraFacing(chunk, centerVoxel, toCamera);
             root.Visible = visible;
             if (visible) presented++;
             else culled++;
@@ -85,5 +70,49 @@ public partial class WorldView
 
         PresentedChunkCount = presented;
         CulledChunkCount = culled;
+    }
+
+    private bool IsFullSurfaceChunkCameraFacing(ChunkCoord chunk, Vector3I centerVoxel, Vector3 toCamera)
+    {
+        int depth = Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
+        int min = _world.MinChunkCoordinate;
+        int max = _world.MaxChunkCoordinate;
+        bool shell = false;
+
+        if (max - chunk.X < depth)
+        {
+            shell = true;
+            if (toCamera.X > 0.0f) return true;
+        }
+        if (chunk.X - min < depth)
+        {
+            shell = true;
+            if (toCamera.X < 0.0f) return true;
+        }
+        if (max - chunk.Y < depth)
+        {
+            shell = true;
+            if (toCamera.Y > 0.0f) return true;
+        }
+        if (chunk.Y - min < depth)
+        {
+            shell = true;
+            if (toCamera.Y < 0.0f) return true;
+        }
+        if (max - chunk.Z < depth)
+        {
+            shell = true;
+            if (toCamera.Z > 0.0f) return true;
+        }
+        if (chunk.Z - min < depth)
+        {
+            shell = true;
+            if (toCamera.Z < 0.0f) return true;
+        }
+
+        if (shell) return false;
+
+        Vector3I outward = _world.Source.GetOutwardNormal(centerVoxel);
+        return toCamera.Dot((Vector3)outward) > 0.0f;
     }
 }
