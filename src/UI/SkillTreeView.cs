@@ -22,6 +22,7 @@ public partial class SkillTreeView : CanvasLayer
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
     private Tween? _transition;
     private double _feedbackTimer;
+    private bool _refreshPending;
 
     public bool IsOpen => _root is not null && _root.Visible;
 
@@ -31,9 +32,14 @@ public partial class SkillTreeView : CanvasLayer
         _mining = mining;
         _manual = manual;
         _profile = manual.WorldProfile;
-        skills.Changed += Refresh;
-        skills.SpecialResources.Changed += Refresh;
-        mining.CurrencyChanged += _ => Refresh();
+
+        // Currency can change dozens of times per rendered frame under automation. The skill tree is
+        // normally hidden, so rebuilding every button label/prerequisite state on every mining event was
+        // pure background work. Events now only dirty the view; an open tree refreshes at most once per
+        // frame and a closed tree refreshes once when it is next opened.
+        skills.Changed += RequestRefresh;
+        skills.SpecialResources.Changed += RequestRefresh;
+        mining.CurrencyChanged += OnCurrencyChanged;
     }
 
     public override void _Ready()
@@ -104,6 +110,11 @@ public partial class SkillTreeView : CanvasLayer
 
     public override void _Process(double delta)
     {
+        if (_refreshPending && IsOpen)
+        {
+            Refresh();
+        }
+
         if (_feedbackTimer <= 0.0 || _feedback is null || string.IsNullOrEmpty(_feedback.Text)) return;
         _feedbackTimer -= delta;
         if (_feedbackTimer <= 0.0)
@@ -240,8 +251,19 @@ public partial class SkillTreeView : CanvasLayer
         Refresh();
     }
 
+    private void RequestRefresh()
+    {
+        _refreshPending = true;
+    }
+
+    private void OnCurrencyChanged(long _)
+    {
+        _refreshPending = true;
+    }
+
     private void Refresh()
     {
+        _refreshPending = false;
         if (_resources is null) return;
         string specials = _skills.SpecialResources.Balances.Count == 0
             ? "none"
