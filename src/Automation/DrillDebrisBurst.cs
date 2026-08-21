@@ -23,6 +23,30 @@ public partial class DrillDebrisBurst : Node3D
         public float Size;
     }
 
+    // System.Random is a managed object. A burst can be emitted many times per second, so allocating a
+    // Random instance for every pooled effect partially defeats the pool. This tiny local xorshift PRNG
+    // keeps the same deterministic seed contract without adding any per-burst garbage.
+    private struct FastRandom
+    {
+        private uint _state;
+
+        public FastRandom(int seed)
+        {
+            _state = unchecked((uint)seed);
+            if (_state == 0) _state = 0xA341316Cu;
+        }
+
+        public float NextFloat()
+        {
+            uint x = _state;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            _state = x;
+            return (x >> 8) * (1.0f / 16777216.0f);
+        }
+    }
+
     private static BoxMesh? _sharedMesh;
     private static StandardMaterial3D? _sharedMaterial;
 
@@ -84,7 +108,7 @@ public partial class DrillDebrisBurst : Node3D
         _gravityDirection = -outward.Normalized();
         _age = 0.0f;
 
-        var random = new Random(seed);
+        var random = new FastRandom(seed);
         _pieceCount = blockId.Contains("water", StringComparison.Ordinal) ? 7 : MaxPieces;
         Vector3 tangentA = MathF.Abs(outward.Dot(Vector3.Up)) > 0.9f
             ? Vector3.Right
@@ -93,10 +117,10 @@ public partial class DrillDebrisBurst : Node3D
 
         for (int i = 0; i < _pieceCount; i++)
         {
-            float sideA = ((float)random.NextDouble() - 0.5f) * spacing * 1.25f;
-            float sideB = ((float)random.NextDouble() - 0.5f) * spacing * 1.25f;
-            float outwardSpeed = spacing * (1.45f + (float)random.NextDouble() * 2.0f);
-            float size = spacing * (0.055f + (float)random.NextDouble() * 0.045f);
+            float sideA = (random.NextFloat() - 0.5f) * spacing * 1.25f;
+            float sideB = (random.NextFloat() - 0.5f) * spacing * 1.25f;
+            float outwardSpeed = spacing * (1.45f + random.NextFloat() * 2.0f);
+            float size = spacing * (0.055f + random.NextFloat() * 0.045f);
 
             _pieces[i] = new DebrisPiece
             {
@@ -104,9 +128,9 @@ public partial class DrillDebrisBurst : Node3D
                 Velocity = outward * outwardSpeed + tangentA * sideA + tangentB * sideB,
                 Rotation = Vector3.Zero,
                 AngularVelocity = new Vector3(
-                    ((float)random.NextDouble() - 0.5f) * 7.0f,
-                    ((float)random.NextDouble() - 0.5f) * 7.0f,
-                    ((float)random.NextDouble() - 0.5f) * 7.0f),
+                    (random.NextFloat() - 0.5f) * 7.0f,
+                    (random.NextFloat() - 0.5f) * 7.0f,
+                    (random.NextFloat() - 0.5f) * 7.0f),
                 Size = size,
             };
 
