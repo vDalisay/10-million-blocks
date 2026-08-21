@@ -15,6 +15,17 @@ public partial class GameRoot
         _pauseMenu.Initialize(graphics, CanOpenPauseMenu);
         _pauseMenu.ReturnToMainMenuRequested += OnPauseReturnToMainMenuRequested;
         AddChild(_pauseMenu);
+
+        // BuildPersistentPresentation creates the completion overlay during _Ready. Attach after that
+        // setup so the ordinary progression handler remains authoritative; this second listener only
+        // handles the special terminal demo action after the final save has been committed.
+        Callable.From(AttachDemoCompletionPolish).CallDeferred();
+    }
+
+    private void AttachDemoCompletionPolish()
+    {
+        if (_completionView is null || !GodotObject.IsInstanceValid(_completionView)) return;
+        _completionView.ContinueRequested += OnCompletionContinuePolish;
     }
 
     private bool CanOpenPauseMenu()
@@ -38,6 +49,24 @@ public partial class GameRoot
             TrySaveCurrentSession(captureFirst: false);
         }
 
+        ReturnToMainMenu();
+    }
+
+    private void OnCompletionContinuePolish()
+    {
+        // The normal completion handler runs first. For an actual final clear it has already marked and
+        // saved reference_ridges; debug completion previews deliberately do not satisfy this condition.
+        if (_world?.Profile.Id != "reference_ridges"
+            || !_save.CompletedWorldIds.Contains("reference_ridges"))
+        {
+            return;
+        }
+
+        ReturnToMainMenu();
+    }
+
+    private void ReturnToMainMenu()
+    {
         _pauseMenu?.Close();
         GetTree().Paused = false;
         Error result = GetTree().ChangeSceneToFile("res://scenes/Main.tscn");
