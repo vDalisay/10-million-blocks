@@ -80,8 +80,11 @@ assert "forest" in worlds["reference_natural"].get("visibleSkillCategories", [])
 assert worlds["reference_natural"].get("visibleSkillIds", []) == [], (
     "active-event automation must not leak into the 20-cube world"
 )
-assert worlds["reference_natural"].get("overrideFile") == "res://data/worlds/overrides/reference_natural_v2.json", (
-    "20-cube world must retain the reviewed special-resource override"
+assert int(worlds["reference_natural"].get("worldVersion", 0)) == 3, (
+    "20-cube reviewed content changed when authored gems were added and must remain on worldVersion 3"
+)
+assert worlds["reference_natural"].get("overrideFile") == "res://data/worlds/overrides/reference_natural_v3.json", (
+    "20-cube world must retain the reviewed version-matched special-resource override"
 )
 for world_id in ("reference_lakes", "reference_ridges"):
     assert worlds[world_id].get("visibleSkillIds", []) == ["cloud_charger_unlock"], (
