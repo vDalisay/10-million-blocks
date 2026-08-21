@@ -185,6 +185,10 @@ public partial class TutorialDirector : CanvasLayer
                 title = "SHOVEL BLOCKED";
                 body = "The Powered Shovel cannot cut stone. A different tool or manual mining is needed here.";
                 return true;
+            case GameplayEventKind.TreeBlockedShovel:
+                title = "TREE BLOCKS THE SHOVEL";
+                body = "A tree owns the surface tile beneath it. Clear that tree manually or with the Forest Cutter; the stopped Shovel will resume when the route opens.";
+                return true;
             case GameplayEventKind.SpecialResourceFound:
                 title = "SPECIAL RESOURCE";
                 body = "Special resources have their own counter. Some transformation upgrades consume them in addition to ordinary resources.";
