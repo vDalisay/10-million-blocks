@@ -179,6 +179,14 @@ public static class WorldStructuralRules
         out string waterBlockId)
     {
         waterBlockId = string.Empty;
+
+        // Reserve one complete dry/sand ring before the literal cube-face border. This means neither
+        // water nor its first shoreline cell can ever consume the edge/corner line that must remain
+        // visually uniform from both adjoining faces.
+        int faceBorder = Math.Max(0, Mathf.FloorToInt(profile.BaseRadius + 0.001f));
+        int maximumWaterTangent = Math.Max(0, faceBorder - 2);
+        if (Math.Max(Math.Abs(u), Math.Abs(v)) > maximumWaterTangent) return false;
+
         for (int radial = profile.MaxCoordinate; radial >= Math.Max(0, minimumRadial); radial--)
         {
             Vector3I rawVoxel = FaceVoxel(normal, radial, u, v);
