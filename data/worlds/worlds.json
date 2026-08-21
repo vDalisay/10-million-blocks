@@ -142,6 +142,7 @@
       "introText": "The first main world: combine manual mining, Shovels, Drills, Forest Cutters and Rock Breakers across a complete generated ecosystem.",
       "worldVersion": 2,
       "generationVersion": 2,
+      "overrideFile": "res://data/worlds/overrides/reference_natural_v2.json",
       "currencyScope": "persistent_main",
       "skillTreeAvailable": true,
       "automationAvailable": true,
