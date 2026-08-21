@@ -30,7 +30,11 @@ public partial class GameRoot
 
     private bool CanOpenPauseMenu()
     {
-        if (!_sessionPersists || _world is null || _completionShown || _replayView is not null)
+        if (WorldLoadingScreen.IsActive
+            || !_sessionPersists
+            || _world is null
+            || _completionShown
+            || _replayView is not null)
         {
             return false;
         }
