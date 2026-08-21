@@ -11,6 +11,7 @@ public partial class ReplayView : CanvasLayer
     private WorldProfile _profile = null!;
     private Label _status = null!;
     private Button _playPause = null!;
+    private HSlider _speedSlider = null!;
 
     public event Action? ExitRequested;
 
@@ -39,7 +40,7 @@ public partial class ReplayView : CanvasLayer
             OffsetLeft = -500.0f,
             OffsetTop = 18.0f,
             OffsetRight = -18.0f,
-            OffsetBottom = 182.0f,
+            OffsetBottom = 270.0f,
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         root.AddChild(panel);
@@ -65,32 +66,58 @@ public partial class ReplayView : CanvasLayer
         _status = new Label();
         column.AddChild(_status);
 
-        var controls = new HBoxContainer();
-        controls.AddThemeConstantOverride("separation", 6);
-        column.AddChild(controls);
+        var transport = new HBoxContainer();
+        transport.AddThemeConstantOverride("separation", 6);
+        column.AddChild(transport);
 
-        _playPause = new Button { CustomMinimumSize = new Vector2(92.0f, 34.0f) };
+        _playPause = new Button { CustomMinimumSize = new Vector2(112.0f, 34.0f) };
         _playPause.Pressed += _player.TogglePlaying;
-        controls.AddChild(_playPause);
+        transport.AddChild(_playPause);
 
         var restart = new Button
         {
             Text = "Restart [R]",
-            CustomMinimumSize = new Vector2(100.0f, 34.0f),
+            CustomMinimumSize = new Vector2(112.0f, 34.0f),
         };
         restart.Pressed += () => _player.Restart(autoplay: true);
-        controls.AddChild(restart);
+        transport.AddChild(restart);
 
-        foreach (double speed in new[] { 1.0, 2.0, 4.0, 8.0, 16.0, 32.0 })
+        var sliderRow = new HBoxContainer();
+        sliderRow.AddThemeConstantOverride("separation", 8);
+        column.AddChild(sliderRow);
+
+        sliderRow.AddChild(new Label
+        {
+            Text = "Speed",
+            CustomMinimumSize = new Vector2(54.0f, 0.0f),
+        });
+
+        _speedSlider = new HSlider
+        {
+            MinValue = ReplayPlayer.MinSpeed,
+            MaxValue = ReplayPlayer.MaxSpeed,
+            Step = 1.0,
+            Value = _player.Speed,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(300.0f, 28.0f),
+        };
+        _speedSlider.ValueChanged += value => _player.SetSpeed(value);
+        sliderRow.AddChild(_speedSlider);
+
+        var presets = new HBoxContainer();
+        presets.AddThemeConstantOverride("separation", 6);
+        column.AddChild(presets);
+
+        foreach (double speed in new[] { 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0 })
         {
             var button = new Button
             {
                 Text = $"{speed:0}x",
-                CustomMinimumSize = new Vector2(48.0f, 34.0f),
+                CustomMinimumSize = new Vector2(54.0f, 34.0f),
             };
             double selected = speed;
             button.Pressed += () => _player.SetSpeed(selected);
-            controls.AddChild(button);
+            presets.AddChild(button);
         }
 
         var exit = new Button
@@ -139,5 +166,9 @@ public partial class ReplayView : CanvasLayer
             $"{state}  |  {_player.Speed:0}x  |  {_player.CurrentSeconds:0.0}s / {_player.DurationSeconds:0.0}s  |  " +
             $"{_player.AppliedEventCount:N0}/{_player.EventCount:N0} removals";
         _playPause.Text = _player.IsPlaying ? "Pause [Space]" : (_player.IsFinished ? "Replay [Space]" : "Play [Space]");
+        if (_speedSlider is not null)
+        {
+            _speedSlider.SetValueNoSignal(_player.Speed);
+        }
     }
 }
