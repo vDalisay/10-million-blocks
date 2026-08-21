@@ -56,6 +56,7 @@ known_effects = {
     "set_shovel_height_tolerance",
     "set_shovel_search_radius",
     "unlock_resource_filter",
+    "unlock_auto_cloud_charger",
 }
 
 for ident, block in blocks.items():
@@ -274,6 +275,14 @@ for world_id, dimension in expected_dimensions.items():
     )
     assert str(profile.get("introText", "")).strip(), f"demo world {world_id} needs authored introText"
 
+assert worlds["reference_natural"].get("visibleSkillIds", []) == [], (
+    "20-cube main world must not expose active-event automation before weather is introduced"
+)
+for world_id in ("reference_lakes", "reference_ridges"):
+    assert worlds[world_id].get("visibleSkillIds", []) == ["cloud_charger_unlock"], (
+        f"{world_id} must expose the late-game Cloud Charger as an exact staged skill"
+    )
+
 assert progression_doc["world_ids"][-1] == "reference_ridges", (
     "the Steam demo must end after the reviewed 50-cube finale"
 )
@@ -350,6 +359,16 @@ assert skills["axe_unlock"].get("category") == "forest", (
 assert skills["axe_unlock"].get("prerequisites", []) == [], (
     "Forest Cutter tutorial unlock must not depend on a later hidden Resource Sensors branch"
 )
+assert skills["cloud_charger_unlock"].get("category") == "events", (
+    "Cloud Charger must stay in the late-game events branch"
+)
+assert any(
+    effect.get("type") == "unlock_auto_cloud_charger"
+    for effect in skills["cloud_charger_unlock"].get("effects", [])
+), "Cloud Charger must enable automatic cloud charging"
+assert skills["cloud_charger_unlock"].get("prerequisites") == [
+    {"node_id": "pickaxe_unlock", "required_rank": 1, "route": [{"grid_x": 7, "grid_y": 3}]}
+], "Cloud Charger must remain downstream of the main-game Rock Breaker branch"
 
 print(
     f"content validation passed: {len(blocks)} blocks, {len(miners)} miners, "
