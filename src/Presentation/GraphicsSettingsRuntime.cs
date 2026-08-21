@@ -4,10 +4,10 @@ using Godot;
 namespace TenMillionBlocks.Presentation;
 
 /// <summary>
-/// Player graphics preferences that live above individual scenes. The root viewport keeps 2D/UI at
-/// full resolution while Scaling3DScale only changes the 3D buffer, which is exactly what the demo
-/// quality plan calls for. A tiny persistent runtime also reapplies Environment toggles whenever a new
-/// gameplay scene creates its WorldEnvironment.
+/// Player presentation preferences that live above individual scenes. The root viewport keeps 2D/UI
+/// at full resolution while Scaling3DScale only changes the 3D buffer. The same persistent runtime
+/// reapplies environment toggles whenever a gameplay scene creates a new WorldEnvironment and also
+/// exposes lightweight motion preferences used by presentation controllers.
 /// </summary>
 public partial class GraphicsSettingsRuntime : Node
 {
@@ -24,6 +24,10 @@ public partial class GraphicsSettingsRuntime : Node
     public int MsaaLevel { get; private set; }
     public bool AmbientOcclusionEnabled { get; private set; } = true;
     public bool GlowEnabled { get; private set; }
+    public bool IdleCameraOrbitEnabled { get; private set; } = true;
+
+    public static GraphicsSettingsRuntime? Current
+        => _instance is not null && GodotObject.IsInstanceValid(_instance) ? _instance : null;
 
     public static GraphicsSettingsRuntime Ensure(SceneTree tree)
     {
@@ -96,12 +100,20 @@ public partial class GraphicsSettingsRuntime : Node
         Save();
     }
 
+    public void SetIdleCameraOrbitEnabled(bool enabled)
+    {
+        if (IdleCameraOrbitEnabled == enabled) return;
+        IdleCameraOrbitEnabled = enabled;
+        Save();
+    }
+
     public void RestoreDefaults()
     {
         ResolutionScale = 1.0f;
         MsaaLevel = 0;
         AmbientOcclusionEnabled = true;
         GlowEnabled = false;
+        IdleCameraOrbitEnabled = true;
         ApplyViewport();
         ApplyEnvironment(force: true);
         Save();
@@ -125,6 +137,7 @@ public partial class GraphicsSettingsRuntime : Node
         MsaaLevel = storedMsaa is 2 or 4 ? storedMsaa : 0;
         AmbientOcclusionEnabled = (bool)config.GetValue(Section, "ambient_occlusion", true);
         GlowEnabled = (bool)config.GetValue(Section, "glow", false);
+        IdleCameraOrbitEnabled = (bool)config.GetValue(Section, "idle_camera_orbit", true);
     }
 
     private void Save()
@@ -134,6 +147,7 @@ public partial class GraphicsSettingsRuntime : Node
         config.SetValue(Section, "msaa_samples", MsaaLevel);
         config.SetValue(Section, "ambient_occlusion", AmbientOcclusionEnabled);
         config.SetValue(Section, "glow", GlowEnabled);
+        config.SetValue(Section, "idle_camera_orbit", IdleCameraOrbitEnabled);
         Error result = config.Save(SettingsPath);
         if (result != Error.Ok)
         {
