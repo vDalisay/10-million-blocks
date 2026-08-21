@@ -17,6 +17,7 @@ public partial class MainMenuRoot : Node
     private Control _settingsPanel = null!;
     private Control _confirmPanel = null!;
     private Label _status = null!;
+    private Button _playButton = null!;
     private GraphicsSettingsRuntime _graphics = null!;
 
     public override void _Ready()
@@ -75,6 +76,8 @@ public partial class MainMenuRoot : Node
             OffsetBottom = 330,
         };
         canvas.AddChild(_status);
+
+        RefreshPlayButton();
     }
 
     public override void _UnhandledKeyInput(InputEvent @event)
@@ -102,13 +105,13 @@ public partial class MainMenuRoot : Node
         var column = StandardColumn();
         margin.AddChild(column);
 
-        var play = new Button
+        _playButton = new Button
         {
-            Text = "PLAY GAME",
+            Text = "START GAME",
             CustomMinimumSize = new Vector2(360, 54),
         };
-        play.Pressed += OnPlayPressed;
-        column.AddChild(play);
+        _playButton.Pressed += OnPlayPressed;
+        column.AddChild(_playButton);
 
         var settings = new Button
         {
@@ -302,8 +305,9 @@ public partial class MainMenuRoot : Node
             SaveDataMaintenance.ClearAllLocalData();
             _confirmPanel.Visible = false;
             _settingsPanel.Visible = true;
-            _status.Text = "Save data cleared. The next Play Game starts from the first block.";
+            _status.Text = "Save data cleared. The next Start Game begins from the first block.";
             _status.Modulate = new Color(0.65f, 1.0f, 0.72f);
+            RefreshPlayButton();
         }
         catch (Exception exception)
         {
@@ -324,6 +328,14 @@ public partial class MainMenuRoot : Node
             _status.Text = $"Could not start gameplay ({result}).";
             _status.Modulate = new Color(1.0f, 0.58f, 0.52f);
         });
+    }
+
+    private void RefreshPlayButton()
+    {
+        if (_playButton is null) return;
+        bool hasSave = Godot.FileAccess.FileExists(SaveService.DefaultPath)
+            || Godot.FileAccess.FileExists(SaveService.LegacyV2Path);
+        _playButton.Text = hasSave ? "CONTINUE" : "START GAME";
     }
 
     private void ShowMain()
