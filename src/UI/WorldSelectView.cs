@@ -189,8 +189,18 @@ public partial class WorldSelectView : CanvasLayer
         bool isCurrent = profile.Id == _currentWorldId;
         bool completed = _save.CompletedWorldIds.Contains(profile.Id);
         long mined = SavedMinedCount(profile.Id);
-        long target = Math.Max(1L, profile.TargetMineableBlocks);
-        double progress = completed ? 1.0 : Math.Clamp(mined / (double)target, 0.0, 1.0);
+        long target = SavedTarget(profile);
+        bool targetKnown = target > 0L;
+        double progress = completed
+            ? 1.0
+            : targetKnown
+                ? Math.Clamp(mined / (double)target, 0.0, 1.0)
+                : 0.0;
+        string progressText = completed
+            ? "CLEARED"
+            : targetKnown
+                ? $"{progress:P0} cleared"
+                : $"{mined:N0} blocks mined";
         string dimensions = $"{profile.LogicalWidth} x {profile.LogicalHeight} x {profile.LogicalDepth}";
 
         var name = new Label
@@ -201,7 +211,7 @@ public partial class WorldSelectView : CanvasLayer
         information.AddChild(name);
         information.AddChild(new Label
         {
-            Text = $"{dimensions}  ·  {(completed ? "CLEARED" : $"{progress:P0} cleared")}",
+            Text = $"{dimensions}  ·  {progressText}",
         });
         information.AddChild(new Label
         {
@@ -258,6 +268,16 @@ public partial class WorldSelectView : CanvasLayer
         long sparse = saved.MinedChunks.Sum(chunk => (long)(chunk.MinedLocalIndices?.Count ?? 0));
         long exhausted = saved.ExhaustedRegions.Sum(region => Math.Max(0L, region.MinedCount));
         return checked(sparse + exhausted);
+    }
+
+    private long SavedTarget(WorldProfile profile)
+    {
+        if (_save.Worlds.TryGetValue(profile.Id, out WorldSaveData? saved)
+            && saved.InitialMineableBlocks > 0)
+        {
+            return saved.InitialMineableBlocks;
+        }
+        return Math.Max(0L, profile.TargetMineableBlocks);
     }
 
     private string LastPlayedText(string worldId)
