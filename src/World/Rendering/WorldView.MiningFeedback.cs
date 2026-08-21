@@ -66,14 +66,37 @@ public partial class WorldView
     }
 
     /// <summary>
-    /// Shared mining-only debris used by live mining and replay. Bursts are pooled and each burst uses
-    /// one MultiMesh for all fragments, so dense mining does not create/free dozens of MeshInstance3D,
-    /// BoxMesh and Material objects per action. Off-screen replay/automation events stay simulation-only.
+    /// Shared mining-only debris used by live mining, automation and replay. Bursts are pooled and each
+    /// burst uses one MultiMesh for all fragments, so dense mining does not create/free effect containers,
+    /// MeshInstance3D nodes, meshes or materials per action. Off-screen events stay simulation-only.
     /// </summary>
     public void SpawnMiningDebris(Vector3I voxel, string blockId, int seed, string name = "MiningDebris")
     {
-        Vector3I outwardI = _world.Source.GetOutwardNormal(voxel);
-        Vector3 outward = (Vector3)outwardI;
+        Vector3 outward = (Vector3)_world.Source.GetOutwardNormal(voxel);
+        SpawnMiningDebris(voxel, blockId, seed, outward, name);
+    }
+
+    /// <summary>
+    /// Explicit-direction overload for automation. A miner already knows the face it entered from, so
+    /// reusing that direction avoids another procedural outward-normal query and keeps debris travelling
+    /// out of the machine even at cube seams.
+    /// </summary>
+    public void SpawnMiningDebris(
+        Vector3I voxel,
+        string blockId,
+        int seed,
+        Vector3 outward,
+        string name = "MiningDebris")
+    {
+        if (outward.LengthSquared() < 0.0001f)
+        {
+            outward = (Vector3)_world.Source.GetOutwardNormal(voxel);
+        }
+        else
+        {
+            outward = outward.Normalized();
+        }
+
         float spacing = _world.Profile.BlockSpacing;
         Vector3 position = VoxelToWorld(voxel) + outward * spacing * 0.48f;
         if (_activeDebrisBursts >= MaxActiveDebrisBursts || !ShouldSpawnMiningFx(position, 96.0f))
