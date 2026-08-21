@@ -21,6 +21,7 @@ public sealed class WorldSaveData
     public bool HoverMiningEnabled { get; set; }
     public bool Completed { get; set; }
     public long FirstStartedUnixSeconds { get; set; }
+    public long LastPlayedUnixSeconds { get; set; }
     public long CompletedUnixSeconds { get; set; }
     public string ReplayFile { get; set; } = string.Empty;
     public WorldEventSnapshot? WorldEvents { get; set; }
@@ -175,6 +176,7 @@ public sealed class SaveService
                 if (world.GenerationVersion <= 0) world.GenerationVersion = profile.GenerationVersion;
             }
             world.TutorialLocalCurrency = Math.Max(0L, world.TutorialLocalCurrency);
+            if (world.LastPlayedUnixSeconds <= 0) world.LastPlayedUnixSeconds = world.FirstStartedUnixSeconds;
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
             world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
             world.Miners ??= new List<MinerSnapshot>();
