@@ -1,3 +1,5 @@
+using TenMillionBlocks.World;
+
 namespace TenMillionBlocks.World.Rendering;
 
 public partial class WorldView
