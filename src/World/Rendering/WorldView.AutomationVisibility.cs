@@ -191,7 +191,7 @@ public partial class WorldView
         else if (localX == chunkSize - 1) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z));
 
         if (localY == 0) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X, chunk.Y - 1, chunk.Z));
-        else if (localY == chunkSize - 1) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z));
+        else if (localY == chunkSize - 1) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X, chunk.Y + 1, chunk.Z));
 
         if (localZ == 0) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X, chunk.Y, chunk.Z - 1));
         else if (localZ == chunkSize - 1) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X, chunk.Y, chunk.Z + 1));
