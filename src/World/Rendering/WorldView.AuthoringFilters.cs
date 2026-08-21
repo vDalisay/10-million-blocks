@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
+using TenMillionBlocks.Content;
 
 namespace TenMillionBlocks.World.Rendering;
 
@@ -120,7 +122,7 @@ public partial class WorldView
         }
 
         float spacing = MathF.Max(0.001f, _world.Profile.BlockSpacing);
-        int visible = 0;
+        int writeIndex = 0;
 
         // MultiMesh exposes only a visible prefix. Copy matching transforms to that prefix, then put the
         // hidden side behind it. The baseline snapshot remains immutable so toggling the slice is lossless.
@@ -133,7 +135,7 @@ public partial class WorldView
                     ? coordinate <= _authoringSliceCoordinate
                     : coordinate >= _authoringSliceCoordinate;
                 if ((pass == 0) != keep) continue;
-                multiMesh.SetInstanceTransform(visible++, original[i]);
+                multiMesh.SetInstanceTransform(writeIndex++, original[i]);
             }
         }
 
