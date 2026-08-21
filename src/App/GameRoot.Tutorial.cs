@@ -28,7 +28,11 @@ public partial class GameRoot
             && IsInstanceValid(_gameplayEventBridge)
             && _gameplayEventBridge.GetParent() == _sessionRoot)
         {
-            if (_worldEvents is not null) _gameplayEventBridge.AttachWorldEvents(_worldEvents);
+            if (_worldEvents is not null)
+            {
+                _gameplayEventBridge.AttachWorldEvents(_worldEvents);
+                _worldEvents.AttachSkills(_skills);
+            }
             return;
         }
 
@@ -42,7 +46,11 @@ public partial class GameRoot
 
         _gameplayEventBridge = new GameplayEventBridge { Name = "GameplayEventBridge" };
         _gameplayEventBridge.Initialize(_world.Profile, _mining, _skills, _miners, _gameplayEvents);
-        if (_worldEvents is not null) _gameplayEventBridge.AttachWorldEvents(_worldEvents);
+        if (_worldEvents is not null)
+        {
+            _gameplayEventBridge.AttachWorldEvents(_worldEvents);
+            _worldEvents.AttachSkills(_skills);
+        }
         _sessionRoot.AddChild(_gameplayEventBridge);
     }
 }
