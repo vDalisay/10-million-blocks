@@ -10,6 +10,7 @@ namespace TenMillionBlocks.App;
 public partial class GameRoot
 {
     private WorldSelectView? _worldBrowser;
+    private string _replayReturnWorldId = string.Empty;
 
     public override void _PhysicsProcess(double delta)
     {
@@ -75,8 +76,10 @@ public partial class GameRoot
         string absolute = ProjectSettings.GlobalizePath(savedWorld.ReplayFile);
         if (!System.IO.File.Exists(absolute)) return;
 
+        string activeWorldId = _world.Profile.Id;
         CaptureCurrentSession();
         TrySaveCurrentSession(captureFirst: false);
+        _replayReturnWorldId = activeWorldId;
         ReplayData replay = ReplayBinaryCodec.Read(absolute);
         BuildReplaySession(_worlds.Get(worldId), replay);
     }
