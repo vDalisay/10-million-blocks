@@ -62,6 +62,7 @@ public partial class GameRoot
             return;
         }
 
+        string activeWorldId = _world.Profile.Id;
         try
         {
             // Do not leave the active world until its latest state has actually reached disk. The
@@ -80,7 +81,8 @@ public partial class GameRoot
         catch (Exception exception)
         {
             GD.PushError($"Could not revisit world '{worldId}': {exception}");
-            RecoverWorldBrowserTransition("Could not load the selected world. See the Godot log.");
+            RestoreActiveWorldAfterFailedTransition(activeWorldId);
+            RecoverWorldBrowserTransition("Could not load the selected world. The previous world was restored.");
         }
     }
 
@@ -105,9 +107,9 @@ public partial class GameRoot
             return;
         }
 
+        string activeWorldId = _world.Profile.Id;
         try
         {
-            string activeWorldId = _world.Profile.Id;
             CaptureCurrentSession();
             _saveService.Save(_save);
             _autosaveDirty = false;
@@ -121,7 +123,32 @@ public partial class GameRoot
         {
             GD.PushError($"Could not open replay for '{worldId}': {exception}");
             _replayReturnWorldId = string.Empty;
-            RecoverWorldBrowserTransition("The replay could not be opened. See the Godot log.");
+            RestoreActiveWorldAfterFailedTransition(activeWorldId);
+            RecoverWorldBrowserTransition("The replay could not be opened. The active world was restored.");
+        }
+    }
+
+    private void RestoreActiveWorldAfterFailedTransition(string worldId)
+    {
+        try
+        {
+            if (!_worlds.Worlds.ContainsKey(worldId)) return;
+            _progression.RestoreWorld(worldId);
+            _save.CurrentWorldId = worldId;
+            _saveService.Save(_save);
+
+            if (_world?.Profile.Id == worldId
+                && _sessionRoot is not null
+                && IsInstanceValid(_sessionRoot))
+            {
+                return;
+            }
+
+            BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: false, persistSession: true);
+        }
+        catch (Exception restoreException)
+        {
+            GD.PushError($"Failed to restore world '{worldId}' after a transition error: {restoreException}");
         }
     }
 
@@ -129,7 +156,9 @@ public partial class GameRoot
     {
         WorldLoadingScreen.CancelGlobal();
         GD.PushWarning(message);
-        if (_worldBrowser is not null && IsInstanceValid(_worldBrowser))
+        if (_worldBrowser is not null
+            && IsInstanceValid(_worldBrowser)
+            && _worldBrowser.IsInsideTree())
         {
             _worldBrowser.Open();
         }
