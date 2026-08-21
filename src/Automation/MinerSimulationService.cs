@@ -114,6 +114,7 @@ public partial class MinerSimulationService : Node3D
         int budget = Math.Max(0, MaxMiningOperationsPerFrame);
         bool changed = false;
         int idleVisits = 0;
+        _mining.BeginCurrencyNotificationBatch();
         _deferVisualUpdates = true;
         try
         {
@@ -140,7 +141,14 @@ public partial class MinerSimulationService : Node3D
         finally
         {
             _deferVisualUpdates = false;
-            FlushDeferredVisualUpdates();
+            try
+            {
+                FlushDeferredVisualUpdates();
+            }
+            finally
+            {
+                _mining.EndCurrencyNotificationBatch();
+            }
         }
 
         if (changed) Changed?.Invoke();
@@ -289,6 +297,7 @@ public partial class MinerSimulationService : Node3D
 
         int cursor = Math.Clamp(_simulationCursor, 0, Math.Max(0, minerCount - 1));
         int idleVisits = 0;
+        _mining.BeginCurrencyNotificationBatch();
         _deferVisualUpdates = true;
         try
         {
@@ -313,7 +322,14 @@ public partial class MinerSimulationService : Node3D
         {
             _simulationCursor = minerCount == 0 ? 0 : cursor % minerCount;
             _deferVisualUpdates = false;
-            FlushDeferredVisualUpdates();
+            try
+            {
+                FlushDeferredVisualUpdates();
+            }
+            finally
+            {
+                _mining.EndCurrencyNotificationBatch();
+            }
         }
 
         long mined = _mining.TotalMined - minedBefore;
