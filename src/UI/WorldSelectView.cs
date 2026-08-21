@@ -240,7 +240,11 @@ public partial class WorldSelectView : CanvasLayer
         revisit.Pressed += () =>
         {
             SetOpen(false);
-            RevisitRequested?.Invoke(worldId);
+            if (isCurrent) return;
+            WorldLoadingScreen.RunTransition(
+                this,
+                $"LOADING {profile.DisplayName}",
+                () => RevisitRequested?.Invoke(worldId));
         };
         actions.AddChild(revisit);
 
@@ -255,7 +259,10 @@ public partial class WorldSelectView : CanvasLayer
         replay.Pressed += () =>
         {
             SetOpen(false);
-            ReplayRequested?.Invoke(worldId);
+            WorldLoadingScreen.RunTransition(
+                this,
+                $"LOADING {profile.DisplayName} REPLAY",
+                () => ReplayRequested?.Invoke(worldId));
         };
         actions.AddChild(replay);
 
