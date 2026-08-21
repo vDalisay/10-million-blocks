@@ -37,6 +37,7 @@ public partial class MinerSimulationService : Node3D
     private int _lastShovelHeightTolerance;
     private string _lastDrillPatternId = "line";
     private bool _deferVisualUpdates;
+    private int _simulationCursor;
 
     public event Action? Changed;
     public event Action<MinerInstance>? MinerPlaced;
@@ -95,28 +96,45 @@ public partial class MinerSimulationService : Node3D
             rotor.RotateY(dt * 9.5f);
         }
 
-        int budget = MaxMiningOperationsPerFrame;
+        int minerCount = _miners.Count;
+        if (minerCount == 0) return;
+
+        // Every active miner accrues elapsed work even when the frame's mutation budget is saturated.
+        // The old early-break loop stopped even adding time to miners later in the list, so a large
+        // fleet could permanently starve later-placed units. Mutation work itself is then distributed
+        // round-robin, keeping the hard frame budget without biasing the first units in the list.
+        double safeDelta = Math.Max(0.0, delta);
+        foreach (MinerInstance miner in _miners)
+        {
+            if (miner.Exhausted) continue;
+            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+            miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * safeDelta;
+        }
+
+        int budget = Math.Max(0, MaxMiningOperationsPerFrame);
         bool changed = false;
+        int idleVisits = 0;
         _deferVisualUpdates = true;
         try
         {
-            foreach (MinerInstance miner in _miners)
+            while (budget > 0 && idleVisits < minerCount)
             {
-                if (budget <= 0) break;
-                if (miner.Exhausted) continue;
+                if (_simulationCursor >= minerCount) _simulationCursor = 0;
+                MinerInstance miner = _miners[_simulationCursor++];
+                if (miner.Exhausted || miner.WorkAccumulator < 1.0)
+                {
+                    idleVisits++;
+                    continue;
+                }
 
                 MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-                miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * delta;
-
-                while (budget > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
+                miner.WorkAccumulator -= 1.0;
+                budget--;
+                if (Advance(miner, definition, emitPresentation: true) || miner.Exhausted)
                 {
-                    miner.WorkAccumulator -= 1.0;
-                    budget--;
-                    if (Advance(miner, definition, emitPresentation: true) || miner.Exhausted)
-                    {
-                        changed = true;
-                    }
+                    changed = true;
                 }
+                idleVisits = 0;
             }
         }
         finally
@@ -257,26 +275,43 @@ public partial class MinerSimulationService : Node3D
         double seconds = Math.Min(elapsedSeconds, 7.0 * 24.0 * 60.0 * 60.0);
         long operationsLeft = operationCap;
         long minedBefore = _mining.TotalMined;
+        int minerCount = _miners.Count;
+
+        // Accrue the full offline duration for every active unit before enforcing the operation cap.
+        // This means the cap limits CPU work, not which units receive elapsed time. Any unprocessed
+        // backlog remains in WorkAccumulator and can be consumed by the normal fair scheduler later.
+        foreach (MinerInstance miner in _miners)
+        {
+            if (miner.Exhausted) continue;
+            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+            miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * seconds;
+        }
+
+        int cursor = Math.Clamp(_simulationCursor, 0, Math.Max(0, minerCount - 1));
+        int idleVisits = 0;
         _deferVisualUpdates = true;
         try
         {
-            foreach (MinerInstance miner in _miners)
+            while (operationsLeft > 0 && idleVisits < minerCount)
             {
-                if (operationsLeft <= 0) break;
-                if (miner.Exhausted) continue;
-                MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-                miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * seconds;
-
-                while (operationsLeft > 0 && miner.WorkAccumulator >= 1.0 && !miner.Exhausted)
+                if (cursor >= minerCount) cursor = 0;
+                MinerInstance miner = _miners[cursor++];
+                if (miner.Exhausted || miner.WorkAccumulator < 1.0)
                 {
-                    miner.WorkAccumulator -= 1.0;
-                    operationsLeft--;
-                    _ = Advance(miner, definition, emitPresentation: false);
+                    idleVisits++;
+                    continue;
                 }
+
+                MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+                miner.WorkAccumulator -= 1.0;
+                operationsLeft--;
+                _ = Advance(miner, definition, emitPresentation: false);
+                idleVisits = 0;
             }
         }
         finally
         {
+            _simulationCursor = minerCount == 0 ? 0 : cursor % minerCount;
             _deferVisualUpdates = false;
             FlushDeferredVisualUpdates();
         }
@@ -296,6 +331,7 @@ public partial class MinerSimulationService : Node3D
         _lastDebrisAtMs.Clear();
         _pendingVisualUpdateIds.Clear();
         _deferVisualUpdates = false;
+        _simulationCursor = 0;
         _nextInstanceId = 1;
     }
 
