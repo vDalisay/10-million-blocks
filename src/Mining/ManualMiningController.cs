@@ -1,6 +1,5 @@
 using System;
 using Godot;
-using TenMillionBlocks.Automation;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
@@ -19,10 +18,13 @@ public partial class ManualMiningController : Node3D
     private MiningService _mining = null!;
     private SkillTreeService _skills = null!;
     private SelectionHighlight _highlight = null!;
+    private HoverMiningCursorIndicator? _hoverIndicator;
     private Button? _hoverToggle;
 
     private Vector3I? _hoveredVoxel;
+    private Vector3I _hoverSurfaceNormal = Vector3I.Up;
     private Vector3I? _lastHoverMiningVoxel;
+    private Vector3I? _lastHoverMiningNormal;
     private double _hoverMiningAccumulator;
     private bool _hoverMiningEnabled;
 
@@ -72,6 +74,7 @@ public partial class ManualMiningController : Node3D
             ResetHoverMiningCadence();
             _hoveredVoxel = null;
             _highlight.HideVoxel();
+            _hoverIndicator?.SetState(false, GetViewport().GetMousePosition(), _skills.Derived.ManualFootprint, 0.0f);
         }
     }
 
@@ -93,7 +96,7 @@ public partial class ManualMiningController : Node3D
         UpdateHover(button.Position);
         if (_hoveredVoxel is not Vector3I voxel) return;
 
-        int actions = MineManualTick(voxel);
+        int actions = MineManualTick(voxel, _hoverSurfaceNormal);
         if (actions > 0)
         {
             UpdateHover(button.Position);
@@ -120,39 +123,58 @@ public partial class ManualMiningController : Node3D
 
     private void ProcessHoverMining(double delta)
     {
+        Vector2 mouse = GetViewport().GetMousePosition();
+        ManualMiningFootprintKind footprint = _skills.Derived.ManualFootprint;
         if (!HoverMiningEnabled
             || PlacementMode
             || _camera.IsManipulating
             || _hoveredVoxel is not Vector3I voxel)
         {
             ResetHoverMiningCadence();
+            _hoverIndicator?.SetState(false, mouse, footprint, 0.0f);
             return;
         }
 
-        if (_lastHoverMiningVoxel != voxel)
+        if (_lastHoverMiningVoxel != voxel || _lastHoverMiningNormal != _hoverSurfaceNormal)
         {
             _lastHoverMiningVoxel = voxel;
+            _lastHoverMiningNormal = _hoverSurfaceNormal;
             _hoverMiningAccumulator = 0.0;
         }
 
         double rate = Math.Max(0.05, _skills.Derived.ManualMiningRateMultiplier);
         double interval = BaseHoverMiningIntervalSeconds / rate;
         _hoverMiningAccumulator += Math.Max(0.0, delta);
+        _hoverIndicator?.SetState(
+            true,
+            mouse,
+            footprint,
+            (float)Math.Clamp(_hoverMiningAccumulator / interval, 0.0, 1.0));
         if (_hoverMiningAccumulator < interval) return;
 
         // Cap catch-up to one action per rendered frame. Hover mining is intentionally a controlled
         // cadence, not a backlog that explodes after a hitch or menu pause.
         _hoverMiningAccumulator %= interval;
-        if (MineManualTick(voxel) > 0)
+        _hoverIndicator?.Pulse();
+        if (MineManualTick(voxel, _hoverSurfaceNormal) > 0)
         {
             _highlight.PulseMine();
-            UpdateHover(GetViewport().GetMousePosition());
+            UpdateHover(mouse);
         }
+        _hoverIndicator?.SetState(
+            true,
+            mouse,
+            footprint,
+            (float)Math.Clamp(_hoverMiningAccumulator / interval, 0.0, 1.0));
     }
 
-    private int MineManualTick(Vector3I initial)
+    private int MineManualTick(Vector3I initial, Vector3I viewNormal)
     {
-        var targets = ManualMiningFootprint.ResolveHighestLayer(_world, initial, _skills.Derived.ManualFootprint);
+        var targets = ManualMiningFootprint.ResolveHighestLayer(
+            _world,
+            initial,
+            _skills.Derived.ManualFootprint,
+            viewNormal);
         if (targets.Count == 0) return 0;
 
         int actions = 0;
@@ -201,31 +223,41 @@ public partial class ManualMiningController : Node3D
 
     private void EmitDebris(MiningResult result, int burstIndex)
     {
-        Vector3I outwardI = _world.Source.GetOutwardNormal(result.Voxel);
-        Vector3 outward = (Vector3)outwardI;
-        float spacing = _world.Profile.BlockSpacing;
-        Vector3 position = _view.VoxelToWorld(result.Voxel) + outward * spacing * 0.48f;
         int seed = unchecked(result.Voxel.X * 73856093
             ^ result.Voxel.Y * 19349663
             ^ result.Voxel.Z * 83492791
             ^ burstIndex * 265443576);
-
-        var burst = new DrillDebrisBurst { Name = result.EffectRadius > 0 ? "BlastDebris" : "ManualMiningDebris" };
-        AddChild(burst);
-        burst.Initialize(position, outward, result.BlockId, spacing, seed);
+        _view.SpawnMiningDebris(
+            result.Voxel,
+            result.BlockId,
+            seed,
+            result.EffectRadius > 0 ? "BlastDebris" : "ManualMiningDebris");
     }
 
     private void UpdateHover(Vector2 mouse)
     {
         float rayDistance = _world.GetWorldBounds().Size.Length() * 2.5f;
-        if (VoxelRaycaster.TryRaycast(_world, _camera.Camera, mouse, rayDistance, out Vector3I voxel))
+        if (VoxelRaycaster.TryRaycast(
+            _world,
+            _camera.Camera,
+            mouse,
+            rayDistance,
+            out Vector3I voxel,
+            out Vector3I surfaceNormal))
         {
             _hoveredVoxel = voxel;
-            _highlight.ShowVoxel(voxel);
+            _hoverSurfaceNormal = surfaceNormal;
+            var targets = ManualMiningFootprint.ResolveHighestLayer(
+                _world,
+                voxel,
+                _skills.Derived.ManualFootprint,
+                surfaceNormal);
+            _highlight.ShowVoxels(targets);
         }
         else
         {
             _hoveredVoxel = null;
+            _hoverSurfaceNormal = Vector3I.Up;
             _highlight.HideVoxel();
         }
     }
@@ -247,6 +279,10 @@ public partial class ManualMiningController : Node3D
             ResetHoverMiningCadence();
         }
         RefreshHoverMiningUi();
+        if (InputEnabled)
+        {
+            UpdateHover(GetViewport().GetMousePosition());
+        }
     }
 
     private void BuildHoverMiningUi()
@@ -261,6 +297,13 @@ public partial class ManualMiningController : Node3D
         var root = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
         root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         layer.AddChild(root);
+
+        _hoverIndicator = new HoverMiningCursorIndicator
+        {
+            Name = "HoverMiningCursorIndicator",
+            ZIndex = 100,
+        };
+        root.AddChild(_hoverIndicator);
 
         _hoverToggle = new Button
         {
@@ -289,11 +332,16 @@ public partial class ManualMiningController : Node3D
         _hoverToggle.TooltipText = unlocked
             ? "Toggle automatic manual mining while the cursor rests on a block. Camera movement and placement pause it."
             : string.Empty;
+        if (!HoverMiningEnabled)
+        {
+            _hoverIndicator?.SetState(false, GetViewport().GetMousePosition(), _skills.Derived.ManualFootprint, 0.0f);
+        }
     }
 
     private void ResetHoverMiningCadence()
     {
         _hoverMiningAccumulator = 0.0;
         _lastHoverMiningVoxel = null;
+        _lastHoverMiningNormal = null;
     }
 }
