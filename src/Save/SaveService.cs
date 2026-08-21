@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Godot;
@@ -78,8 +79,18 @@ public sealed class SaveService
             }
         }
 
-        string json = Godot.FileAccess.GetFileAsString(sourcePath);
-        GameSaveData? data = JsonSerializer.Deserialize<GameSaveData>(json, _jsonOptions);
+        // Deserialize directly from disk instead of first allocating one giant UTF-16 JSON string.
+        // Large-world mined-state snapshots can be substantial, so streaming materially reduces peak
+        // managed memory and the chance of a GC hitch during startup/continue.
+        string sourceAbsolute = ProjectSettings.GlobalizePath(sourcePath);
+        using FileStream input = new(
+            sourceAbsolute,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            FileOptions.SequentialScan);
+        GameSaveData? data = JsonSerializer.Deserialize<GameSaveData>(input, _jsonOptions);
         if (data is null) throw new InvalidOperationException("Save file parsed to null.");
 
         bool migrated = false;
@@ -112,18 +123,28 @@ public sealed class SaveService
         {
             activeWorld.LastPlayedUnixSeconds = data.SavedAtUnixSeconds;
         }
-        string json = JsonSerializer.Serialize(data, _jsonOptions);
 
-        string tempPath = path + ".tmp";
-        using (Godot.FileAccess file = Godot.FileAccess.Open(tempPath, Godot.FileAccess.ModeFlags.Write))
+        // Serialize directly to the temporary file. The previous Serialize()->StoreString path held a
+        // complete JSON string plus the serializer's temporary buffers at once, producing avoidable
+        // large-object-heap/GC pressure as mined-state grows toward million-block worlds.
+        string absolute = ProjectSettings.GlobalizePath(path);
+        string tempAbsolute = ProjectSettings.GlobalizePath(path + ".tmp");
+        string? directory = Path.GetDirectoryName(tempAbsolute);
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+
+        using (FileStream output = new(
+            tempAbsolute,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 64 * 1024,
+            FileOptions.SequentialScan))
         {
-            if (file is null) throw new InvalidOperationException($"Could not open temporary save file '{tempPath}'.");
-            file.StoreString(json);
+            JsonSerializer.Serialize(output, data, _jsonOptions);
+            output.Flush(flushToDisk: false);
         }
 
-        string absolute = ProjectSettings.GlobalizePath(path);
-        string tempAbsolute = ProjectSettings.GlobalizePath(tempPath);
-        System.IO.File.Move(tempAbsolute, absolute, overwrite: true);
+        File.Move(tempAbsolute, absolute, overwrite: true);
     }
 
     public static GameSaveData NewSave()
