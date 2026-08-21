@@ -36,7 +36,7 @@ public partial class PerformanceHud : CanvasLayer
             OffsetLeft = -540.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 430.0f,
+            OffsetBottom = 460.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -108,6 +108,7 @@ public partial class PerformanceHud : CanvasLayer
             $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
             $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred chunks: {_view.DeferredAutomationChunkCount:N0}\n" +
+            $"mining FX pop active/pool/dropped: {_view.ActiveMinePopCount}/{_view.PooledMinePopCount}/{_view.DroppedMinePopCount:N0}  debris active/pool/dropped: {_view.ActiveDebrisBurstCount}/{_view.PooledDebrisBurstCount}/{_view.DroppedDebrisBurstCount:N0}\n" +
             feedbackMetrics + "\n" +
             $"generated sample cache hit/miss: {_world.GeneratedSampleCacheHits:N0}/{_world.GeneratedSampleCacheMisses:N0}  hit rate: {cacheHitPercent:0.0}%\n" +
             $"chunk build ms last/avg: {_view.LastChunkBuildMilliseconds:0.00} / {_view.AverageChunkBuildMilliseconds:0.00}\n" +
