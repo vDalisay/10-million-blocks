@@ -27,6 +27,7 @@ public partial class WorldLoadingScreen : CanvasLayer
     ];
 
     private static WorldLoadingScreen? _instance;
+    private static bool _transitionPending;
 
     private Control _root = null!;
     private Control _block = null!;
@@ -39,41 +40,62 @@ public partial class WorldLoadingScreen : CanvasLayer
     private int _replacementStableFrames;
     private double _elapsed;
     private double _phase;
+    private bool _transitionActionInvoked;
 
     public static void RunTransition(Node context, string label, Action transition)
     {
-        if (context is null || transition is null) return;
+        if (context is null || transition is null || _transitionPending || IsActive) return;
+        _transitionPending = true;
         _ = RunTransitionAsync(context, label, transition);
     }
 
     public static void CancelGlobal()
     {
+        _transitionPending = false;
         if (_instance is null || !GodotObject.IsInstanceValid(_instance)) return;
         _instance.HideLoading();
     }
 
     private static async System.Threading.Tasks.Task RunTransitionAsync(Node context, string label, Action transition)
     {
-        SceneTree tree = context.GetTree();
+        SceneTree tree;
+        try
+        {
+            tree = context.GetTree();
+        }
+        catch (Exception exception)
+        {
+            _transitionPending = false;
+            GD.PushError($"Could not begin world transition: {exception}");
+            return;
+        }
+
         WorldLoadingScreen loading = Ensure(tree);
         loading.Begin(label);
 
-        // Guarantee that the loading frame is actually presented before the expensive transition
-        // starts. Two frames also make the first pulse visible on very fast world changes.
-        await context.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-        if (!GodotObject.IsInstanceValid(context)) return;
-        await context.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-        if (!GodotObject.IsInstanceValid(context)) return;
-
         try
         {
+            // Wait on the persistent loading node, not the initiating UI control. Scene changes are
+            // allowed to destroy that control while these frames are being awaited.
+            await loading.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            await loading.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+
+            if (!GodotObject.IsInstanceValid(context))
+            {
+                loading.HideLoading();
+                return;
+            }
+
+            loading._transitionActionInvoked = true;
             transition();
         }
         catch (Exception exception)
         {
+            // RunTransition is intentionally fire-and-forget. Never rethrow out of this task: an
+            // unobserved transition exception can otherwise become a second failure on top of the
+            // original load problem. Restore the UI and leave the existing scene usable instead.
             loading.HideLoading();
             GD.PushError($"World transition failed: {exception}");
-            throw;
         }
     }
 
@@ -136,6 +158,16 @@ public partial class WorldLoadingScreen : CanvasLayer
         {
             _replacementStableFrames = 0;
             _subtitle.Text = "PREPARING CUBE...";
+
+            // A transition action that returns without replacing the WorldView is almost always a
+            // rejected/stale request (for example a replay file disappearing between UI refresh and
+            // click). Do not leave an opaque loader covering the still-valid scene for a full minute.
+            if (_transitionActionInvoked && _elapsed >= 3.0)
+            {
+                GD.PushWarning("World transition produced no replacement world; dismissing loading screen.");
+                HideLoading();
+                return;
+            }
         }
 
         // Do not permanently mask a fatal initialization error. Normal reviewed worlds should replace
@@ -152,6 +184,7 @@ public partial class WorldLoadingScreen : CanvasLayer
         _replacementStableFrames = 0;
         _elapsed = 0.0;
         _phase = 0.0;
+        _transitionActionInvoked = false;
         _label.Text = string.IsNullOrWhiteSpace(label) ? "LOADING WORLD" : label.ToUpperInvariant();
         _subtitle.Text = "PREPARING CUBE...";
         RandomizeBlockPalette();
@@ -165,6 +198,8 @@ public partial class WorldLoadingScreen : CanvasLayer
         Visible = false;
         _replacementStableFrames = 0;
         _elapsed = 0.0;
+        _transitionActionInvoked = false;
+        _transitionPending = false;
     }
 
     private void BuildUi()
