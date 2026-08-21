@@ -91,8 +91,18 @@ public sealed class MiningService
         => TryMine(voxel, MiningSource.Manual, requireExposed: true);
 
     public MiningResult TryMine(Vector3I voxel, MiningSource source, bool requireExposed)
+        => TryMine(voxel, _world.SampleVoxel(voxel), source, requireExposed);
+
+    /// <summary>
+    /// Hot-path overload for callers such as automation that have already sampled a candidate to
+    /// inspect material/tags. The world still owns the authoritative mutation and exposure check.
+    /// </summary>
+    internal MiningResult TryMine(
+        Vector3I voxel,
+        BlockSample before,
+        MiningSource source,
+        bool requireExposed)
     {
-        BlockSample before = _world.SampleVoxel(voxel);
         if (!before.Present || !before.Mineable)
         {
             return Failure(voxel, source);
