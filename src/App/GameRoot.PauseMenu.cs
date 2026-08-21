@@ -72,6 +72,18 @@ public partial class GameRoot
             return;
         }
 
+        // The normal terminal handler hides the completion overlay but intentionally has no next world
+        // to build. Restore the non-modal input state so closing the browser still leaves a usable
+        // post-demo screen (including Esc -> pause/main menu) rather than a permanently disabled world.
+        _completionShown = false;
+        if (_manualMining is not null) _manualMining.InputEnabled = true;
+        if (_placement is not null)
+        {
+            _placement.InputEnabled = _world.Profile.AutomationAvailable;
+        }
+        if (_miners is not null) _miners.ProcessMode = ProcessModeEnum.Inherit;
+        if (_worldEvents is not null) _worldEvents.ProcessMode = ProcessModeEnum.Inherit;
+
         _worldBrowser?.Open();
     }
 }
