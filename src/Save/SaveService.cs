@@ -94,8 +94,8 @@ public sealed class SaveService
                 $"Unsupported save schema {data.SchemaVersion}; expected {SupportedSchemaVersion} or migratable schema 2.");
         }
 
-        Normalize(data, worlds);
-        if (migrated || !string.Equals(sourcePath, path, StringComparison.Ordinal))
+        bool normalizedMigration = Normalize(data, worlds);
+        if (migrated || normalizedMigration || !string.Equals(sourcePath, path, StringComparison.Ordinal))
         {
             Save(data, path);
         }
@@ -163,7 +163,7 @@ public sealed class SaveService
         data.SchemaVersion = SupportedSchemaVersion;
     }
 
-    private static void Normalize(GameSaveData data, WorldCatalog worlds)
+    private static bool Normalize(GameSaveData data, WorldCatalog worlds)
     {
         data.PersistentMainCurrency = Math.Max(0L, data.PersistentMainCurrency);
         data.Currency = 0L;
@@ -174,6 +174,7 @@ public sealed class SaveService
         data.SeenTutorialEvents ??= new HashSet<string>(StringComparer.Ordinal);
         data.Worlds ??= new Dictionary<string, WorldSaveData>(StringComparer.Ordinal);
 
+        long legacyLocalCurrency = 0L;
         foreach ((string worldId, WorldSaveData world) in data.Worlds)
         {
             world.WorldId = string.IsNullOrWhiteSpace(world.WorldId) ? worldId : world.WorldId;
@@ -188,11 +189,23 @@ public sealed class SaveService
             }
             world.InitialMineableBlocks = Math.Max(0L, world.InitialMineableBlocks);
             world.TutorialLocalCurrency = Math.Max(0L, world.TutorialLocalCurrency);
+            legacyLocalCurrency = checked(legacyLocalCurrency + world.TutorialLocalCurrency);
             if (world.LastPlayedUnixSeconds <= 0) world.LastPlayedUnixSeconds = world.FirstStartedUnixSeconds;
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
             world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
             world.Miners ??= new List<MinerSnapshot>();
             if (world.Completed) data.CompletedWorldIds.Add(world.WorldId);
         }
+
+        // Tutorial wallets were previously isolated per world. Fold every remaining balance into the
+        // persistent wallet exactly once, then clear the obsolete fields so later loads cannot duplicate it.
+        if (legacyLocalCurrency <= 0L) return false;
+
+        data.PersistentMainCurrency = checked(data.PersistentMainCurrency + legacyLocalCurrency);
+        foreach (WorldSaveData world in data.Worlds.Values)
+        {
+            world.TutorialLocalCurrency = 0L;
+        }
+        return true;
     }
 }
