@@ -42,7 +42,7 @@ public static class WorldStructuralRules
 
         int waterRadial = Math.Max(0, faceBorder - 1);
         bool generatedWater = IsWater(profile, generated.BlockId);
-        bool nearWaterStructure = generatedWater || radial == waterRadial || radial == waterRadial - 1;
+        bool nearWaterStructure = generatedWater || radial >= waterRadial - 1;
         if (!nearWaterStructure)
         {
             return generated;
@@ -55,10 +55,11 @@ public static class WorldStructuralRules
 
         // Water is presentation/gameplay surface, not a tower of cubes sitting above terrain. Collapse
         // every raw hydrology column to exactly one water voxel one block inside the normal cube face.
-        // The immediately inward voxel is guaranteed sand, so the water can never float or stack.
+        // Everything farther outward in that same water column is carved away even if overlapping face
+        // ownership classified it as ordinary terrain; otherwise a solid cap can sit on top of water.
         if (radial > waterRadial)
         {
-            return generatedWater ? BlockSample.Empty : generated;
+            return BlockSample.Empty;
         }
 
         if (radial == waterRadial)
