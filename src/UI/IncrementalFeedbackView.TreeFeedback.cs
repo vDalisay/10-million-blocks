@@ -27,11 +27,22 @@ public partial class IncrementalFeedbackView
 
     private void OnTreeFeedbackBlockMined(MiningResult result)
     {
-        if (!result.Success
-            || !result.Removed
-            || result.Source == MiningSource.Offline
-            || !_world.Source.TrySampleTree(result.Voxel, out _)
-            || !TryProjectSource(result.Voxel, out Vector2 source))
+        if (!result.Success || !result.Removed || result.Source == MiningSource.Offline)
+        {
+            return;
+        }
+
+        // Procedural tree resolution is significantly more expensive than a screen projection and is
+        // only meaningful on the two grass surface block classes. Reject deep rock/ore and off-screen
+        // automation first; previously every automated block could enter TrySampleTree before we knew
+        // whether its feedback could contribute a pixel.
+        if (result.BlockId != _world.Profile.SurfaceBlock
+            && result.BlockId != _world.Profile.SurfaceEdgeBlock)
+        {
+            return;
+        }
+        if (!TryProjectSource(result.Voxel, out Vector2 source)
+            || !_world.Source.TrySampleTree(result.Voxel, out _))
         {
             return;
         }
