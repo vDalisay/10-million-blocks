@@ -64,8 +64,14 @@ public partial class GameRoot
 
         try
         {
+            // Do not leave the active world until its latest state has actually reached disk. The
+            // ordinary autosave helper intentionally swallows I/O errors, which is appropriate for a
+            // background retry but not for an explicit navigation operation.
             CaptureCurrentSession();
-            TrySaveCurrentSession(captureFirst: false);
+            _saveService.Save(_save);
+            _autosaveDirty = false;
+            _autosaveTimer = 0.0;
+
             _progression.RestoreWorld(worldId);
             _save.CurrentWorldId = worldId;
             _saveService.Save(_save);
@@ -74,7 +80,7 @@ public partial class GameRoot
         catch (Exception exception)
         {
             GD.PushError($"Could not revisit world '{worldId}': {exception}");
-            RecoverWorldBrowserTransition($"Could not load {_worlds.Get(worldId).DisplayName}. See the Godot log.");
+            RecoverWorldBrowserTransition("Could not load the selected world. See the Godot log.");
         }
     }
 
@@ -103,7 +109,10 @@ public partial class GameRoot
         {
             string activeWorldId = _world.Profile.Id;
             CaptureCurrentSession();
-            TrySaveCurrentSession(captureFirst: false);
+            _saveService.Save(_save);
+            _autosaveDirty = false;
+            _autosaveTimer = 0.0;
+
             _replayReturnWorldId = activeWorldId;
             ReplayData replay = ReplayBinaryCodec.Read(absolute);
             BuildReplaySession(_worlds.Get(worldId), replay);
