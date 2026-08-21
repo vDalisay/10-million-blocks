@@ -86,7 +86,7 @@ public sealed class SaveService
         using FileStream input = new(
             sourceAbsolute,
             FileMode.Open,
-            FileAccess.Read,
+            System.IO.FileAccess.Read,
             FileShare.Read,
             bufferSize: 64 * 1024,
             FileOptions.SequentialScan);
@@ -135,7 +135,7 @@ public sealed class SaveService
         using (FileStream output = new(
             tempAbsolute,
             FileMode.Create,
-            FileAccess.Write,
+            System.IO.FileAccess.Write,
             FileShare.None,
             bufferSize: 64 * 1024,
             FileOptions.SequentialScan))
