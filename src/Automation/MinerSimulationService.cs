@@ -20,6 +20,7 @@ public partial class MinerSimulationService : Node3D
     private static readonly PackedScene ShovelScene = GD.Load<PackedScene>("res://Assets/godeeper/shovel.gltf");
 
     private readonly List<MinerInstance> _miners = new();
+    private readonly Dictionary<long, MinerInstance> _minersById = new();
     private readonly Dictionary<long, Node3D> _visuals = new();
     private readonly Dictionary<long, Node3D> _rotors = new();
     private readonly Dictionary<long, ulong> _lastDebrisAtMs = new();
@@ -42,15 +43,22 @@ public partial class MinerSimulationService : Node3D
     public int MaxMiningOperationsPerFrame { get; set; } = 96;
     public bool IsMinerUnlocked(string minerId) => _skills.IsMinerUnlocked(minerId);
 
-    public double BlocksPerSecond => _miners
-        .Where(miner => !miner.Exhausted)
-        .Sum(miner =>
+    public double BlocksPerSecond
+    {
+        get
         {
-            MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            return definition.BaseRate
-                * EffectiveRateMultiplier(definition)
-                * EstimatedBlocksPerWorkUnit(definition);
-        });
+            double total = 0.0;
+            foreach (MinerInstance miner in _miners)
+            {
+                if (miner.Exhausted) continue;
+                MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+                total += definition.BaseRate
+                    * EffectiveRateMultiplier(definition)
+                    * EstimatedBlocksPerWorkUnit(definition);
+            }
+            return total;
+        }
+    }
 
     public void Initialize(
         VirtualWorld world,
@@ -80,8 +88,7 @@ public partial class MinerSimulationService : Node3D
         float dt = (float)delta;
         foreach ((long id, Node3D rotor) in _rotors)
         {
-            MinerInstance? miner = _miners.FirstOrDefault(candidate => candidate.InstanceId == id);
-            if (miner is null || miner.Exhausted) continue;
+            if (!_minersById.TryGetValue(id, out MinerInstance? miner) || miner.Exhausted) continue;
             if (_visuals.TryGetValue(id, out Node3D? visual) && !visual.Visible) continue;
             rotor.RotateY(dt * 9.5f);
         }
@@ -118,7 +125,7 @@ public partial class MinerSimulationService : Node3D
         if (!_skills.IsMinerUnlocked(definitionId)) return null;
 
         BlockSample placementSample = _world.SampleVoxel(surfaceVoxel);
-        if (!placementSample.Present || !_world.IsExposed(surfaceVoxel)) return null;
+        if (!placementSample.Present || !_world.IsExposed(surfaceVoxel, placementSample)) return null;
 
         MinerDefinition definition = _catalog.Get(definitionId);
         string patternId = EffectivePatternId(definition);
@@ -151,6 +158,7 @@ public partial class MinerSimulationService : Node3D
         };
 
         _miners.Add(instance);
+        _minersById.Add(instance.InstanceId, instance);
         BuildVisual(instance, outward);
         MinerPlaced?.Invoke(instance);
         Changed?.Invoke();
@@ -208,7 +216,7 @@ public partial class MinerSimulationService : Node3D
                 BlockedBlockId = snapshot.BlockedBlockId ?? string.Empty,
             };
 
-            if (miner.Direction == Vector3I.Zero) continue;
+            if (miner.Direction == Vector3I.Zero || !_minersById.TryAdd(miner.InstanceId, miner)) continue;
             _miners.Add(miner);
             BuildVisual(miner, -miner.Direction);
 
@@ -264,6 +272,7 @@ public partial class MinerSimulationService : Node3D
         _visuals.Clear();
         _rotors.Clear();
         _miners.Clear();
+        _minersById.Clear();
         _lastDebrisAtMs.Clear();
         _nextInstanceId = 1;
     }
@@ -287,8 +296,8 @@ public partial class MinerSimulationService : Node3D
         int depth = miner.CandidateIndex;
         Vector3I inward = LineMiningPattern.Cardinal(miner.Direction);
         Vector3I center = miner.Origin + inward * depth;
-        bool centerAlreadyMined = _world.State.IsMined(center);
         BlockSample centerSample = _world.SampleVoxel(center);
+        bool centerAlreadyMined = !centerSample.Present && _world.State.IsMined(center);
 
         if (!centerSample.Present && !centerAlreadyMined)
         {
@@ -315,7 +324,6 @@ public partial class MinerSimulationService : Node3D
             for (int b = -radius; b <= radius; b++)
             {
                 Vector3I candidate = center + axisA * a + axisB * b;
-                if (_world.State.IsMined(candidate)) continue;
                 BlockSample sample = _world.SampleVoxel(candidate);
                 if (!sample.Present) continue;
                 if (!CanPrimaryDrillMine(sample))
@@ -398,7 +406,7 @@ public partial class MinerSimulationService : Node3D
         BlockDefinition block = _mining.GetBlockDefinition(sample.BlockId);
         if (!MatchesAllowedTags(definition, block)) return false;
 
-        MiningResult result = _mining.TryMine(candidate, MiningSource.Automated, requireExposed: false);
+        MiningResult result = _mining.TryMine(candidate, sample, MiningSource.Automated, requireExposed: false);
         if (!result.Success) return false;
 
         miner.BlocksMined++;
@@ -506,7 +514,7 @@ public partial class MinerSimulationService : Node3D
     private bool TryGetValidShovelBlock(Vector3I candidate, Vector3I outward, bool enforceFace)
     {
         BlockSample sample = _world.SampleVoxel(candidate);
-        if (!sample.Present || !_world.IsExposed(candidate) || !IsShovelMaterial(sample)) return false;
+        if (!sample.Present || !_world.IsExposed(candidate, sample) || !IsShovelMaterial(sample)) return false;
         if (enforceFace && _world.Source.GetOutwardNormal(candidate) != outward) return false;
         if (HasBlockingShovelSurfaceFeature(candidate, outward)) return false;
         return true;
@@ -546,7 +554,7 @@ public partial class MinerSimulationService : Node3D
 
         BlockSample sample = _world.SampleVoxel(candidate.Value);
         BlockDefinition block = _mining.GetBlockDefinition(sample.BlockId);
-        MiningResult result = _mining.TryMine(candidate.Value, MiningSource.Automated, requireExposed: true);
+        MiningResult result = _mining.TryMine(candidate.Value, sample, MiningSource.Automated, requireExposed: true);
         if (!result.Success) return false;
 
         miner.CandidateIndex++;
@@ -591,9 +599,12 @@ public partial class MinerSimulationService : Node3D
     }
 
     private bool IsTreeAnchor(Vector3I voxel)
-        => _world.IsPresent(voxel)
-            && _world.IsExposed(voxel)
+    {
+        BlockSample sample = _world.SampleVoxel(voxel);
+        return sample.Present
+            && _world.IsExposed(voxel, sample)
             && _world.Source.TrySampleTree(voxel, out _);
+    }
 
     private void OnSkillsChanged()
     {
@@ -724,6 +735,45 @@ public partial class MinerSimulationService : Node3D
         int width,
         int index)
     {
+        if (index < 0) return null;
+
+        Vector3I forward = LineMiningPattern.Cardinal(miner.Direction);
+        switch (pattern.Id)
+        {
+            case "line":
+                if (index >= definition.Range) return null;
+                return miner.Origin + forward * index;
+
+            case "wide_line":
+            {
+                int radius = Math.Max(0, width / 2);
+                int side = radius * 2 + 1;
+                int perDepth = checked(side * side);
+                int depth = index / perDepth;
+                if (depth >= definition.Range) return null;
+                int local = index % perDepth;
+                int a = local / side - radius;
+                int b = local % side - radius;
+                (Vector3I sideA, Vector3I sideB) = LineMiningPattern.PerpendicularAxes(forward);
+                return miner.Origin + forward * depth + sideA * a + sideB * b;
+            }
+
+            case "surface_strip":
+            {
+                int radius = Math.Max(0, width / 2);
+                int span = radius * 2 + 1;
+                int step = index / span;
+                if (step >= definition.Range) return null;
+                int local = index % span;
+                int offset = (step & 1) == 0 ? -radius + local : radius - local;
+                (Vector3I along, Vector3I across) = LineMiningPattern.PerpendicularAxes(forward);
+                return miner.Origin + along * step + across * offset;
+            }
+        }
+
+        // Preserve extensibility for future custom mining patterns. Built-in patterns above are direct
+        // O(1) indexed calculations; an unknown plugin/content pattern retains the previous enumerator
+        // fallback rather than changing its contract.
         int current = 0;
         foreach (Vector3I candidate in pattern.Enumerate(miner.Origin, miner.Direction, definition.Range, width))
         {
@@ -922,15 +972,16 @@ public partial class MinerSimulationService : Node3D
 
         _lastDebrisAtMs[miner.InstanceId] = now;
         Vector3 outward = (Vector3)(-miner.Direction);
-        float spacing = _world.Profile.BlockSpacing;
-        Vector3 position = _view.VoxelToWorld(result.Voxel) + outward * spacing * 0.48f;
         int seed = unchecked((int)(miner.InstanceId * 73856093L)
             ^ result.Voxel.X * 19349663
             ^ result.Voxel.Y * 83492791
             ^ result.Voxel.Z * 265443576);
-        var burst = new DrillDebrisBurst { Name = $"MiningDebris_{miner.InstanceId}" };
-        AddChild(burst);
-        burst.Initialize(position, outward, result.BlockId, spacing, seed);
+        _view.SpawnMiningDebris(
+            result.Voxel,
+            result.BlockId,
+            seed,
+            outward,
+            $"MiningDebris_{miner.InstanceId}");
     }
 
     private static Vector3I MinerAnchorVoxel(MinerInstance miner, MinerDefinition definition)
