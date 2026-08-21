@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using TenMillionBlocks.Content;
 using TenMillionBlocks.World.Authoring;
 using TenMillionBlocks.World.Rendering;
 
