@@ -124,7 +124,7 @@ public sealed class WorldStateStore
         }
 
         return _minedByChunk.TryGetValue(chunk, out ChunkBits? mined)
-            && mined.Contains(VoxelMath.LocalIndex(voxel, _chunkSize));
+            && mined.Contains(VoxelMath.LocalIndex(voxel, chunk, _chunkSize));
     }
 
     public bool MarkMined(Vector3I voxel)
@@ -154,7 +154,7 @@ public sealed class WorldStateStore
             }
         }
 
-        if (!mined.Add(VoxelMath.LocalIndex(voxel, _chunkSize)))
+        if (!mined.Add(VoxelMath.LocalIndex(voxel, chunk, _chunkSize)))
         {
             return false;
         }
