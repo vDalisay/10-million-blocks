@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Automation.MiningPatterns;
 using TenMillionBlocks.World;
+using TenMillionBlocks.World.Interaction;
 
 namespace TenMillionBlocks.Mining;
 
@@ -15,14 +16,90 @@ public enum ManualMiningFootprintKind
 }
 
 /// <summary>
-/// Produces the logical footprint for one manual mining tick. Area mining obeys a global front-most
-/// layer rule: if one selected column contains a protruding block, only blocks on that highest outward
-/// layer receive damage until that obstruction is gone. The footprint is projected through the face
-/// actually entered by the camera ray, so edge/corner mining stays aligned with what the player sees
-/// instead of snapping to a procedural cube-face normal.
+/// Produces the logical footprint for one manual mining tick.
 /// </summary>
 public static class ManualMiningFootprint
 {
+    /// <summary>
+    /// Resolves an area-mining footprint in screen space. The hovered voxel is always the centre target;
+    /// every surrounding footprint cell is found by casting another camera ray one projected block-width
+    /// away from the cursor. This makes an oblique/corner view behave like the player sees it instead of
+    /// rotating the footprint onto one of the world's cardinal axes.
+    /// </summary>
+    public static IReadOnlyList<Vector3I> ResolveScreenSpace(
+        VirtualWorld world,
+        Camera3D camera,
+        Vector2 screenPosition,
+        float maxWorldDistance,
+        Vector3I hovered,
+        ManualMiningFootprintKind kind)
+    {
+        var result = new List<Vector3I>();
+        var seen = new HashSet<Vector3I>();
+
+        // The cursor ray is authoritative and is always first. Besides keeping the preview centred on
+        // the block under the cursor, this also gives unstable-block effects deterministic priority.
+        seen.Add(hovered);
+        result.Add(hovered);
+        if (kind == ManualMiningFootprintKind.Single)
+        {
+            return result;
+        }
+
+        float spacing = world.Profile.BlockSpacing;
+        Vector3 centerWorld = (Vector3)hovered * spacing;
+        Vector2 projectedCenter = camera.UnprojectPosition(centerWorld);
+        Basis cameraBasis = camera.GlobalTransform.Basis;
+
+        // Camera-local right/up vectors have equal depth to the hovered centre, so their projection is
+        // an inexpensive estimate of one visible block-width at the cursor's current depth.
+        Vector2 rightStep = camera.UnprojectPosition(
+            centerWorld + cameraBasis.X.Normalized() * spacing) - projectedCenter;
+        Vector2 upStep = camera.UnprojectPosition(
+            centerWorld + cameraBasis.Y.Normalized() * spacing) - projectedCenter;
+        Vector2 downStep = -upStep;
+
+        // Extremely distant worlds can project a cell to sub-pixel size. Keep the footprint stable and
+        // ray-based rather than collapsing every sample onto the same cursor pixel.
+        if (rightStep.LengthSquared() < 0.25f)
+        {
+            rightStep = Vector2.Right;
+        }
+        if (downStep.LengthSquared() < 0.25f)
+        {
+            downStep = Vector2.Down;
+        }
+
+        foreach (Vector2I offset in Offsets(kind))
+        {
+            if (offset == Vector2I.Zero) continue;
+
+            Vector2 samplePosition = screenPosition
+                + rightStep * offset.X
+                + downStep * offset.Y;
+            if (!VoxelRaycaster.TryRaycast(
+                    world,
+                    camera,
+                    samplePosition,
+                    maxWorldDistance,
+                    out Vector3I candidate))
+            {
+                continue;
+            }
+
+            if (seen.Add(candidate))
+            {
+                result.Add(candidate);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Legacy cardinal-plane resolver retained for automation/debug callers. Manual and hover mining use
+    /// ResolveScreenSpace so their preview and destruction footprint follow the camera view.
+    /// </summary>
     public static IReadOnlyList<Vector3I> ResolveHighestLayer(
         VirtualWorld world,
         Vector3I hovered,
@@ -44,9 +121,6 @@ public static class ManualMiningFootprint
             Vector3I? found = null;
             int foundLayer = int.MinValue;
 
-            // Search the camera-facing column outward first, then inward. Do not reject a valid block
-            // just because the procedural generator assigns it to another controlling cube face: at a
-            // corner that classification is exactly what used to make the footprint dig in from the side.
             for (int radialOffset = scan; radialOffset >= -scan; radialOffset--)
             {
                 Vector3I candidate = columnBase + outward * radialOffset;
@@ -103,8 +177,6 @@ public static class ManualMiningFootprint
     private static IReadOnlyList<Vector2I> BuildSquare(int size)
     {
         var result = new List<Vector2I>(size * size);
-        // Even-sized footprints are biased one cell toward the positive axes. Square10 is intentionally
-        // deferred from the tutorial pass, but defining it here keeps the strategy/data contract stable.
         int min = -(size / 2);
         int maxExclusive = min + size;
         for (int y = min; y < maxExclusive; y++)
