@@ -1,6 +1,10 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://tools/world_authoring/WorldAuthoringRoot.cs" id="1_authoring"]
+[ext_resource type="Script" path="res://tools/world_authoring/WorldAuthoringAdvancedTools.cs" id="2_advanced"]
 
 [node name="WorldAuthoring" type="Node"]
 script = ExtResource("1_authoring")
+
+[node name="AdvancedTools" type="Node" parent="."]
+script = ExtResource("2_advanced")
