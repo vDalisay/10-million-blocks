@@ -168,7 +168,7 @@ public partial class WorldSelectView : CanvasLayer
     {
         var card = new PanelContainer
         {
-            CustomMinimumSize = new Vector2(0, 102),
+            CustomMinimumSize = new Vector2(0, 118),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         var margin = new MarginContainer();
@@ -202,6 +202,11 @@ public partial class WorldSelectView : CanvasLayer
         information.AddChild(new Label
         {
             Text = $"{dimensions}  ·  {(completed ? "CLEARED" : $"{progress:P0} cleared")}",
+        });
+        information.AddChild(new Label
+        {
+            Text = LastPlayedText(profile.Id),
+            Modulate = new Color(0.78f, 0.82f, 0.88f),
         });
         information.AddChild(new ProgressBar
         {
@@ -253,6 +258,18 @@ public partial class WorldSelectView : CanvasLayer
         long sparse = saved.MinedChunks.Sum(chunk => (long)(chunk.MinedLocalIndices?.Count ?? 0));
         long exhausted = saved.ExhaustedRegions.Sum(region => Math.Max(0L, region.MinedCount));
         return checked(sparse + exhausted);
+    }
+
+    private string LastPlayedText(string worldId)
+    {
+        if (!_save.Worlds.TryGetValue(worldId, out WorldSaveData? saved)
+            || saved.LastPlayedUnixSeconds <= 0)
+        {
+            return "Last played: not yet";
+        }
+
+        DateTimeOffset timestamp = DateTimeOffset.FromUnixTimeSeconds(saved.LastPlayedUnixSeconds).ToLocalTime();
+        return $"Last played: {timestamp:dd MMM yyyy HH:mm}";
     }
 
     private bool ReplayExists(string worldId)
