@@ -185,27 +185,35 @@ public partial class ManualMiningController : Node3D
 
         int actions = 0;
         int presentationBursts = 0;
-        foreach (Vector3I candidate in targets)
+        _mining.BeginCurrencyNotificationBatch();
+        try
         {
-            MiningResult result = _mining.TryMine(candidate);
-            if (!result.Success) continue;
-
-            actions++;
-            if (!result.Removed) continue;
-
-            MarkEffectDirty(result);
-            if (presentationBursts < 5)
+            foreach (Vector3I candidate in targets)
             {
-                _view.SpawnManualMinePop(
-                    result.Voxel,
-                    result.BlockId,
-                    hoverMining ? 1.24f : 1.12f);
-                EmitDebris(result, presentationBursts++);
-            }
+                MiningResult result = _mining.TryMine(candidate);
+                if (!result.Success) continue;
 
-            // An unstable-block blast is already a complete high-impact action. Other targets in the
-            // same footprint are left for the next manual tick rather than chaining through the crater.
-            if (result.EffectRadius > 0) break;
+                actions++;
+                if (!result.Removed) continue;
+
+                MarkEffectDirty(result);
+                if (presentationBursts < 5)
+                {
+                    _view.SpawnManualMinePop(
+                        result.Voxel,
+                        result.BlockId,
+                        hoverMining ? 1.24f : 1.12f);
+                    EmitDebris(result, presentationBursts++);
+                }
+
+                // An unstable-block blast is already a complete high-impact action. Other targets in the
+                // same footprint are left for the next manual tick rather than chaining through the crater.
+                if (result.EffectRadius > 0) break;
+            }
+        }
+        finally
+        {
+            _mining.EndCurrencyNotificationBatch();
         }
 
         return actions;
