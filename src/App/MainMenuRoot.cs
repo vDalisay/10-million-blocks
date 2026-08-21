@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using TenMillionBlocks.Save;
+using TenMillionBlocks.UI;
 
 namespace TenMillionBlocks.App;
 
@@ -230,11 +231,15 @@ public partial class MainMenuRoot : Node
 
     private void OnPlayPressed()
     {
-        Error result = GetTree().ChangeSceneToFile("res://scenes/Game.tscn");
-        if (result == Error.Ok) return;
+        WorldLoadingScreen.RunTransition(this, "LOADING WORLD", () =>
+        {
+            Error result = GetTree().ChangeSceneToFile("res://scenes/Game.tscn");
+            if (result == Error.Ok) return;
 
-        _status.Text = $"Could not start gameplay ({result}).";
-        _status.Modulate = new Color(1.0f, 0.58f, 0.52f);
+            WorldLoadingScreen.CancelGlobal();
+            _status.Text = $"Could not start gameplay ({result}).";
+            _status.Modulate = new Color(1.0f, 0.58f, 0.52f);
+        });
     }
 
     private void ShowMain()
