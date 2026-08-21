@@ -72,6 +72,7 @@ public sealed class ProceduralWorldSource
     private readonly WorldProfile _profile;
     private readonly WorldOverrideSet? _overrides;
     private readonly Dictionary<ColumnKey, TerrainContext> _columnCache = new();
+    private readonly Dictionary<ColumnKey, RawTerrain> _rawTerrainCache = new();
 
     public ProceduralWorldSource(WorldProfile profile)
     {
@@ -489,8 +490,11 @@ public sealed class ProceduralWorldSource
             + (waterUp ? 1 : 0)
             + (waterDown ? 1 : 0);
 
-        bool twoDimensionalSupport = (waterRight || waterLeft) && (waterUp || waterDown);
-        bool hasWater = centerWater && waterVotes >= 4 && twoDimensionalSupport;
+        // A materialized water cell must belong to at least one full 2x2 raw hydrology patch. This is
+        // stronger than simple neighbour voting: every accepted cell therefore has companions in both
+        // tangent axes, which removes isolated puddles and one-cell ribbons while retaining broad basin
+        // shapes. Raw-terrain caching keeps the extra diagonal lookups cheap during surface sampling.
+        bool hasWater = HasWaterPatch(normal, u, v);
         float waterRadius = Quantize(
             _profile.BaseRadius + _profile.SeaLevelOffset,
             MathF.Max(0.5f, _profile.PlateauStep));
@@ -532,8 +536,27 @@ public sealed class ProceduralWorldSource
         return result;
     }
 
+    private bool HasWaterPatch(Vector3I normal, int u, int v)
+    {
+        if (!IsWaterCandidate(SampleRawTerrain(normal, u, v))) return false;
+
+        bool right = IsWaterCandidate(SampleRawTerrain(normal, u + 1, v));
+        bool left = IsWaterCandidate(SampleRawTerrain(normal, u - 1, v));
+        bool up = IsWaterCandidate(SampleRawTerrain(normal, u, v + 1));
+        bool down = IsWaterCandidate(SampleRawTerrain(normal, u, v - 1));
+
+        if (right && up && IsWaterCandidate(SampleRawTerrain(normal, u + 1, v + 1))) return true;
+        if (left && up && IsWaterCandidate(SampleRawTerrain(normal, u - 1, v + 1))) return true;
+        if (right && down && IsWaterCandidate(SampleRawTerrain(normal, u + 1, v - 1))) return true;
+        if (left && down && IsWaterCandidate(SampleRawTerrain(normal, u - 1, v - 1))) return true;
+        return false;
+    }
+
     private RawTerrain SampleRawTerrain(Vector3I normal, int u, int v)
     {
+        ColumnKey key = MakeColumnKey(normal, u, v);
+        if (_rawTerrainCache.TryGetValue(key, out RawTerrain cached)) return cached;
+
         Vector3 point = ToFacePoint(normal, u, v);
 
         float continentalness = DeterministicNoise.Fractal3D(
@@ -636,7 +659,7 @@ public sealed class ProceduralWorldSource
             mountainMask * (0.48f + ridge * 0.52f)
             + MathF.Abs(detail) * (1.0f - erosion) * 0.34f);
 
-        return new RawTerrain(
+        RawTerrain result = new(
             rawGroundRadius,
             hydrology,
             lakeSignal,
@@ -649,6 +672,8 @@ public sealed class ProceduralWorldSource
             oceanCandidate,
             lakeCandidate,
             waterStrength);
+        _rawTerrainCache[key] = result;
+        return result;
     }
 
     private bool IsNaturalLedge(Vector3I normal, int u, int v, TerrainContext terrain)
