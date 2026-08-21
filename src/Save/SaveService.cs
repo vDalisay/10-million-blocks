@@ -15,6 +15,7 @@ public sealed class WorldSaveData
     public string WorldId { get; set; } = string.Empty;
     public int WorldVersion { get; set; }
     public int GenerationVersion { get; set; }
+    public long InitialMineableBlocks { get; set; }
     public long TutorialLocalCurrency { get; set; }
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
@@ -147,6 +148,7 @@ public sealed class SaveService
                     WorldId = active.Id,
                     WorldVersion = active.WorldVersion,
                     GenerationVersion = active.GenerationVersion,
+                    InitialMineableBlocks = Math.Max(0L, active.TargetMineableBlocks),
                 };
                 data.Worlds[active.Id] = world;
             }
@@ -179,7 +181,12 @@ public sealed class SaveService
             {
                 if (world.WorldVersion <= 0) world.WorldVersion = profile.WorldVersion;
                 if (world.GenerationVersion <= 0) world.GenerationVersion = profile.GenerationVersion;
+                if (world.InitialMineableBlocks <= 0 && profile.TargetMineableBlocks > 0)
+                {
+                    world.InitialMineableBlocks = profile.TargetMineableBlocks;
+                }
             }
+            world.InitialMineableBlocks = Math.Max(0L, world.InitialMineableBlocks);
             world.TutorialLocalCurrency = Math.Max(0L, world.TutorialLocalCurrency);
             if (world.LastPlayedUnixSeconds <= 0) world.LastPlayedUnixSeconds = world.FirstStartedUnixSeconds;
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
