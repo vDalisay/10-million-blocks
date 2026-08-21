@@ -8,13 +8,13 @@ Detailed progression implementation plan: `docs/FUTURE_WORLD_PROGRESSION_IMPLEME
 
 ## Current checkpoint
 
-The non-local implementation pass is now substantially complete. The active runtime progression is no longer the old provisional sequence; it is the reviewed Steam-demo sequence:
+The non-local implementation pass is substantially complete. The active Steam-demo sequence is:
 
 1. `tutorial_single_block` — 1 x 1 x 1.
 2. `tutorial_dirt_5` — 5 x 5 x 5.
 3. `tutorial_lake_core_10` — 10 x 10 x 10.
 4. `tutorial_trees_gem_15` — 15 x 15 x 15.
-5. `reference_natural` — 20 x 20 x 20 first normal/main-economy world.
+5. `reference_natural` — 20 x 20 x 20 first main-economy world.
 6. `reference_lakes` — 40 x 40 x 40 active lightning/meteor world.
 7. `reference_ridges` — 50 x 50 x 50 Steam-demo finale.
 
@@ -42,15 +42,17 @@ Implemented:
 - compact authoritative replay recording;
 - read-only completed-run replay viewer with accelerated playback;
 - world browser separating **Revisit** from **Replay**;
-- replay exit restores the world that was active before the replay was opened, including when replaying a different completed world from the browser;
-- persistent player-level special-resource event subscriptions are detached when old skill-tree views leave the scene, preventing stale world-session UI callbacks after revisits/replays;
+- replay exit restores the world that was active before the replay was opened;
+- persistent player-level special-resource event subscriptions are detached when old skill-tree views leave the scene;
 - distinct `STEAM DEMO COMPLETE` flow after the 50³ finale.
+
+A temporary startup main menu now provides **PLAY GAME** and **SETTINGS**. Settings includes a confirmation-gated **CLEAR SAVE DATA** action that removes current/legacy development saves, temp files and replay history so progression can be retested from a genuinely clean state.
 
 The world browser resumes the actual saved run; Replay never silently creates a fresh playable world.
 
 ---
 
-## Tutorial progression and semantic event layer
+## Tutorial progression and completion accounting
 
 Implemented:
 
@@ -58,20 +60,20 @@ Implemented:
 - 5³ manual/hover-mining tutorial;
 - 10³ authored lake + stone-core Shovel tutorial;
 - 15³ authored tree blockers + exact central red gem + Drill/Wide Bore lesson;
-- Forest Cutter remains hidden in 15³: that world first teaches that trees are physical route blockers that can be cleared manually; the Forest Cutter branch becomes visible in the 20³ main world;
+- Forest Cutter remains hidden in 15³ and first becomes visible in the 20³ main world;
 - per-world category staging plus exact per-skill staging for late nodes such as Cloud Charger;
 - semantic gameplay event hub/bridge;
 - contextual `TutorialDirector` driven by semantic events rather than mechanics containing popup text;
 - one-time tutorial milestones persisted in save state;
 - semantic events for world start/manual/area mining, automation unlock/place/stop, Shovel blockers, special resources, transformations, lightning and meteors.
 
+A completion deadlock discovered in the 5³ tutorial has been fixed at the accounting layer. Exact small worlds no longer use large-world aggregate region quotas. CI now exhaustively clears every tutorial world and proves a real zero-block state at **1/1, 125/125, 1,000/1,000 and 3,375/3,375**. This specifically prevents the previous 105/125 state where the renderer had nothing left to mine while completion still expected 125 blocks.
+
 Mechanics remain functional when tutorial presentation is absent.
 
 ---
 
 ## Incremental-game feedback layer
-
-The game now has an explicit incremental presentation architecture rather than relying only on raw HUD numbers.
 
 Implemented:
 
@@ -91,9 +93,7 @@ Implemented:
 - replay sessions do not instantiate the incremental pickup layer;
 - F9 exposes active/pool/spawned/aggregated/dropped feedback metrics.
 
-Authoritative mining, currency, special-resource credit, save state and replay never depend on an animation finishing. Dropping a presentation effect is therefore harmless.
-
-Final easing, sound, exact particle art, screen shake and accessibility intensity/reduced-motion controls remain demo-polish work rather than simulation dependencies.
+Authoritative mining, currency, special-resource credit, save state and replay never depend on an animation finishing.
 
 ---
 
@@ -135,8 +135,6 @@ Implemented:
 - late-game **Cloud Charger** skill staged only in the 40³/50³ worlds;
 - Cloud Charger contributes one automatic cloud charge every three seconds while manual clicks still accelerate the same cloud.
 
-This is deliberately partial automation: the 40³ active mechanic remains useful manually, while late progression demonstrates the incremental-game shift from repeated interaction toward automation.
-
 ---
 
 ## Deterministic generation and authoring
@@ -145,18 +143,32 @@ Implemented:
 
 - runtime deterministic profile/seed generator;
 - coherent terrain columns, plateaus/cliffs, forest fields, ore and depth rules;
-- water basin/depth/shore material rules;
-- generated water kept away from unstable cube-face seam transitions;
-- water materialization requires coherent local 2D basin support rather than one-cell/tendril noise;
-- deterministic generator CI contracts for supported terrain, shoreline sand, deep-water interior behavior and water-component shape;
 - sparse world override files for tutorial/main-world authoring;
-- `reference_natural` is now an explicitly versioned reviewed world (`worldVersion` 3) with a sparse v3 override guaranteeing one red, one blue and one green special gem without increasing its physical block count;
 - runtime-backed world-authoring candidate browser/preview;
 - exact authoring metrics and draft export;
 - shipping freeze backend that refuses accidental overwrite of an existing frozen version;
 - standalone deterministic-generation tooling can load the same `res://` authored override data through an explicit managed resource root without booting Godot native runtime APIs.
 
-CI validates the reviewed progression order/dimensions/wallet scopes, staged skill IDs, tutorial authored structures, one-million target invariants and deterministic generation contracts. The current reviewed procedural baselines remain exactly 7,728 mineable blocks for 20³ metadata, 64,611 for 40³ and 125,934 for 50³. CI also confirms those worlds retain trees and special resources; the current authoring scan reports 3, 811 and 4,595 special gems respectively.
+The procedural surface now has an explicit structural post-pass shared by runtime and CI. It enforces visual/voxel invariants rather than hoping a seed produces them:
+
+- water is a **single inset surface layer**, never a stack/tower sitting above another block;
+- every accepted water voxel has solid sand directly inward/behind it;
+- any outward cap in a water column is carved away;
+- water remains inside a stable face band and leaves a dry shoreline ring before cube seams/corners;
+- the first cardinal dry ring beside accepted water is sand;
+- boundary water is shallow; dark/deep water is allowed only when all four final neighboring water columns survive;
+- narrow one/two-cell post-filter water fragments are rejected;
+- the literal cube perimeter does not use dirt-sided grass/soil where a second camera angle could expose brown sides; that edge band resolves to the uniform-green surface material instead.
+
+`reference_natural` remains content `worldVersion` 3, while all three reviewed procedural Steam-demo worlds now use structural `generationVersion` 3. The Verdant v3 sparse override was refreshed to generation v3 and still guarantees one red, one blue and one green special gem without adding blocks.
+
+The structural correction intentionally changed the deterministic physical geometry. The reviewed generation-v3 baselines are now:
+
+- `reference_natural`: **6,824** mineable blocks;
+- `reference_lakes`: **61,225** mineable blocks;
+- `reference_ridges`: **123,412** mineable blocks.
+
+CI confirms those worlds still retain trees and special resources. The current authoring scan reports 3, 811 and 4,595 special gems respectively.
 
 ---
 
@@ -182,28 +194,31 @@ The final non-local checkpoint currently passes:
 - repository content validation;
 - cross-world progression contracts;
 - Release .NET build with 0 warnings / 0 errors in the main game project;
-- deterministic generation contracts for candidate seeds and all three procedural Steam-demo worlds;
+- deterministic generation contracts across candidate seeds and all three procedural Steam-demo worlds;
+- water inset/support/shoreline/deep-water/topology contracts;
+- uniform outer-edge surface-material contract;
+- exact tutorial clear-through completion contracts;
 - exact reviewed physical-count contracts for 20³/40³/50³;
-- authored special-resource presence checks;
+- authored special-resource/tree presence checks;
 - replay schema/encode/decode/compression contract at 125,000 recorded removals.
 
-The standalone contract projects still emit the existing Godot source-generator warning about `GodotProjectDir` not being set when they compile outside a Godot project context. The contract executables themselves complete successfully; this warning is not a runtime or main-project build failure.
+The standalone contract projects still emit the existing Godot source-generator warning about `GodotProjectDir` not being set when compiled outside a Godot project context. The contract executables themselves complete successfully; this warning is not a runtime or main-project build failure.
 
 ---
 
 ## Remaining work before merge
 
-Automated/static work is now at the point where further confidence primarily requires the actual Godot runtime and visual interaction. Remaining genuinely subjective/runtime items are concentrated in one final pass:
+Automated/static work is now at the point where further confidence primarily requires the actual Godot runtime and visual interaction:
 
-1. Verify the 1³ -> 5³ -> 10³ -> 15³ -> 20³ -> 40³ -> 50³ progression can be played/revisited without state leakage.
-2. Verify World Browser progress percentages use the real saved physical total on procedural worlds and that replaying an older world returns to the previously active world afterward.
-3. Verify incremental pickups read clearly: normal block, rapid area mining, automation aggregation, tree miniature and special gem destination.
-4. Verify F9 feedback counts remain bounded under rapid automation/event mining.
-5. Verify Cloud Charger starts after purchase, adds one charge about every three seconds, coexists with manual cloud clicks and triggers the normal authoritative strike.
-6. Verify lightning/meteor interaction feel and crater presentation locally.
-7. Verify staged tutorial/skill visibility at each world boundary, especially Forest Cutter first appearing at 20³ and Cloud Charger appearing at 40³/50³.
-8. Verify Revisit resumes actual state and Replay remains read-only.
-9. Verify the 50³ final clear displays the dedicated Steam-demo completion screen.
-10. Perform the final visual/art-direction comparison of 20³/40³/50³ against the supplied reference target.
+1. From the temporary main menu, use **Settings -> Clear Save Data**, confirm, then verify Play Game truly starts from the 1³ world with no stale replay/progression state.
+2. Clear 1³ and then the entire 5³ world by ordinary clicking/hover mining. Confirm it reaches 125/125, shows the completion/congratulations flow and exposes Replay/next-world behavior rather than becoming empty at 105/125.
+3. Verify the 1³ -> 5³ -> 10³ -> 15³ -> 20³ -> 40³ -> 50³ progression can be played/revisited without state leakage.
+4. Inspect 20³/40³/50³ from multiple camera angles: water must read as recessed lakes/basins with sand shoreline/support, no blocks may visibly sit on top of water, and cube edge/corner grass must remain uniformly green from adjoining faces.
+5. Verify World Browser progress percentages use the real saved physical total and replaying an older world returns to the previously active world afterward.
+6. Verify incremental pickups read clearly and F9 feedback counts remain bounded under rapid mining.
+7. Verify Cloud Charger, lightning and meteor interaction locally.
+8. Verify staged tutorial/skill visibility, especially Forest Cutter at 20³ and Cloud Charger at 40³/50³.
+9. Verify Revisit resumes actual state and Replay remains read-only.
+10. Verify the 50³ final clear displays the dedicated Steam-demo completion screen.
 
 No additional one-million performance benchmark is required for this progression checkpoint unless a regression is observed there.
