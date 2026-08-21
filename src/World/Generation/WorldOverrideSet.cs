@@ -150,9 +150,12 @@ public sealed class WorldOverrideSet
             features.Add(anchor, new FeatureSample(item.BlockId, anchor, normal));
         }
 
-        GD.Print(
+        string logMessage =
             $"Loaded {voxels.Count} sparse voxel overrides, {features.Count} authored features and " +
-            $"{suppressedFeatures.Count} feature suppressions for '{profile.Id}'.");
+            $"{suppressedFeatures.Count} feature suppressions for '{profile.Id}'.";
+        if (UsesManagedResourceRoot()) Console.WriteLine(logMessage);
+        else GD.Print(logMessage);
+
         return new WorldOverrideSet(voxels, features, suppressedFeatures);
     }
 
@@ -180,6 +183,10 @@ public sealed class WorldOverrideSet
 
     public bool SuppressesFeature(Vector3I anchor)
         => _suppressedFeatures.Contains(anchor);
+
+    private static bool UsesManagedResourceRoot()
+        => !string.IsNullOrWhiteSpace(
+            System.Environment.GetEnvironmentVariable(ResourceRootEnvironmentVariable));
 
     private static string ReadOverrideJson(string resourcePath)
     {
