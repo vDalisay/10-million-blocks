@@ -36,7 +36,7 @@ public partial class MinerSimulationService
         {
             MinerStopReason.BlockedMaterial => DescribeBlockedMaterial(miner.BlockedBlockId),
             MinerStopReason.BlockedFeature when miner.BlockedBlockId == "tree" =>
-                "blocked by a tree; clear it manually or with the Forest Cutter",
+                "blocked by a tree; clear it manually or use a compatible tree-clearing machine once unlocked",
             MinerStopReason.BlockedTerrain => DescribeShovelTerrainBlocker(miner.BlockedBlockId),
             MinerStopReason.NoReachableTarget when IsShovel(_catalog.Get(miner.DefinitionId)) =>
                 "stopped: no reachable shovel terrain",
