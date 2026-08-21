@@ -10,28 +10,27 @@ public partial class WorldView
 
     /// <summary>
     /// Marks the chunk containing one changed voxel plus only the adjacent chunks whose shared border
-    /// can actually have changed exposure. The previous generic path submitted all six voxel neighbours
-    /// even when they were inside the same chunk, which meant seven hashing/scheduling paths for almost
-    /// every ordinary mined block.
+    /// can actually have changed exposure. Full-surface worlds now use the cheap surface-column rebuild
+    /// plus a sparse exposure overlay instead of rescanning the whole 16^3 chunk after every click.
     /// </summary>
     public void MarkDirtyVoxel(Vector3I voxel)
     {
         int chunkSize = _world.Profile.ChunkSize;
         ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, chunkSize);
-        MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
+        MarkInteractiveChunkDirty(chunk);
 
         int x = VoxelMath.PositiveMod(voxel.X, chunkSize);
         int y = VoxelMath.PositiveMod(voxel.Y, chunkSize);
         int z = VoxelMath.PositiveMod(voxel.Z, chunkSize);
 
-        if (x == 0) MarkChunkDirty(new ChunkCoord(chunk.X - 1, chunk.Y, chunk.Z), forceExact: FullSurfaceRenderer);
-        else if (x == chunkSize - 1) MarkChunkDirty(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z), forceExact: FullSurfaceRenderer);
+        if (x == 0) MarkInteractiveChunkDirty(new ChunkCoord(chunk.X - 1, chunk.Y, chunk.Z));
+        else if (x == chunkSize - 1) MarkInteractiveChunkDirty(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z));
 
-        if (y == 0) MarkChunkDirty(new ChunkCoord(chunk.X, chunk.Y - 1, chunk.Z), forceExact: FullSurfaceRenderer);
-        else if (y == chunkSize - 1) MarkChunkDirty(new ChunkCoord(chunk.X, chunk.Y + 1, chunk.Z), forceExact: FullSurfaceRenderer);
+        if (y == 0) MarkInteractiveChunkDirty(new ChunkCoord(chunk.X, chunk.Y - 1, chunk.Z));
+        else if (y == chunkSize - 1) MarkInteractiveChunkDirty(new ChunkCoord(chunk.X, chunk.Y + 1, chunk.Z));
 
-        if (z == 0) MarkChunkDirty(new ChunkCoord(chunk.X, chunk.Y, chunk.Z - 1), forceExact: FullSurfaceRenderer);
-        else if (z == chunkSize - 1) MarkChunkDirty(new ChunkCoord(chunk.X, chunk.Y, chunk.Z + 1), forceExact: FullSurfaceRenderer);
+        if (z == 0) MarkInteractiveChunkDirty(new ChunkCoord(chunk.X, chunk.Y, chunk.Z - 1));
+        else if (z == chunkSize - 1) MarkInteractiveChunkDirty(new ChunkCoord(chunk.X, chunk.Y, chunk.Z + 1));
     }
 
     /// <summary>
@@ -104,7 +103,7 @@ public partial class WorldView
     {
         foreach (ChunkCoord chunk in _dirtyBatchScratch)
         {
-            MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
+            MarkInteractiveChunkDirty(chunk);
         }
     }
 }
