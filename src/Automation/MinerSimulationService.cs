@@ -98,7 +98,8 @@ public partial class MinerSimulationService : Node3D
 
         foreach (MinerInstance miner in _miners)
         {
-            if (budget <= 0 || miner.Exhausted) continue;
+            if (budget <= 0) break;
+            if (miner.Exhausted) continue;
 
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
             miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * delta;
@@ -249,7 +250,8 @@ public partial class MinerSimulationService : Node3D
 
         foreach (MinerInstance miner in _miners)
         {
-            if (operationsLeft <= 0 || miner.Exhausted) break;
+            if (operationsLeft <= 0) break;
+            if (miner.Exhausted) continue;
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
             miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * seconds;
 
