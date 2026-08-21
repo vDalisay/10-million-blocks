@@ -87,6 +87,7 @@ public sealed class WorldStateStore
     private readonly Dictionary<RegionCoord, long> _sparseMinedCountByRegion = new();
     private readonly Dictionary<RegionCoord, HashSet<ChunkCoord>> _modifiedChunksByRegion = new();
     private readonly Dictionary<RegionCoord, long> _exhaustedRegions = new();
+    private bool _regionTrackingEnabled;
 
     public WorldStateStore(int chunkSize, int regionSizeInChunks = 8)
     {
@@ -98,9 +99,10 @@ public sealed class WorldStateStore
     }
 
     public int ModifiedChunkCount => _minedByChunk.Count;
-    public int SparseModifiedRegionCount => _sparseMinedCountByRegion.Count;
+    public int SparseModifiedRegionCount => _regionTrackingEnabled ? _sparseMinedCountByRegion.Count : 0;
     public int ExhaustedRegionCount => _exhaustedRegions.Count;
-    public long SparseVoxelOverrideCount => _sparseMinedCountByRegion.Values.Sum();
+    public long SparseVoxelOverrideCount
+        => _regionTrackingEnabled ? _sparseMinedCountByRegion.Values.Sum() : MinedVoxelCount;
     public long MinedVoxelCount { get; private set; }
 
     public bool IsRegionExhausted(RegionCoord region) => _exhaustedRegions.ContainsKey(region);
@@ -128,22 +130,28 @@ public sealed class WorldStateStore
     public bool MarkMined(Vector3I voxel)
     {
         ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, _chunkSize);
-        RegionCoord region = RegionCoord.FromChunk(chunk, _regionSizeInChunks);
-        if (_exhaustedRegions.ContainsKey(region))
+        RegionCoord region = default;
+
+        // Region quotas are a giant-world optimization. Exact demo worlds never ask for them, so do
+        // not pay three more floor divisions plus two region-dictionary writes for every ordinary mined
+        // block. The first aggregate-region query enables/reconstructs this bookkeeping lazily.
+        if (_regionTrackingEnabled)
         {
-            return false;
+            region = RegionCoord.FromChunk(chunk, _regionSizeInChunks);
+            if (_exhaustedRegions.ContainsKey(region))
+            {
+                return false;
+            }
         }
 
         if (!_minedByChunk.TryGetValue(chunk, out ChunkBits? mined))
         {
             mined = new ChunkBits(_chunkVoxelCapacity);
             _minedByChunk.Add(chunk, mined);
-            if (!_modifiedChunksByRegion.TryGetValue(region, out HashSet<ChunkCoord>? regionChunks))
+            if (_regionTrackingEnabled)
             {
-                regionChunks = new HashSet<ChunkCoord>();
-                _modifiedChunksByRegion.Add(region, regionChunks);
+                AddModifiedChunkToRegion(region, chunk);
             }
-            regionChunks.Add(chunk);
         }
 
         if (!mined.Add(VoxelMath.LocalIndex(voxel, _chunkSize)))
@@ -151,13 +159,19 @@ public sealed class WorldStateStore
             return false;
         }
 
-        _sparseMinedCountByRegion[region] = checked(_sparseMinedCountByRegion.GetValueOrDefault(region) + 1L);
+        if (_regionTrackingEnabled)
+        {
+            _sparseMinedCountByRegion[region] = checked(_sparseMinedCountByRegion.GetValueOrDefault(region) + 1L);
+        }
         MinedVoxelCount = checked(MinedVoxelCount + 1L);
         return true;
     }
 
     public long GetSparseMinedCountInRegion(RegionCoord region)
-        => _sparseMinedCountByRegion.GetValueOrDefault(region);
+    {
+        EnsureRegionTracking();
+        return _sparseMinedCountByRegion.GetValueOrDefault(region);
+    }
 
     /// <summary>
     /// Replaces all sparse per-voxel deviations inside a region with one aggregate exhausted marker.
@@ -171,6 +185,7 @@ public sealed class WorldStateStore
             return 0L;
         }
 
+        EnsureRegionTracking();
         long alreadyMined = _sparseMinedCountByRegion.GetValueOrDefault(region);
         if (_modifiedChunksByRegion.Remove(region, out HashSet<ChunkCoord>? remove))
         {
@@ -234,6 +249,7 @@ public sealed class WorldStateStore
         _sparseMinedCountByRegion.Clear();
         _modifiedChunksByRegion.Clear();
         _exhaustedRegions.Clear();
+        _regionTrackingEnabled = false;
         MinedVoxelCount = 0L;
 
         foreach (ExhaustedRegionSnapshot snapshot in exhaustedRegions)
@@ -243,6 +259,7 @@ public sealed class WorldStateStore
                 continue;
             }
 
+            _regionTrackingEnabled = true;
             var region = new RegionCoord(snapshot.X, snapshot.Y, snapshot.Z);
             if (_exhaustedRegions.TryAdd(region, snapshot.MinedCount))
             {
@@ -253,10 +270,14 @@ public sealed class WorldStateStore
         foreach (MinedChunkSnapshot snapshot in chunks)
         {
             var key = new ChunkCoord(snapshot.X, snapshot.Y, snapshot.Z);
-            RegionCoord region = RegionCoord.FromChunk(key, _regionSizeInChunks);
-            if (_exhaustedRegions.ContainsKey(region))
+            RegionCoord region = default;
+            if (_regionTrackingEnabled)
             {
-                continue;
+                region = RegionCoord.FromChunk(key, _regionSizeInChunks);
+                if (_exhaustedRegions.ContainsKey(region))
+                {
+                    continue;
+                }
             }
 
             var bits = new ChunkBits(_chunkVoxelCapacity);
@@ -271,14 +292,37 @@ public sealed class WorldStateStore
             }
 
             _minedByChunk[key] = bits;
-            _sparseMinedCountByRegion[region] = checked(_sparseMinedCountByRegion.GetValueOrDefault(region) + bits.Count);
-            if (!_modifiedChunksByRegion.TryGetValue(region, out HashSet<ChunkCoord>? regionChunks))
+            if (_regionTrackingEnabled)
             {
-                regionChunks = new HashSet<ChunkCoord>();
-                _modifiedChunksByRegion.Add(region, regionChunks);
+                _sparseMinedCountByRegion[region] = checked(_sparseMinedCountByRegion.GetValueOrDefault(region) + bits.Count);
+                AddModifiedChunkToRegion(region, key);
             }
-            regionChunks.Add(key);
             MinedVoxelCount = checked(MinedVoxelCount + bits.Count);
         }
+    }
+
+    private void EnsureRegionTracking()
+    {
+        if (_regionTrackingEnabled) return;
+        _regionTrackingEnabled = true;
+        _sparseMinedCountByRegion.Clear();
+        _modifiedChunksByRegion.Clear();
+
+        foreach ((ChunkCoord chunk, ChunkBits bits) in _minedByChunk)
+        {
+            RegionCoord region = RegionCoord.FromChunk(chunk, _regionSizeInChunks);
+            _sparseMinedCountByRegion[region] = checked(_sparseMinedCountByRegion.GetValueOrDefault(region) + bits.Count);
+            AddModifiedChunkToRegion(region, chunk);
+        }
+    }
+
+    private void AddModifiedChunkToRegion(RegionCoord region, ChunkCoord chunk)
+    {
+        if (!_modifiedChunksByRegion.TryGetValue(region, out HashSet<ChunkCoord>? regionChunks))
+        {
+            regionChunks = new HashSet<ChunkCoord>();
+            _modifiedChunksByRegion.Add(region, regionChunks);
+        }
+        regionChunks.Add(chunk);
     }
 }
