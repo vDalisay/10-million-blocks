@@ -225,7 +225,7 @@ static IReadOnlyList<WorldProfile> LoadCommittedProfiles()
             // Standalone .NET contract tools do not initialize Godot's res:// virtual filesystem.
             // Give runtime content loaders an explicit managed resource root before constructing any
             // committed profile that owns an authored override.
-            Environment.SetEnvironmentVariable(WorldOverrideSet.ResourceRootEnvironmentVariable, current);
+            System.Environment.SetEnvironmentVariable(WorldOverrideSet.ResourceRootEnvironmentVariable, current);
 
             string json = File.ReadAllText(candidate);
             ProfileDocument? document = JsonSerializer.Deserialize<ProfileDocument>(json, new JsonSerializerOptions
