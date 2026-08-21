@@ -38,6 +38,7 @@ public partial class MiningHud : CanvasLayer
     }
 
     private const float AutomationDrawerWidth = 356.0f;
+    private const double AutomatedFeedbackInterval = 0.12;
 
     private VirtualWorld _world = null!;
     private MiningService _mining = null!;
@@ -62,8 +63,10 @@ public partial class MiningHud : CanvasLayer
 
     private bool _detailsVisible;
     private bool _automationOpen;
+    private bool _refreshPending;
     private double _feedbackTime;
     private double _automationFeedbackTime;
+    private double _automatedFeedbackCooldown;
     private double _detailRefreshTimer;
     private Tween? _automationTween;
 
@@ -83,11 +86,15 @@ public partial class MiningHud : CanvasLayer
         _miners = miners;
         _manual = manual;
         _placement = placement;
+
+        // A single automated frame can emit many BlockMined/CurrencyChanged events. Those events now
+        // dirty the HUD and the UI is formatted/layouted once on the next frame instead of repeatedly
+        // rebuilding the same strings and automation cards inside the mining loop.
         mining.BlockMined += OnBlockMined;
         mining.BlockDamaged += OnBlockDamaged;
-        mining.CurrencyChanged += _ => Refresh();
-        skills.Changed += Refresh;
-        miners.Changed += Refresh;
+        mining.CurrencyChanged += OnCurrencyChanged;
+        skills.Changed += RequestRefresh;
+        miners.Changed += RequestRefresh;
         placement.Changed += RefreshPlacementHint;
         placement.Feedback += ShowPlacementFeedback;
     }
@@ -183,10 +190,21 @@ public partial class MiningHud : CanvasLayer
         _automationDrawer.Visible = _world.Profile.AutomationAvailable;
         SetAutomationMenuOpen(false, immediate: true);
         Refresh();
+        RefreshPlacementHint();
     }
 
     public override void _Process(double delta)
     {
+        if (_refreshPending)
+        {
+            Refresh();
+        }
+
+        if (_automatedFeedbackCooldown > 0.0)
+        {
+            _automatedFeedbackCooldown = Math.Max(0.0, _automatedFeedbackCooldown - delta);
+        }
+
         if (_feedbackTime > 0.0)
         {
             _feedbackTime -= delta;
@@ -500,12 +518,29 @@ public partial class MiningHud : CanvasLayer
         _automationFeedbackTime = 3.0;
     }
 
+    private void RequestRefresh()
+    {
+        _refreshPending = true;
+    }
+
+    private void OnCurrencyChanged(long _)
+    {
+        _refreshPending = true;
+    }
+
     private void OnBlockMined(MiningResult result)
     {
-        Refresh();
+        _refreshPending = true;
         if (_feedback is null) return;
 
-        if (result.BlockId.StartsWith("gem_", StringComparison.Ordinal))
+        bool gem = result.BlockId.StartsWith("gem_", StringComparison.Ordinal);
+        if (result.Source == MiningSource.Automated && !gem)
+        {
+            if (_automatedFeedbackCooldown > 0.0) return;
+            _automatedFeedbackCooldown = AutomatedFeedbackInterval;
+        }
+
+        if (gem)
         {
             _feedback.Text = $"Gem found: {result.BlockId.Replace("gem_", string.Empty)}  +{result.Reward}";
             _feedback.Modulate = new Color(0.72f, 0.92f, 1.0f);
@@ -532,6 +567,7 @@ public partial class MiningHud : CanvasLayer
 
     private void Refresh()
     {
+        _refreshPending = false;
         if (_summary is not null)
         {
             long total = _mining.TotalMined + _mining.Remaining;
@@ -561,9 +597,9 @@ public partial class MiningHud : CanvasLayer
             }
         }
 
-        RefreshAutomationMenu();
-        RefreshPlacementHint();
-        if (_detailsVisible) RefreshDetails();
+        // The expensive four-card prerequisite/cost refresh is irrelevant while its drawer is hidden.
+        // Opening the drawer refreshes it immediately, and while open it tracks the same coalesced tick.
+        if (_automationOpen) RefreshAutomationMenu();
     }
 
     private void RefreshAutomationMenu()
