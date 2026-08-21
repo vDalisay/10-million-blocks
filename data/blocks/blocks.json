@@ -2,6 +2,7 @@
   "schema_version": 1,
   "blocks": [
     { "id": "grass", "display_name": "Grass", "asset_path": "res://Assets/gltf/grass.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil", "sand"] },
+    { "id": "grass_outer", "display_name": "Outer Grass", "asset_path": "res://Assets/gltf/colored_block_green.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil", "sand"] },
     { "id": "dirt", "display_name": "Dirt", "asset_path": "res://Assets/gltf/dirt.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["soil", "sand"] },
     { "id": "dirt_grass", "display_name": "Grass Edge", "asset_path": "res://Assets/gltf/dirt_with_grass.gltf", "hardness": 1.0, "base_value": 1, "render_class": "terrain", "tags": ["surface", "soil", "sand"] },
     { "id": "stone", "display_name": "Stone", "asset_path": "res://Assets/gltf/stone.gltf", "hardness": 2.0, "base_value": 2, "render_class": "terrain", "tags": ["stone"] },
