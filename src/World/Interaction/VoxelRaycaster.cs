@@ -11,6 +11,21 @@ public static class VoxelRaycaster
         Vector2 screenPosition,
         float maxWorldDistance,
         out Vector3I voxel)
+        => TryRaycast(world, camera, screenPosition, maxWorldDistance, out voxel, out _);
+
+    /// <summary>
+    /// Raycasts the logical voxel world and also reports the face normal through which the ray entered
+    /// the returned voxel. That camera-facing normal is the authoritative orientation for manual area
+    /// mining; using the procedural world's outward normal at cube seams can otherwise rotate the
+    /// footprint onto an adjacent side of the world.
+    /// </summary>
+    public static bool TryRaycast(
+        VirtualWorld world,
+        Camera3D camera,
+        Vector2 screenPosition,
+        float maxWorldDistance,
+        out Vector3I voxel,
+        out Vector3I surfaceNormal)
     {
         Vector3 rayOrigin = camera.ProjectRayOrigin(screenPosition);
         Vector3 rayDirection = camera.ProjectRayNormal(screenPosition).Normalized();
@@ -22,6 +37,7 @@ public static class VoxelRaycaster
         if (!TryIntersectAabb(rayOrigin, rayDirection, world.GetWorldBounds(), out float enter, out float exit))
         {
             voxel = default;
+            surfaceNormal = default;
             return false;
         }
 
@@ -30,6 +46,7 @@ public static class VoxelRaycaster
         if (endWorldDistance < startWorldDistance)
         {
             voxel = default;
+            surfaceNormal = default;
             return false;
         }
 
@@ -59,12 +76,14 @@ public static class VoxelRaycaster
         float tMaxZ = SafeAxisT(nextZ - gridOrigin.Z, direction.Z);
         float maxGridDistance = (endWorldDistance - startWorldDistance) / spacing;
         float travelled = 0.0f;
+        Vector3I enteredNormal = OppositeDominantAxis(direction);
 
         while (travelled <= maxGridDistance)
         {
             if (world.SampleVoxel(cell).Present)
             {
                 voxel = cell;
+                surfaceNormal = enteredNormal;
                 return true;
             }
 
@@ -73,23 +92,37 @@ public static class VoxelRaycaster
                 cell.X += stepX;
                 travelled = tMaxX;
                 tMaxX += tDeltaX;
+                enteredNormal = new Vector3I(-stepX, 0, 0);
             }
             else if (tMaxY <= tMaxZ)
             {
                 cell.Y += stepY;
                 travelled = tMaxY;
                 tMaxY += tDeltaY;
+                enteredNormal = new Vector3I(0, -stepY, 0);
             }
             else
             {
                 cell.Z += stepZ;
                 travelled = tMaxZ;
                 tMaxZ += tDeltaZ;
+                enteredNormal = new Vector3I(0, 0, -stepZ);
             }
         }
 
         voxel = default;
+        surfaceNormal = default;
         return false;
+    }
+
+    private static Vector3I OppositeDominantAxis(Vector3 direction)
+    {
+        float ax = MathF.Abs(direction.X);
+        float ay = MathF.Abs(direction.Y);
+        float az = MathF.Abs(direction.Z);
+        if (ax >= ay && ax >= az) return new Vector3I(direction.X >= 0.0f ? -1 : 1, 0, 0);
+        if (ay >= az) return new Vector3I(0, direction.Y >= 0.0f ? -1 : 1, 0);
+        return new Vector3I(0, 0, direction.Z >= 0.0f ? -1 : 1);
     }
 
     private static bool TryIntersectAabb(Vector3 origin, Vector3 direction, Aabb bounds, out float enter, out float exit)
