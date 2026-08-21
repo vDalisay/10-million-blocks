@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using Godot;
 
@@ -13,10 +12,19 @@ public static class SaveDataMaintenance
 {
     public static void ClearAllLocalData()
     {
-        DeleteUserFile(SaveService.DefaultPath);
-        DeleteUserFile(SaveService.DefaultPath + ".tmp");
-        DeleteUserFile(SaveService.LegacyV2Path);
-        DeleteUserFile(SaveService.LegacyV2Path + ".tmp");
+        string[] savePaths =
+        [
+            SaveService.DefaultPath,
+            SaveService.LegacyV2Path,
+            "user://savegame_v1.json",
+            "user://savegame.json",
+        ];
+
+        foreach (string path in savePaths)
+        {
+            DeleteUserFile(path);
+            DeleteUserFile(path + ".tmp");
+        }
 
         string replayDirectory = ProjectSettings.GlobalizePath("user://replays");
         if (Directory.Exists(replayDirectory))
