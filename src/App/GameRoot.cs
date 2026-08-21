@@ -515,6 +515,7 @@ public partial class GameRoot : Node3D
             WorldId = _world.Profile.Id,
             WorldVersion = _world.Profile.WorldVersion,
             GenerationVersion = _world.Profile.GenerationVersion,
+            InitialMineableBlocks = _world.InitialMineableBlocks,
             TutorialLocalCurrency = tutorialLocalCurrency,
             ManualBlocksMined = _manualBlocksThisWorld,
             AutomatedBlocksMined = _automatedBlocksThisWorld,
