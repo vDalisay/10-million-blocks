@@ -5,8 +5,9 @@ namespace TenMillionBlocks.Automation;
 
 /// <summary>
 /// Short-lived mining debris rendered as one MultiMesh instead of one MeshInstance3D/material/mesh per
-/// fragment. WorldView keeps these burst nodes pooled, so rapid hover mining and dense automation avoid
-/// repeated SceneTree allocation/free churn and keep the effect to a single draw primitive per burst.
+/// fragment. WorldView keeps these burst nodes pooled for manual/replay mining. The older direct
+/// automation call remains compatible and still benefits from shared meshes/materials and one draw
+/// primitive, while releasing its standalone node when the burst finishes.
 /// </summary>
 public partial class DrillDebrisBurst : Node3D
 {
@@ -31,6 +32,7 @@ public partial class DrillDebrisBurst : Node3D
     private int _pieceCount;
     private float _age;
     private Vector3 _gravityDirection;
+    private bool _standaloneLifecycle;
 
     public event Action<DrillDebrisBurst>? Finished;
 
@@ -57,6 +59,16 @@ public partial class DrillDebrisBurst : Node3D
 
         Visible = false;
         SetProcess(false);
+    }
+
+    /// <summary>
+    /// Compatibility path used by automation code that still owns a standalone burst node. New pooled
+    /// callers use Play(). This path queues only the burst container itself after its MultiMesh expires.
+    /// </summary>
+    public void Initialize(Vector3 worldPosition, Vector3 outward, string blockId, float spacing, int seed)
+    {
+        _standaloneLifecycle = true;
+        Play(worldPosition, outward, blockId, spacing, seed, Name.ToString());
     }
 
     public void Play(
@@ -128,6 +140,13 @@ public partial class DrillDebrisBurst : Node3D
         _multiMesh.VisibleInstanceCount = 0;
         Visible = false;
         SetProcess(false);
+
+        if (_standaloneLifecycle)
+        {
+            QueueFree();
+            return;
+        }
+
         Finished?.Invoke(this);
     }
 
