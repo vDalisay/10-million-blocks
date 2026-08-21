@@ -161,7 +161,7 @@ public sealed class VirtualWorld
         for (int x = -max; x <= max; x++)
         {
             Vector3I coordinate = new(x, y, z);
-            BlockSample sample = ReclassifyDeepSpecialBlock(coordinate, Source.SampleVoxel(coordinate));
+            BlockSample sample = SampleGeneratedStructural(coordinate);
             if (sample.Present && sample.Mineable)
             {
                 count++;
@@ -240,11 +240,18 @@ public sealed class VirtualWorld
         }
 
         GeneratedSampleCacheMisses++;
-        BlockSample sample = ReclassifyDeepSpecialBlock(coordinate, Source.SampleVoxel(coordinate));
+        BlockSample sample = SampleGeneratedStructural(coordinate);
         entry.Coordinate = coordinate;
         entry.Sample = sample;
         entry.Valid = true;
         return sample;
+    }
+
+    private BlockSample SampleGeneratedStructural(Vector3I coordinate)
+    {
+        BlockSample generated = Source.SampleVoxel(coordinate);
+        BlockSample structural = WorldStructuralRules.Apply(Profile, Source, coordinate, generated);
+        return ReclassifyDeepSpecialBlock(coordinate, structural);
     }
 
     private static int GeneratedSampleCacheIndex(Vector3I coordinate)
