@@ -73,9 +73,19 @@ public partial class SelectionHighlight : Node3D
 
     public void ShowVoxel(Vector3I voxel)
     {
-        Span<Vector3I> one = stackalloc Vector3I[1];
-        one[0] = voxel;
-        ShowVoxels(one.ToArray());
+        if (_multiMesh is null)
+        {
+            throw new InvalidOperationException("SelectionHighlight must be initialized before use.");
+        }
+
+        EnsureCapacity(1);
+        _positions.Clear();
+        Vector3 position = (Vector3)voxel * _spacing;
+        _positions.Add(position);
+        _multiMesh.SetInstanceTransform(0, new Transform3D(Basis.Identity, position));
+        _activeCount = 1;
+        _multiMesh.VisibleInstanceCount = 1;
+        Visible = true;
     }
 
     public void ShowVoxels(IReadOnlyList<Vector3I> voxels)
@@ -119,8 +129,7 @@ public partial class SelectionHighlight : Node3D
 
     private void EnsureCapacity(int count)
     {
-        if (_multiMesh is null) return;
-        if (_multiMesh.InstanceCount >= count) return;
+        if (_multiMesh is null || _multiMesh.InstanceCount >= count) return;
 
         int capacity = 1;
         while (capacity < count) capacity <<= 1;
