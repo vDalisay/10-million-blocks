@@ -50,7 +50,7 @@ public partial class WorldView
     {
         if (!StreamingEnabled)
         {
-            MarkDirtyAround(voxel);
+            MarkDirtyVoxel(voxel);
             AutomationPresentationUpdatesQueued++;
             return;
         }
@@ -58,22 +58,23 @@ public partial class WorldView
         int chunkSize = _world.Profile.ChunkSize;
         Vector3I outward = _world.Source.GetOutwardNormal(voxel);
         ChunkCoord changedChunk = ChunkCoord.FromVoxel(voxel, chunkSize);
+        int localX = VoxelMath.PositiveMod(voxel.X, chunkSize);
+        int localY = VoxelMath.PositiveMod(voxel.Y, chunkSize);
+        int localZ = VoxelMath.PositiveMod(voxel.Z, chunkSize);
+
         if (!ShouldPresentAutomation(voxel, outward))
         {
+            // Exposure in another render chunk can only change when this voxel touches that chunk's
+            // border. Most automated removals therefore defer one chunk rather than computing/inserting
+            // the same current chunk seven times through the six voxel neighbours.
             DeferAutomationChunk(changedChunk);
-            foreach (Vector3I direction in VoxelMath.Neighbors)
-            {
-                DeferAutomationChunk(ChunkCoord.FromVoxel(voxel + direction, chunkSize));
-            }
+            DeferBoundaryAutomationChunks(changedChunk, localX, localY, localZ, chunkSize);
             AutomationPresentationUpdatesSuppressed++;
             return;
         }
 
         MarkAutomationChunkIfObserved(changedChunk);
-        foreach (Vector3I direction in VoxelMath.Neighbors)
-        {
-            MarkAutomationChunkIfObserved(ChunkCoord.FromVoxel(voxel + direction, chunkSize));
-        }
+        MarkBoundaryAutomationChunksIfObserved(changedChunk, localX, localY, localZ, chunkSize);
         AutomationPresentationUpdatesQueued++;
     }
 
@@ -160,6 +161,40 @@ public partial class WorldView
         Vector3 worldPosition = VoxelToWorld(voxel);
         Vector3 toCamera = _camera.Camera.GlobalPosition - worldPosition;
         return toCamera.Dot((Vector3)outward) > 0.0f;
+    }
+
+    private void DeferBoundaryAutomationChunks(
+        ChunkCoord chunk,
+        int localX,
+        int localY,
+        int localZ,
+        int chunkSize)
+    {
+        if (localX == 0) DeferAutomationChunk(new ChunkCoord(chunk.X - 1, chunk.Y, chunk.Z));
+        else if (localX == chunkSize - 1) DeferAutomationChunk(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z));
+
+        if (localY == 0) DeferAutomationChunk(new ChunkCoord(chunk.X, chunk.Y - 1, chunk.Z));
+        else if (localY == chunkSize - 1) DeferAutomationChunk(new ChunkCoord(chunk.X, chunk.Y + 1, chunk.Z));
+
+        if (localZ == 0) DeferAutomationChunk(new ChunkCoord(chunk.X, chunk.Y, chunk.Z - 1));
+        else if (localZ == chunkSize - 1) DeferAutomationChunk(new ChunkCoord(chunk.X, chunk.Y, chunk.Z + 1));
+    }
+
+    private void MarkBoundaryAutomationChunksIfObserved(
+        ChunkCoord chunk,
+        int localX,
+        int localY,
+        int localZ,
+        int chunkSize)
+    {
+        if (localX == 0) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X - 1, chunk.Y, chunk.Z));
+        else if (localX == chunkSize - 1) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z));
+
+        if (localY == 0) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X, chunk.Y - 1, chunk.Z));
+        else if (localY == chunkSize - 1) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z));
+
+        if (localZ == 0) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X, chunk.Y, chunk.Z - 1));
+        else if (localZ == chunkSize - 1) MarkAutomationChunkIfObserved(new ChunkCoord(chunk.X, chunk.Y, chunk.Z + 1));
     }
 
     private void DeferAutomationChunk(ChunkCoord chunk)
