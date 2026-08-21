@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Save;
 using TenMillionBlocks.UI;
 
@@ -7,7 +8,8 @@ namespace TenMillionBlocks.App;
 
 /// <summary>
 /// Minimal pre-demo shell. It intentionally keeps presentation simple while giving local playtests a
-/// reliable way to start the game and wipe all progression/replay data without touching user folders.
+/// reliable way to start the game, tune graphics and wipe progression/replay data without touching
+/// user folders manually.
 /// </summary>
 public partial class MainMenuRoot : Node
 {
@@ -15,10 +17,12 @@ public partial class MainMenuRoot : Node
     private Control _settingsPanel = null!;
     private Control _confirmPanel = null!;
     private Label _status = null!;
+    private GraphicsSettingsRuntime _graphics = null!;
 
     public override void _Ready()
     {
         RenderingServer.SetDefaultClearColor(new Color(0.003f, 0.008f, 0.025f));
+        _graphics = GraphicsSettingsRuntime.Ensure(GetTree());
 
         var canvas = new CanvasLayer { Layer = 100 };
         AddChild(canvas);
@@ -66,9 +70,9 @@ public partial class MainMenuRoot : Node
             AnchorRight = 0.5f,
             AnchorBottom = 0.5f,
             OffsetLeft = -340,
-            OffsetTop = 190,
+            OffsetTop = 290,
             OffsetRight = 340,
-            OffsetBottom = 230,
+            OffsetBottom = 330,
         };
         canvas.AddChild(_status);
     }
@@ -124,7 +128,7 @@ public partial class MainMenuRoot : Node
 
     private Control BuildSettingsPanel()
     {
-        PanelContainer panel = CenteredPanel(265, 190);
+        PanelContainer panel = CenteredPanel(285, 300);
         var margin = StandardMargin();
         panel.AddChild(margin);
         var column = StandardColumn();
@@ -138,6 +142,86 @@ public partial class MainMenuRoot : Node
         header.AddThemeFontSizeOverride("font_size", 23);
         column.AddChild(header);
 
+        var graphicsHeader = new Label
+        {
+            Text = "Graphics",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        graphicsHeader.AddThemeFontSizeOverride("font_size", 17);
+        column.AddChild(graphicsHeader);
+
+        var resolution = new OptionButton
+        {
+            CustomMinimumSize = new Vector2(210, 38),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        resolution.AddItem("70%", 70);
+        resolution.AddItem("85%", 85);
+        resolution.AddItem("100%", 100);
+        resolution.Select(ClosestResolutionIndex(_graphics.ResolutionScale));
+        resolution.ItemSelected += index =>
+        {
+            float scale = index switch
+            {
+                0 => 0.70f,
+                1 => 0.85f,
+                _ => 1.00f,
+            };
+            _graphics.SetResolutionScale(scale);
+        };
+        column.AddChild(BuildSettingRow("3D Resolution", resolution));
+
+        var msaa = new OptionButton
+        {
+            CustomMinimumSize = new Vector2(210, 38),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        msaa.AddItem("Off", 0);
+        msaa.AddItem("2x", 2);
+        msaa.AddItem("4x", 4);
+        msaa.Select(_graphics.MsaaLevel == 4 ? 2 : _graphics.MsaaLevel == 2 ? 1 : 0);
+        msaa.ItemSelected += index => _graphics.SetMsaaLevel(index switch
+        {
+            1 => 2,
+            2 => 4,
+            _ => 0,
+        });
+        column.AddChild(BuildSettingRow("MSAA", msaa));
+
+        var ao = new CheckButton
+        {
+            Text = "Ambient Occlusion",
+            ButtonPressed = _graphics.AmbientOcclusionEnabled,
+            CustomMinimumSize = new Vector2(0, 38),
+        };
+        ao.Toggled += _graphics.SetAmbientOcclusionEnabled;
+        column.AddChild(ao);
+
+        var glow = new CheckButton
+        {
+            Text = "Glow",
+            ButtonPressed = _graphics.GlowEnabled,
+            CustomMinimumSize = new Vector2(0, 38),
+        };
+        glow.Toggled += _graphics.SetGlowEnabled;
+        column.AddChild(glow);
+
+        var defaults = new Button
+        {
+            Text = "RESET GRAPHICS DEFAULTS",
+            CustomMinimumSize = new Vector2(0, 38),
+        };
+        defaults.Pressed += () =>
+        {
+            _graphics.RestoreDefaults();
+            resolution.Select(2);
+            msaa.Select(0);
+            ao.SetPressedNoSignal(true);
+            glow.SetPressedNoSignal(false);
+        };
+        column.AddChild(defaults);
+
+        column.AddChild(new HSeparator());
         column.AddChild(new Label
         {
             Text = "Playtest data",
@@ -147,7 +231,7 @@ public partial class MainMenuRoot : Node
         var clear = new Button
         {
             Text = "CLEAR SAVE DATA",
-            CustomMinimumSize = new Vector2(390, 48),
+            CustomMinimumSize = new Vector2(0, 44),
         };
         clear.Pressed += () =>
         {
@@ -160,7 +244,7 @@ public partial class MainMenuRoot : Node
         var back = new Button
         {
             Text = "BACK",
-            CustomMinimumSize = new Vector2(390, 42),
+            CustomMinimumSize = new Vector2(0, 42),
         };
         back.Pressed += ShowMain;
         column.AddChild(back);
@@ -185,7 +269,7 @@ public partial class MainMenuRoot : Node
 
         column.AddChild(new Label
         {
-            Text = "This removes progression, per-world state and replay files.\nThis cannot be undone.",
+            Text = "This removes progression, per-world state and replay files.\nGraphics preferences are kept. This cannot be undone.",
             HorizontalAlignment = HorizontalAlignment.Center,
         });
 
@@ -249,6 +333,27 @@ public partial class MainMenuRoot : Node
         _confirmPanel.Visible = false;
     }
 
+    private static Control BuildSettingRow(string label, Control control)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 12);
+        row.AddChild(new Label
+        {
+            Text = label,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        row.AddChild(control);
+        return row;
+    }
+
+    private static int ClosestResolutionIndex(float scale)
+    {
+        if (scale < 0.775f) return 0;
+        if (scale < 0.925f) return 1;
+        return 2;
+    }
+
     private static PanelContainer CenteredPanel(float halfWidth, float halfHeight)
         => new()
         {
@@ -278,7 +383,7 @@ public partial class MainMenuRoot : Node
         {
             Alignment = BoxContainer.AlignmentMode.Center,
         };
-        column.AddThemeConstantOverride("separation", 12);
+        column.AddThemeConstantOverride("separation", 10);
         return column;
     }
 }
