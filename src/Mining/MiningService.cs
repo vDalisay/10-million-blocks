@@ -59,6 +59,8 @@ public sealed class MiningService
     private readonly VirtualWorld _world;
     private readonly ContentDatabase _content;
     private readonly Dictionary<Vector3I, int> _bombHits = new();
+    private int _currencyNotificationBatchDepth;
+    private bool _currencyNotificationPending;
 
     public MiningService(VirtualWorld world, ContentDatabase content)
         : this(world, content, new SpecialResourceInventory())
@@ -87,6 +89,32 @@ public sealed class MiningService
 
     public BlockDefinition GetBlockDefinition(string blockId) => _content.GetBlock(blockId);
 
+    /// <summary>
+    /// Defers CurrencyChanged fan-out while a caller performs a bounded group of authoritative mining
+    /// operations. Currency itself still changes immediately and BlockMined remains per-block; only the
+    /// redundant observer notification is coalesced. Nested batches are supported so manual footprints,
+    /// wide drills and the frame scheduler can compose safely.
+    /// </summary>
+    internal void BeginCurrencyNotificationBatch()
+    {
+        _currencyNotificationBatchDepth++;
+    }
+
+    internal void EndCurrencyNotificationBatch()
+    {
+        if (_currencyNotificationBatchDepth <= 0)
+        {
+            throw new InvalidOperationException("Currency notification batch ended without a matching begin.");
+        }
+
+        _currencyNotificationBatchDepth--;
+        if (_currencyNotificationBatchDepth == 0 && _currencyNotificationPending)
+        {
+            _currencyNotificationPending = false;
+            CurrencyChanged?.Invoke(Currency);
+        }
+    }
+
     public MiningResult TryMine(Vector3I voxel)
         => TryMine(voxel, MiningSource.Manual, requireExposed: true);
 
@@ -112,7 +140,7 @@ public sealed class MiningService
         {
             // Bombs don't pass through the ordinary TryMine mutation until they detonate, so preserve
             // the exposure gate here. Ordinary blocks let VirtualWorld perform this check exactly once.
-            if (requireExposed && !_world.IsExposed(voxel))
+            if (requireExposed && !_world.IsExposed(voxel, before))
             {
                 return Failure(voxel, source);
             }
@@ -169,7 +197,7 @@ public sealed class MiningService
             BlocksRemoved: 1L,
             Removed: true);
         BlockMined?.Invoke(result);
-        CurrencyChanged?.Invoke(Currency);
+        NotifyCurrencyChanged();
         return result;
     }
 
@@ -225,7 +253,7 @@ public sealed class MiningService
 
         if (removedVoxels.Count > 0)
         {
-            CurrencyChanged?.Invoke(Currency);
+            NotifyCurrencyChanged();
         }
 
         return new AreaMiningResult(
@@ -284,7 +312,7 @@ public sealed class MiningService
             return Failure(center, source);
         }
 
-        CurrencyChanged?.Invoke(Currency);
+        NotifyCurrencyChanged();
         return new MiningResult(
             true,
             center,
@@ -314,7 +342,7 @@ public sealed class MiningService
         Currency = checked(Currency + reward);
         var result = new BulkMiningResult(true, region, blocksMined, reward, TotalMined, Remaining, source);
         BulkMined?.Invoke(result);
-        CurrencyChanged?.Invoke(Currency);
+        NotifyCurrencyChanged();
         return result;
     }
 
@@ -324,7 +352,7 @@ public sealed class MiningService
         if (Currency < amount) return false;
 
         Currency -= amount;
-        CurrencyChanged?.Invoke(Currency);
+        NotifyCurrencyChanged();
         return true;
     }
 
@@ -332,12 +360,22 @@ public sealed class MiningService
     {
         if (amount <= 0) return;
         Currency = checked(Currency + amount);
-        CurrencyChanged?.Invoke(Currency);
+        NotifyCurrencyChanged();
     }
 
     public void RestoreCurrency(long amount)
     {
         Currency = Math.Max(0L, amount);
+        NotifyCurrencyChanged();
+    }
+
+    private void NotifyCurrencyChanged()
+    {
+        if (_currencyNotificationBatchDepth > 0)
+        {
+            _currencyNotificationPending = true;
+            return;
+        }
         CurrencyChanged?.Invoke(Currency);
     }
 
