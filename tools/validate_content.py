@@ -282,8 +282,11 @@ assert reference_natural.get("visibleSkillIds", []) == [], (
 assert "forest" in reference_natural.get("visibleSkillCategories", []), (
     "Forest Cutter must first become visible in the 20-cube main world after the 15-cube tree-obstruction lesson"
 )
-assert reference_natural.get("overrideFile") == "res://data/worlds/overrides/reference_natural_v2.json", (
-    "20-cube main world must keep its reviewed sparse special-resource override"
+assert int(reference_natural.get("worldVersion", 0)) == 3, (
+    "20-cube special-resource content change must remain versioned as worldVersion 3"
+)
+assert reference_natural.get("overrideFile") == "res://data/worlds/overrides/reference_natural_v3.json", (
+    "20-cube main world must keep its reviewed version-matched sparse special-resource override"
 )
 reference_overrides = world_override_docs["reference_natural"]["overrides"]
 reference_gems = [item for item in reference_overrides if item.get("blockId") in {"gem_green", "gem_blue", "gem_red"}]
