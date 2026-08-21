@@ -17,7 +17,8 @@ namespace TenMillionBlocks.Replay;
 /// </summary>
 public partial class ReplayPlayer : Node
 {
-    private static readonly double[] AllowedSpeeds = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+    public const double MinSpeed = 1.0;
+    public const double MaxSpeed = 64.0;
 
     private VirtualWorld _world = null!;
     private WorldView _view = null!;
@@ -94,18 +95,9 @@ public partial class ReplayPlayer : Node
 
     public void SetSpeed(double speed)
     {
-        double selected = AllowedSpeeds[0];
-        double bestDistance = double.MaxValue;
-        foreach (double candidate in AllowedSpeeds)
-        {
-            double distance = Math.Abs(candidate - speed);
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                selected = candidate;
-            }
-        }
-
+        double selected = double.IsFinite(speed)
+            ? Math.Clamp(speed, MinSpeed, MaxSpeed)
+            : MinSpeed;
         if (Math.Abs(Speed - selected) < 0.001) return;
         Speed = selected;
         Changed?.Invoke();
