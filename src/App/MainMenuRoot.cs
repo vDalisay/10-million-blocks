@@ -131,7 +131,7 @@ public partial class MainMenuRoot : Node
 
     private Control BuildSettingsPanel()
     {
-        PanelContainer panel = CenteredPanel(285, 300);
+        PanelContainer panel = CenteredPanel(285, 320);
         var margin = StandardMargin();
         panel.AddChild(margin);
         var column = StandardColumn();
@@ -147,7 +147,7 @@ public partial class MainMenuRoot : Node
 
         var graphicsHeader = new Label
         {
-            Text = "Graphics",
+            Text = "Graphics & Presentation",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         graphicsHeader.AddThemeFontSizeOverride("font_size", 17);
@@ -209,9 +209,19 @@ public partial class MainMenuRoot : Node
         glow.Toggled += _graphics.SetGlowEnabled;
         column.AddChild(glow);
 
+        var idleOrbit = new CheckButton
+        {
+            Text = "Idle camera rotation",
+            ButtonPressed = _graphics.IdleCameraOrbitEnabled,
+            TooltipText = "After 30 seconds without mouse input, slowly rotate around the cube.",
+            CustomMinimumSize = new Vector2(0, 38),
+        };
+        idleOrbit.Toggled += _graphics.SetIdleCameraOrbitEnabled;
+        column.AddChild(idleOrbit);
+
         var defaults = new Button
         {
-            Text = "RESET GRAPHICS DEFAULTS",
+            Text = "RESET PRESENTATION DEFAULTS",
             CustomMinimumSize = new Vector2(0, 38),
         };
         defaults.Pressed += () =>
@@ -221,6 +231,7 @@ public partial class MainMenuRoot : Node
             msaa.Select(0);
             ao.SetPressedNoSignal(true);
             glow.SetPressedNoSignal(false);
+            idleOrbit.SetPressedNoSignal(true);
         };
         column.AddChild(defaults);
 
@@ -272,7 +283,7 @@ public partial class MainMenuRoot : Node
 
         column.AddChild(new Label
         {
-            Text = "This removes progression, per-world state and replay files.\nGraphics preferences are kept. This cannot be undone.",
+            Text = "This removes progression, per-world state and replay files.\nPresentation preferences are kept. This cannot be undone.",
             HorizontalAlignment = HorizontalAlignment.Center,
         });
 
