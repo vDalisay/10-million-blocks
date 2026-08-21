@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.World.Authoring;
 using TenMillionBlocks.World.Generation;
 
 static WorldProfile MakeProfile(int seed, float baseRadius)
@@ -113,7 +114,7 @@ static void ValidateWaterComponents(
     }
 }
 
-static void ValidateProfile(WorldProfile profile)
+static long ValidateProfile(WorldProfile profile)
 {
     var source = new ProceduralWorldSource(profile);
     int max = profile.MaxCoordinate;
@@ -138,8 +139,6 @@ static void ValidateProfile(WorldProfile profile)
         if (!exposedOutward || IsWater(profile, sample.BlockId)) continue;
         exposedSolid++;
 
-        // Minecraft-like support invariant: natural terrain can step, but cannot float. Every exposed
-        // terrain cube must have a present block immediately inward toward the cube body.
         Vector3I inward = voxel - normal;
         Require(
             source.SampleVoxel(inward).Present,
@@ -167,10 +166,6 @@ static void ValidateProfile(WorldProfile profile)
                 continue;
             }
 
-            // A seam coordinate can be reachable through two face projections. Runtime rendering keeps
-            // it only on the face that actually owns the resolved voxel, so the art contract must test
-            // that same visible topology instead of comparing a cross-face alias against unrelated
-            // neighbours on the losing projection.
             if (source.GetOutwardNormal(voxel) != face) continue;
             cells[(u, v)] = (voxel, sample);
         }
@@ -216,6 +211,7 @@ static void ValidateProfile(WorldProfile profile)
     Console.WriteLine(
         $"generation contract world={profile.Id} seed={profile.Seed} base={profile.BaseRadius:0.0}: " +
         $"blocks={present:N0}, exposed={exposedSolid:N0}, water={water:N0}, sand={sand:N0}");
+    return present;
 }
 
 static IReadOnlyList<WorldProfile> LoadCommittedProfiles()
@@ -239,22 +235,41 @@ static IReadOnlyList<WorldProfile> LoadCommittedProfiles()
     throw new InvalidOperationException("Could not locate data/worlds/worlds.json for shipped-generation contracts.");
 }
 
-// Include both user-observed candidate seeds plus canonical Verdant. Validate compact authoring scale
-// and actual first-main-world radius so regressions cannot hide at one cube size.
 foreach (int seed in new[] { 73021, 73323, 1939109028 })
 {
-    ValidateProfile(MakeProfile(seed, 5.0f));
-    ValidateProfile(MakeProfile(seed, 9.5f));
+    _ = ValidateProfile(MakeProfile(seed, 5.0f));
+    _ = ValidateProfile(MakeProfile(seed, 9.5f));
 }
 
-// The same structural invariants must hold for every committed procedural Steam-demo world, not just
-// compact reproductions. This is intentionally exact and makes a bad reviewed seed/profile a CI failure
-// before a player can ever see floating terrain, water ribbons, grass shorelines or deep-water edges.
 IReadOnlyList<WorldProfile> committedProfiles = LoadCommittedProfiles();
-foreach (string worldId in new[] { "reference_natural", "reference_lakes", "reference_ridges" })
+var expectedPhysicalCounts = new Dictionary<string, long>(StringComparer.Ordinal)
+{
+    ["reference_natural"] = 7_728L,
+    ["reference_lakes"] = 64_611L,
+    ["reference_ridges"] = 125_934L,
+};
+
+foreach ((string worldId, long expectedCount) in expectedPhysicalCounts)
 {
     WorldProfile profile = committedProfiles.Single(item => item.Id == worldId);
-    ValidateProfile(profile);
+    long generatedPresent = ValidateProfile(profile);
+    WorldAuthoringMetrics metrics = WorldAuthoringAnalyzer.Analyze(profile);
+
+    Console.WriteLine(
+        $"authoring contract world={worldId}: mineable={metrics.MineableBlocks:N0}, trees={metrics.TreeCount:N0}, " +
+        $"gems={metrics.GemCount:N0}, water={metrics.WaterCoverage:P1}, soft={metrics.SoftTerrainCoverage:P1}, " +
+        $"stone={metrics.ExposedStoneCoverage:P1}");
+
+    Require(generatedPresent == expectedCount,
+        $"Reviewed physical block count changed for {worldId}: expected {expectedCount:N0}, generated {generatedPresent:N0}. " +
+        "Treat this as a world-version/content review, not a silent generator change.");
+    Require(metrics.MineableBlocks == expectedCount,
+        $"Runtime mineable count drifted from the reviewed physical baseline for {worldId}: " +
+        $"expected {expectedCount:N0}, runtime {metrics.MineableBlocks:N0}.");
+    Require(metrics.TreeCount > 0,
+        $"Reviewed generated world {worldId} contains no trees; the combined-tool ecosystem contract regressed.");
+    Require(metrics.GemCount > 0,
+        $"Reviewed generated world {worldId} contains no special gems; late progression would lose its special-resource loop.");
 }
 
 Console.WriteLine("deterministic generation contracts passed");
