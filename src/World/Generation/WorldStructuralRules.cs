@@ -12,6 +12,16 @@ namespace TenMillionBlocks.World.Generation;
 /// </summary>
 public static class WorldStructuralRules
 {
+    private static readonly Vector3I[] FaceNormals =
+    [
+        Vector3I.Right,
+        Vector3I.Left,
+        Vector3I.Up,
+        Vector3I.Down,
+        Vector3I.Back,
+        Vector3I.Forward,
+    ];
+
     public static BlockSample Apply(
         WorldProfile profile,
         ProceduralWorldSource source,
@@ -26,57 +36,56 @@ public static class WorldStructuralRules
             return generated;
         }
 
-        Vector3I normal = DominantNormal(coordinate);
-        GetFaceTangents(coordinate, normal, out int u, out int v, out int radial);
+        int faceBorder = Math.Max(0, Mathf.FloorToInt(profile.BaseRadius + 0.001f));
+        int waterRadial = Math.Max(0, faceBorder - 1);
+        bool generatedWater = IsWater(profile, generated.BlockId);
+
+        // Check every plausible owning face instead of only the dominant normal of this voxel. The
+        // water surface can be owned by +Z while its immediately inward support voxel sits on an XYZ
+        // magnitude tie. Dominant-normal-only processing left that support as dirt even though it is
+        // part of the same basin column.
+        foreach (Vector3I normal in FaceNormals)
+        {
+            GetFaceTangents(coordinate, normal, out int u, out int v, out int radial);
+            if (radial < 0) continue;
+
+            bool nearWaterStructure = generatedWater || radial >= waterRadial - 1;
+            if (!nearWaterStructure) continue;
+            if (!TryFindWaterColumn(profile, source, normal, u, v, waterRadial, out string waterBlockId)) continue;
+
+            // Water is presentation/gameplay surface, not a tower of cubes sitting above terrain.
+            // Collapse the raw hydrology column to exactly one water voxel one block inside the normal
+            // cube face, carve every cap above it, and guarantee sand immediately behind it.
+            if (radial > waterRadial) return BlockSample.Empty;
+            if (radial == waterRadial) return new BlockSample(true, waterBlockId, true);
+            if (radial == waterRadial - 1) return new BlockSample(true, profile.SandBlock, true);
+            if (generatedWater) return new BlockSample(true, profile.SandBlock, true);
+        }
+
+        if (generatedWater)
+        {
+            // A raw water classification that belongs to no accepted structural basin is invalid as
+            // visible water. Fill it with sand rather than leaving a detached/stacked water voxel.
+            generated = new BlockSample(true, profile.SandBlock, generated.Mineable);
+        }
 
         // The literal perimeter where two cube faces meet is read from several camera angles. A normal
         // dirt-sided grass block (and occasionally the first soil block beneath it) exposes a brown
         // third face there. Keep only that outer one-block border uniformly green; real inland ledges
         // still use the dirt-sided material.
-        int faceBorder = Math.Max(0, Mathf.FloorToInt(profile.BaseRadius + 0.001f));
-        bool onOuterFaceBorder = Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder;
-        bool nearOuterSurface = radial >= Math.Max(0, faceBorder - 1);
         if (generated.Present
-            && onOuterFaceBorder
-            && nearOuterSurface
             && (generated.BlockId == profile.SurfaceEdgeBlock || generated.BlockId == profile.SoilBlock))
         {
-            generated = new BlockSample(true, profile.SurfaceBlock, generated.Mineable);
+            foreach (Vector3I normal in FaceNormals)
+            {
+                GetFaceTangents(coordinate, normal, out int u, out int v, out int radial);
+                if (radial < Math.Max(0, faceBorder - 1)) continue;
+                if (Math.Max(Math.Abs(u), Math.Abs(v)) < faceBorder) continue;
+                return new BlockSample(true, profile.SurfaceBlock, generated.Mineable);
+            }
         }
 
-        int waterRadial = Math.Max(0, faceBorder - 1);
-        bool generatedWater = IsWater(profile, generated.BlockId);
-        bool nearWaterStructure = generatedWater || radial >= waterRadial - 1;
-        if (!nearWaterStructure)
-        {
-            return generated;
-        }
-
-        if (!TryFindWaterColumn(profile, source, normal, u, v, waterRadial, out string waterBlockId))
-        {
-            return generatedWater ? new BlockSample(true, profile.SandBlock, generated.Mineable) : generated;
-        }
-
-        // Water is presentation/gameplay surface, not a tower of cubes sitting above terrain. Collapse
-        // every raw hydrology column to exactly one water voxel one block inside the normal cube face.
-        // Everything farther outward in that same water column is carved away even if overlapping face
-        // ownership classified it as ordinary terrain; otherwise a solid cap can sit on top of water.
-        if (radial > waterRadial)
-        {
-            return BlockSample.Empty;
-        }
-
-        if (radial == waterRadial)
-        {
-            return new BlockSample(true, waterBlockId, true);
-        }
-
-        if (radial == waterRadial - 1)
-        {
-            return new BlockSample(true, profile.SandBlock, true);
-        }
-
-        return generatedWater ? new BlockSample(true, profile.SandBlock, true) : generated;
+        return generated;
     }
 
     public static bool IsWater(WorldProfile profile, string blockId)
@@ -144,8 +153,14 @@ public static class WorldStructuralRules
         waterBlockId = string.Empty;
         for (int radial = profile.MaxCoordinate; radial >= Math.Max(0, minimumRadial); radial--)
         {
-            BlockSample raw = source.SampleVoxel(FaceVoxel(normal, radial, u, v));
+            Vector3I rawVoxel = FaceVoxel(normal, radial, u, v);
+            BlockSample raw = source.SampleVoxel(rawVoxel);
             if (!raw.Present || !IsWater(profile, raw.BlockId)) continue;
+
+            // Reject water borrowed from an overlapping neighbouring face. Water is deliberately kept
+            // away from face seams, so a valid basin column has a stable owning outward normal.
+            if (source.GetOutwardNormal(rawVoxel) != normal) continue;
+
             waterBlockId = raw.BlockId;
             return true;
         }
