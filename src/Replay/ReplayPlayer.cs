@@ -12,6 +12,8 @@ namespace TenMillionBlocks.Replay;
 /// Read-only playback over a fresh deterministic world baseline. Replay events mutate only this
 /// session's WorldStateStore; they never pass through MiningService and therefore cannot award
 /// currency, special resources, statistics, skill progress, or write new replay events.
+/// Recorded wall-clock gaps are intentionally ignored: at 1x the replay removes the first block
+/// immediately and then advances at one recorded removal per second.
 /// </summary>
 public partial class ReplayPlayer : Node
 {
@@ -21,7 +23,8 @@ public partial class ReplayPlayer : Node
     private WorldView _view = null!;
     private ReplayData _data = null!;
     private int _cursor;
-    private double _playheadTicks;
+    private double _sequenceSeconds;
+    private double _eventAccumulator;
     private bool _finishedRaised;
 
     public event Action? Changed;
@@ -31,11 +34,11 @@ public partial class ReplayPlayer : Node
     public double Speed { get; private set; } = 1.0;
     public int AppliedEventCount => _cursor;
     public int EventCount => _data?.Events.Count ?? 0;
-    public double CurrentSeconds => _data is null ? 0.0 : _playheadTicks / _data.Header.TickRate;
+    public double CurrentSeconds => _data is null ? 0.0 : _sequenceSeconds;
     public double DurationSeconds
-        => _data is null || _data.Events.Count == 0
+        => _data is null || _data.Events.Count <= 1
             ? 0.0
-            : _data.Events[^1].Tick / (double)_data.Header.TickRate;
+            : _data.Events.Count - 1.0;
     public bool IsFinished => _data is not null && _cursor >= _data.Events.Count;
 
     public void Initialize(VirtualWorld world, WorldView view, ReplayData data)
@@ -54,8 +57,14 @@ public partial class ReplayPlayer : Node
             return;
         }
 
-        _playheadTicks += Math.Max(0.0, delta) * _data.Header.TickRate * Speed;
-        ApplyThroughTick(_playheadTicks);
+        double scaledSeconds = Math.Max(0.0, delta) * Speed;
+        _sequenceSeconds = Math.Min(DurationSeconds, _sequenceSeconds + scaledSeconds);
+        _eventAccumulator += scaledSeconds;
+        int due = (int)Math.Floor(_eventAccumulator);
+        if (due <= 0) return;
+
+        _eventAccumulator -= due;
+        ApplyNextEvents(due);
     }
 
     public void TogglePlaying()
@@ -123,21 +132,34 @@ public partial class ReplayPlayer : Node
         }
 
         _cursor = 0;
-        _playheadTicks = 0.0;
+        _sequenceSeconds = 0.0;
+        _eventAccumulator = 0.0;
         _finishedRaised = false;
-        IsPlaying = autoplay;
-        Changed?.Invoke();
+        IsPlaying = autoplay && _data.Events.Count > 0;
+
+        // A replay is a compact visualization of the run rather than a recording of player inactivity.
+        // Start on the first action immediately; subsequent events occur once per second at 1x.
+        if (IsPlaying)
+        {
+            ApplyNextEvents(1);
+        }
+        else
+        {
+            Changed?.Invoke();
+        }
     }
 
-    private void ApplyThroughTick(double targetTick)
+    private void ApplyNextEvents(int count)
     {
         int appliedBefore = _cursor;
         List<Vector3I>? changedVoxels = null;
-        while (_cursor < _data.Events.Count && _data.Events[_cursor].Tick <= targetTick)
+        int remaining = Math.Max(0, count);
+        while (remaining-- > 0 && _cursor < _data.Events.Count)
         {
             ReplayRemovalEvent item = _data.Events[_cursor];
             Vector3I voxel = FromLinearIndex(item.LinearIndex);
-            if (!_world.SampleVoxel(voxel).Present)
+            var sample = _world.SampleVoxel(voxel);
+            if (!sample.Present)
             {
                 throw new InvalidOperationException(
                     $"Replay event {_cursor:N0} targets missing/already-removed voxel {voxel} in '{_world.Profile.Id}'.");
@@ -150,6 +172,12 @@ public partial class ReplayPlayer : Node
             }
 
             (changedVoxels ??= new List<Vector3I>()).Add(voxel);
+            _view.SpawnManualMinePop(voxel, sample.BlockId);
+            int seed = unchecked(voxel.X * 73856093
+                ^ voxel.Y * 19349663
+                ^ voxel.Z * 83492791
+                ^ _cursor * 265443576);
+            _view.SpawnMiningDebris(voxel, sample.BlockId, seed, "ReplayMiningDebris");
             _cursor++;
         }
 
@@ -162,6 +190,7 @@ public partial class ReplayPlayer : Node
         if (IsFinished)
         {
             IsPlaying = false;
+            _sequenceSeconds = DurationSeconds;
             if (!_finishedRaised)
             {
                 _finishedRaised = true;
