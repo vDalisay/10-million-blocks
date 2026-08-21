@@ -834,81 +834,54 @@ public partial class MinerSimulationService : Node3D
         root.AddChild(model);
     }
 
-    private static StandardMaterial3D ToolMaterial(Color color, float metallic = 0.0f)
-        => new()
-        {
-            AlbedoColor = color,
-            Roughness = 0.78f,
-            Metallic = metallic,
-        };
-
     private static void BuildPickaxeVisual(Node3D root, float spacing)
     {
-        Material wood = ToolMaterial(new Color(0.42f, 0.24f, 0.10f));
-        Material steel = ToolMaterial(new Color(0.62f, 0.67f, 0.72f), 0.25f);
         var pivot = new Node3D { Rotation = new Vector3(0, 0, Mathf.DegToRad(-18.0f)) };
         root.AddChild(pivot);
         pivot.AddChild(new MeshInstance3D
         {
-            Mesh = new BoxMesh { Size = new Vector3(spacing * 0.12f, spacing * 0.95f, spacing * 0.12f), Material = wood },
+            Mesh = PickaxeHandleMesh,
+            Scale = Vector3.One * spacing,
             Position = Vector3.Up * spacing * 0.42f,
         });
         pivot.AddChild(new MeshInstance3D
         {
-            Mesh = new BoxMesh { Size = new Vector3(spacing * 0.95f, spacing * 0.14f, spacing * 0.18f), Material = steel },
+            Mesh = PickaxeHeadMesh,
+            Scale = Vector3.One * spacing,
             Position = Vector3.Up * spacing * 0.90f,
         });
     }
 
     private static void BuildAxeVisual(Node3D root, float spacing)
     {
-        Material wood = ToolMaterial(new Color(0.46f, 0.27f, 0.11f));
-        Material steel = ToolMaterial(new Color(0.70f, 0.73f, 0.75f), 0.18f);
         var pivot = new Node3D { Rotation = new Vector3(0, 0, Mathf.DegToRad(16.0f)) };
         root.AddChild(pivot);
         pivot.AddChild(new MeshInstance3D
         {
-            Mesh = new BoxMesh { Size = new Vector3(spacing * 0.12f, spacing * 0.92f, spacing * 0.12f), Material = wood },
+            Mesh = AxeHandleMesh,
+            Scale = Vector3.One * spacing,
             Position = Vector3.Up * spacing * 0.40f,
         });
         pivot.AddChild(new MeshInstance3D
         {
-            Mesh = new BoxMesh { Size = new Vector3(spacing * 0.56f, spacing * 0.36f, spacing * 0.18f), Material = steel },
+            Mesh = AxeHeadMesh,
+            Scale = Vector3.One * spacing,
             Position = new Vector3(spacing * 0.18f, spacing * 0.82f, 0),
         });
     }
 
     private void BuildDrillVisual(Node3D root, long instanceId, float spacing)
     {
-        var housingMaterial = ToolMaterial(new Color(0.34f, 0.38f, 0.43f), 0.18f);
-        var steelMaterial = ToolMaterial(new Color(0.62f, 0.67f, 0.72f), 0.34f);
-        var accentMaterial = ToolMaterial(new Color(0.92f, 0.58f, 0.12f));
-        accentMaterial.EmissionEnabled = true;
-        accentMaterial.Emission = new Color(0.62f, 0.24f, 0.04f);
-        accentMaterial.EmissionEnergyMultiplier = 0.55f;
-
         root.AddChild(new MeshInstance3D
         {
-            Mesh = new CylinderMesh
-            {
-                TopRadius = spacing * 0.43f,
-                BottomRadius = spacing * 0.43f,
-                Height = spacing * 0.56f,
-                RadialSegments = 16,
-                Material = housingMaterial,
-            },
+            Mesh = DrillHousingMesh,
+            Scale = Vector3.One * spacing,
             Position = Vector3.Up * spacing * 0.31f,
         });
         root.AddChild(new MeshInstance3D
         {
-            Mesh = new CylinderMesh
-            {
-                TopRadius = spacing * 0.34f,
-                BottomRadius = spacing * 0.39f,
-                Height = spacing * 0.14f,
-                RadialSegments = 16,
-                Material = accentMaterial,
-            },
+            Mesh = DrillAccentMesh,
+            Scale = Vector3.One * spacing,
             Position = Vector3.Up * spacing * 0.66f,
         });
 
@@ -916,26 +889,14 @@ public partial class MinerSimulationService : Node3D
         root.AddChild(rotor);
         rotor.AddChild(new MeshInstance3D
         {
-            Mesh = new CylinderMesh
-            {
-                TopRadius = spacing * 0.11f,
-                BottomRadius = spacing * 0.11f,
-                Height = spacing * 0.50f,
-                RadialSegments = 12,
-                Material = steelMaterial,
-            },
+            Mesh = DrillShaftMesh,
+            Scale = Vector3.One * spacing,
             Position = Vector3.Down * spacing * 0.18f,
         });
         rotor.AddChild(new MeshInstance3D
         {
-            Mesh = new CylinderMesh
-            {
-                TopRadius = 0.0f,
-                BottomRadius = spacing * 0.24f,
-                Height = spacing * 0.42f,
-                RadialSegments = 14,
-                Material = steelMaterial,
-            },
+            Mesh = DrillConeMesh,
+            Scale = Vector3.One * spacing,
             Position = Vector3.Down * spacing * 0.62f,
         });
         for (int i = 0; i < 4; i++)
@@ -943,11 +904,8 @@ public partial class MinerSimulationService : Node3D
             float angle = i * Mathf.Tau / 4.0f;
             rotor.AddChild(new MeshInstance3D
             {
-                Mesh = new BoxMesh
-                {
-                    Size = new Vector3(spacing * 0.09f, spacing * 0.28f, spacing * 0.42f),
-                    Material = steelMaterial,
-                },
+                Mesh = DrillBladeMesh,
+                Scale = Vector3.One * spacing,
                 Position = new Vector3(
                     MathF.Cos(angle) * spacing * 0.22f,
                     -spacing * 0.43f,
