@@ -36,7 +36,7 @@ public partial class PerformanceHud : CanvasLayer
             OffsetLeft = -540.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 460.0f,
+            OffsetBottom = 500.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -107,6 +107,7 @@ public partial class PerformanceHud : CanvasLayer
             $"renderer: {renderer}  camera: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
             $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
             $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
+            $"sparse exposure pending: {_view.PendingSparseExposureOverlays}  builds: {_view.SparseExposureOverlayBuilds:N0}  ms last/avg: {_view.LastSparseExposureOverlayBuildMilliseconds:0.00}/{_view.AverageSparseExposureOverlayBuildMilliseconds:0.00}\n" +
             $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred chunks: {_view.DeferredAutomationChunkCount:N0}\n" +
             $"mining FX pop active/pool/dropped: {_view.ActiveMinePopCount}/{_view.PooledMinePopCount}/{_view.DroppedMinePopCount:N0}  debris active/pool/dropped: {_view.ActiveDebrisBurstCount}/{_view.PooledDebrisBurstCount}/{_view.DroppedDebrisBurstCount:N0}\n" +
             feedbackMetrics + "\n" +
