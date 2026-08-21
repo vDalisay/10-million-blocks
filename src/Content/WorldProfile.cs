@@ -83,8 +83,9 @@ public sealed class WorldProfile
     public bool UsesStreamingRenderer
         => UsesFullSurfaceRenderer || MaxCoordinate > StreamingThresholdMaxCoordinate;
 
-    public bool UsesTutorialLocalWallet
-        => CurrencyScope.Equals("tutorial_local", StringComparison.OrdinalIgnoreCase);
+    // CurrencyScope remains deserializable for save/content compatibility, but progression now has a
+    // single persistent wallet so resources earned in tutorial and main worlds follow the player.
+    public bool UsesTutorialLocalWallet => false;
 
     public bool IsSkillCategoryVisible(string category)
         => VisibleSkillCategories.Count == 0 || VisibleSkillCategories.Contains(category, StringComparer.Ordinal);
