@@ -236,8 +236,8 @@ assert [int(trees_gem.get(axis, 0)) for axis in ("logicalWidth", "logicalHeight"
 assert int(trees_gem.get("targetMineableBlocks", 0)) == 3375, (
     "15x15 tutorial overrides replace cells and must retain exactly 3375 physical mineable blocks"
 )
-assert trees_gem.get("visibleSkillCategories") == ["manual", "shovel", "automation", "drill", "patterns", "forest"], (
-    "15x15 tutorial must add only the dedicated Forest Cutter branch alongside Drill/Wide Bore lessons"
+assert trees_gem.get("visibleSkillCategories") == ["manual", "shovel", "automation", "drill", "patterns"], (
+    "15x15 tutorial must teach tree obstruction before Forest Cutter is introduced in the first main world"
 )
 trees_doc = world_override_docs["tutorial_trees_gem_15"]
 trees_overrides = trees_doc["overrides"]
@@ -275,9 +275,25 @@ for world_id, dimension in expected_dimensions.items():
     )
     assert str(profile.get("introText", "")).strip(), f"demo world {world_id} needs authored introText"
 
-assert worlds["reference_natural"].get("visibleSkillIds", []) == [], (
+reference_natural = worlds["reference_natural"]
+assert reference_natural.get("visibleSkillIds", []) == [], (
     "20-cube main world must not expose active-event automation before weather is introduced"
 )
+assert "forest" in reference_natural.get("visibleSkillCategories", []), (
+    "Forest Cutter must first become visible in the 20-cube main world after the 15-cube tree-obstruction lesson"
+)
+assert reference_natural.get("overrideFile") == "res://data/worlds/overrides/reference_natural_v2.json", (
+    "20-cube main world must keep its reviewed sparse special-resource override"
+)
+reference_overrides = world_override_docs["reference_natural"]["overrides"]
+reference_gems = [item for item in reference_overrides if item.get("blockId") in {"gem_green", "gem_blue", "gem_red"}]
+assert len(reference_gems) == 3, (
+    f"20-cube main world must guarantee three authored special gems, got {len(reference_gems)}"
+)
+assert {item.get("blockId") for item in reference_gems} == {"gem_green", "gem_blue", "gem_red"}, (
+    "20-cube main world must guarantee one of each currently supported special gem color"
+)
+
 for world_id in ("reference_lakes", "reference_ridges"):
     assert worlds[world_id].get("visibleSkillIds", []) == ["cloud_charger_unlock"], (
         f"{world_id} must expose the late-game Cloud Charger as an exact staged skill"
@@ -354,10 +370,10 @@ assert effect_values("wide_bore_unlock", "set_miner_pattern_width") == [3.0], (
     "Wide Bore must keep the 3x3 cutter width"
 )
 assert skills["axe_unlock"].get("category") == "forest", (
-    "Forest Cutter must stay in its dedicated tutorial-visible branch"
+    "Forest Cutter must stay in its dedicated branch"
 )
 assert skills["axe_unlock"].get("prerequisites", []) == [], (
-    "Forest Cutter tutorial unlock must not depend on a later hidden Resource Sensors branch"
+    "Forest Cutter must be independently stageable when the 20-cube world reveals its branch"
 )
 assert skills["cloud_charger_unlock"].get("category") == "events", (
     "Cloud Charger must stay in the late-game events branch"
