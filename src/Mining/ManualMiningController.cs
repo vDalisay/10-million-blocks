@@ -34,9 +34,11 @@ public partial class ManualMiningController : Node3D
     // the cache so the next deeper surface or upgraded footprint is still resolved immediately.
     private bool _hoverRayCacheValid;
     private Vector2 _lastHoverMouse;
+    private Vector2 _lastHoverViewportSize;
     private Vector3 _lastHoverCameraPosition;
     private Vector3 _lastHoverCameraForward;
     private Vector3 _lastHoverCameraUp;
+    private float _lastHoverCameraFov;
 
     public Vector3I? HoveredVoxel => _hoveredVoxel;
     public bool InputEnabled { get; set; } = true;
@@ -214,18 +216,13 @@ public partial class ManualMiningController : Node3D
         int radius = Math.Max(0, result.EffectRadius);
         if (radius == 0)
         {
-            _view.MarkDirtyAround(result.Voxel);
+            _view.MarkDirtyVoxel(result.Voxel);
             return;
         }
 
-        int radiusSquared = radius * radius;
-        for (int z = -radius; z <= radius; z++)
-        for (int y = -radius; y <= radius; y++)
-        for (int x = -radius; x <= radius; x++)
-        {
-            if (x * x + y * y + z * z > radiusSquared) continue;
-            _view.MarkDirtyAround(result.Voxel + new Vector3I(x, y, z));
-        }
+        // A blast can remove dozens of neighbouring voxels. Coalesce the entire sphere into unique
+        // cross-chunk rebuilds once instead of submitting MarkDirtyAround separately for every cell.
+        _view.MarkDirtySphere(result.Voxel, radius);
     }
 
     private void EmitDebris(MiningResult result, int burstIndex)
@@ -247,10 +244,14 @@ public partial class ManualMiningController : Node3D
         Vector3 cameraPosition = camera.GlobalPosition;
         Vector3 cameraForward = -camera.GlobalBasis.Z.Normalized();
         Vector3 cameraUp = camera.GlobalBasis.Y.Normalized();
+        Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
+        float cameraFov = camera.Fov;
 
         if (!force
             && _hoverRayCacheValid
             && mouse.DistanceSquaredTo(_lastHoverMouse) < 0.01f
+            && viewportSize.DistanceSquaredTo(_lastHoverViewportSize) < 0.01f
+            && MathF.Abs(cameraFov - _lastHoverCameraFov) < 0.0001f
             && cameraPosition.DistanceSquaredTo(_lastHoverCameraPosition) < 0.000001f
             && cameraForward.Dot(_lastHoverCameraForward) > 0.999999f
             && cameraUp.Dot(_lastHoverCameraUp) > 0.999999f)
@@ -260,6 +261,8 @@ public partial class ManualMiningController : Node3D
 
         _hoverRayCacheValid = true;
         _lastHoverMouse = mouse;
+        _lastHoverViewportSize = viewportSize;
+        _lastHoverCameraFov = cameraFov;
         _lastHoverCameraPosition = cameraPosition;
         _lastHoverCameraForward = cameraForward;
         _lastHoverCameraUp = cameraUp;
