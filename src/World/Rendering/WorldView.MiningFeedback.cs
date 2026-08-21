@@ -12,16 +12,17 @@ public partial class WorldView
     /// </summary>
     public void SpawnManualMinePop(Vector3I voxel, string blockId, float peakScale = 1.12f)
     {
+        string visualBlockId = ResolveSurfaceVisualBlockId(voxel, blockId);
         Vector3I outward = _world.Source.GetOutwardNormal(voxel);
-        Basis basis = ShouldOrientToCubeFace(blockId)
+        Basis basis = ShouldOrientToCubeFace(visualBlockId)
             ? BasisForNormal(outward)
             : Basis.Identity;
 
         var pop = new MeshInstance3D
         {
             Name = $"MinePop_{voxel.X}_{voxel.Y}_{voxel.Z}",
-            Mesh = _assets.GetMesh(blockId),
-            MaterialOverride = _assets.GetMaterialOverride(blockId),
+            Mesh = _assets.GetMesh(visualBlockId),
+            MaterialOverride = _assets.GetMaterialOverride(visualBlockId),
             Transform = new Transform3D(basis, VoxelToWorld(voxel)),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             Scale = Vector3.One * 0.985f,
@@ -45,6 +46,7 @@ public partial class WorldView
     /// </summary>
     public void SpawnMiningDebris(Vector3I voxel, string blockId, int seed, string name = "MiningDebris")
     {
+        string visualBlockId = ResolveSurfaceVisualBlockId(voxel, blockId);
         Vector3I outwardI = _world.Source.GetOutwardNormal(voxel);
         Vector3 outward = (Vector3)outwardI;
         float spacing = _world.Profile.BlockSpacing;
@@ -52,6 +54,6 @@ public partial class WorldView
 
         var burst = new DrillDebrisBurst { Name = name };
         AddChild(burst);
-        burst.Initialize(position, outward, blockId, spacing, seed);
+        burst.Initialize(position, outward, visualBlockId, spacing, seed);
     }
 }
