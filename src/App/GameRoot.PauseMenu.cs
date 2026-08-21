@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.UI;
@@ -49,8 +50,21 @@ public partial class GameRoot
     {
         if (_sessionPersists && _world is not null)
         {
-            CaptureCurrentSession();
-            TrySaveCurrentSession(captureFirst: false);
+            try
+            {
+                // "Save & Return" must not silently leave the scene after an autosave failure. Capture
+                // and persist directly here so the navigation decision can depend on the write result.
+                CaptureCurrentSession();
+                _saveService.Save(_save);
+                _autosaveDirty = false;
+                _autosaveTimer = 0.0;
+            }
+            catch (Exception exception)
+            {
+                GD.PushError($"Could not save before returning to the main menu: {exception}");
+                _pauseMenu?.ReportReturnFailure("SAVE FAILED — gameplay was kept open. Check the Godot log and try again.");
+                return;
+            }
         }
 
         _pauseMenu?.Close();
@@ -59,6 +73,7 @@ public partial class GameRoot
         if (result != Error.Ok)
         {
             GD.PushError($"Could not return to main menu ({result}).");
+            _pauseMenu?.ReportReturnFailure($"Could not open the main menu ({result}).");
         }
     }
 
