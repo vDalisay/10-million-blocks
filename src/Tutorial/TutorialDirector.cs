@@ -187,7 +187,7 @@ public partial class TutorialDirector : CanvasLayer
                 return true;
             case GameplayEventKind.TreeBlockedShovel:
                 title = "TREE BLOCKS THE SHOVEL";
-                body = "A tree owns the surface tile beneath it. Clear that tree manually or with the Forest Cutter; the stopped Shovel will resume when the route opens.";
+                body = "A tree owns the surface tile beneath it. Clear this one manually for now; the stopped Shovel resumes when the route opens. A dedicated tree-clearing machine arrives in the next world.";
                 return true;
             case GameplayEventKind.SpecialResourceFound:
                 title = "SPECIAL RESOURCE";
