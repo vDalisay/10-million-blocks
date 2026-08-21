@@ -106,6 +106,11 @@ public sealed class SaveService
         data.SchemaVersion = SupportedSchemaVersion;
         data.Currency = 0L;
         data.SavedAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (!string.IsNullOrWhiteSpace(data.CurrentWorldId)
+            && data.Worlds.TryGetValue(data.CurrentWorldId, out WorldSaveData? activeWorld))
+        {
+            activeWorld.LastPlayedUnixSeconds = data.SavedAtUnixSeconds;
+        }
         string json = JsonSerializer.Serialize(data, _jsonOptions);
 
         string tempPath = path + ".tmp";
