@@ -17,6 +17,7 @@ public partial class StressBenchmarkController : Node
     private WorldView _view = null!;
     private MiningService _mining = null!;
     private OrbitCameraController _camera = null!;
+    private VirtualWorld? _aggregateBenchmarkWorld;
     private bool _running;
     private double _elapsed;
     private double _lastBulkAt;
@@ -29,6 +30,11 @@ public partial class StressBenchmarkController : Node
     private uint _randomState = 0x9e3779b9u;
     private ulong _startedAtUsec;
     private ulong _lastFrameUsec;
+    private long _liveMinedAtStart;
+    private long _chunkBuildsAtStart;
+    private double _chunkBuildMillisecondsAtStart;
+    private long _lastObservedChunkBuildCount;
+    private double _maxObservedChunkBuildMilliseconds;
 
     public bool IsRunning => _running;
 
@@ -69,17 +75,11 @@ public partial class StressBenchmarkController : Node
         _ = delta;
         if (!_running) return;
 
-        // Engine frame delta is intentionally not used as the benchmark clock. Godot clamps long
-        // frame deltas, which made a 20 second benchmark take minutes when chunk builds stalled for
-        // >1 second. Wall-clock microseconds keep the benchmark duration truthful even under severe
-        // frame-time regressions.
         ulong nowUsec = Time.GetTicksUsec();
         _elapsed = (nowUsec - _startedAtUsec) / 1_000_000.0;
         double wallDelta = (nowUsec - _lastFrameUsec) / 1_000_000.0;
         _lastFrameUsec = nowUsec;
 
-        // Use real elapsed time for the automated orbit too, but clamp an individual jump so one
-        // pathological frame cannot teleport the camera through several streaming working sets.
         float orbitDelta = (float)Math.Min(wallDelta, 0.25);
         _camera.AddOrbitDegrees(14.0f * orbitDelta, MathF.Sin((float)_elapsed * 0.7f) * 0.10f);
 
@@ -90,15 +90,27 @@ public partial class StressBenchmarkController : Node
         _maxProbeBatchMilliseconds = Math.Max(_maxProbeBatchMilliseconds, probeMs);
         _minimumFps = Math.Min(_minimumFps, Engine.GetFramesPerSecond());
 
+        long buildCount = _view.TotalChunkBuilds;
+        if (buildCount != _lastObservedChunkBuildCount)
+        {
+            _lastObservedChunkBuildCount = buildCount;
+            _maxObservedChunkBuildMilliseconds = Math.Max(
+                _maxObservedChunkBuildMilliseconds,
+                _view.LastChunkBuildMilliseconds);
+        }
+
         if (_elapsed - _lastBulkAt >= BulkIntervalSeconds)
         {
             _lastBulkAt = _elapsed;
             RegionCoord region = RegionFromCursor(_regionCursor++);
-            BulkMiningResult result = _mining.TryExhaustRegion(region, MiningSource.Debug);
-            if (result.Success)
+
+            // Aggregate-state pressure must never mutate the rendered/player-owned stress world. The
+            // previous benchmark exhausted live regions and then rebuilt their chunks, which both made
+            // the cube disappear progressively and turned F7 into an artificial renderer worst case.
+            if (_aggregateBenchmarkWorld is not null
+                && _aggregateBenchmarkWorld.TryExhaustRegion(region, out long blocksMined))
             {
-                _bulkBlocks = checked(_bulkBlocks + result.BlocksMined);
-                _view.MarkRegionDirty(region);
+                _bulkBlocks = checked(_bulkBlocks + blocksMined);
             }
         }
 
@@ -110,8 +122,6 @@ public partial class StressBenchmarkController : Node
 
     public override void _ExitTree()
     {
-        // Normal window close / scene teardown should still leave diagnostic evidence. A hard OS
-        // process kill cannot be intercepted, but every orderly exit now writes an aborted report.
         if (_running)
         {
             ulong nowUsec = Time.GetTicksUsec();
@@ -134,7 +144,18 @@ public partial class StressBenchmarkController : Node
         _minimumFps = double.MaxValue;
         _regionCursor = 0L;
         _randomState = unchecked((uint)_world.Profile.Seed) ^ 0x9e3779b9u;
-        GD.Print("Stress benchmark started: 20s wall-clock camera orbit + generator probes + aggregate region mining. [F7] cancels.");
+        _liveMinedAtStart = _world.State.MinedVoxelCount;
+        _chunkBuildsAtStart = _view.TotalChunkBuilds;
+        _chunkBuildMillisecondsAtStart = _view.TotalChunkBuildMilliseconds;
+        _lastObservedChunkBuildCount = _chunkBuildsAtStart;
+        _maxObservedChunkBuildMilliseconds = 0.0;
+
+        _aggregateBenchmarkWorld = new VirtualWorld(_world.Profile);
+        _aggregateBenchmarkWorld.InitializeMineableBlockCount();
+
+        GD.Print(
+            "Stress benchmark started: 20s wall-clock camera orbit + generator probes + detached aggregate-state mining. " +
+            "F7 no longer removes blocks from the visible world; normal player mining can still be tested simultaneously. [F7] cancels.");
     }
 
     private void ProbeGenerator()
@@ -192,6 +213,13 @@ public partial class StressBenchmarkController : Node
             ? 0.0
             : (_generatorMilliseconds * 1000.0) / _probeCount;
         double minFps = double.IsFinite(_minimumFps) ? _minimumFps : 0.0;
+        long chunkBuildDelta = Math.Max(0L, _view.TotalChunkBuilds - _chunkBuildsAtStart);
+        double chunkBuildMsDelta = Math.Max(0.0, _view.TotalChunkBuildMilliseconds - _chunkBuildMillisecondsAtStart);
+        double benchmarkChunkBuildAverage = chunkBuildDelta == 0 ? 0.0 : chunkBuildMsDelta / chunkBuildDelta;
+        long liveMinedDelta = _world.State.MinedVoxelCount - _liveMinedAtStart;
+        int aggregateRegions = _aggregateBenchmarkWorld?.State.ExhaustedRegionCount ?? 0;
+        long aggregateSparse = _aggregateBenchmarkWorld?.State.SparseVoxelOverrideCount ?? 0L;
+
         string report =
             $"Stress benchmark {reason}\n" +
             $"world={_world.Profile.Id}\n" +
@@ -200,17 +228,22 @@ public partial class StressBenchmarkController : Node
             $"generator_avg_us={averageProbeUs:0.000}\n" +
             $"probe_batch_max_ms={_maxProbeBatchMilliseconds:0.000}\n" +
             $"minimum_observed_fps={minFps:0.0}\n" +
-            $"chunk_build_avg_ms={_view.AverageChunkBuildMilliseconds:0.000}\n" +
+            $"chunk_builds_during_benchmark={chunkBuildDelta}\n" +
+            $"chunk_build_avg_ms_during_benchmark={benchmarkChunkBuildAverage:0.000}\n" +
+            $"chunk_build_max_observed_ms={_maxObservedChunkBuildMilliseconds:0.000}\n" +
+            $"chunk_build_avg_ms_lifetime={_view.AverageChunkBuildMilliseconds:0.000}\n" +
             $"chunk_build_last_ms={_view.LastChunkBuildMilliseconds:0.000}\n" +
             $"stream_loads={_view.StreamedChunkLoads}\n" +
             $"stream_unloads={_view.StreamedChunkUnloads}\n" +
-            $"aggregate_blocks_mined={_bulkBlocks}\n" +
-            $"sparse_voxel_overrides={_world.State.SparseVoxelOverrideCount}\n" +
-            $"exhausted_regions={_world.State.ExhaustedRegionCount}\n" +
+            $"aggregate_blocks_mined_detached={_bulkBlocks}\n" +
+            $"aggregate_sparse_voxel_overrides_detached={aggregateSparse}\n" +
+            $"aggregate_exhausted_regions_detached={aggregateRegions}\n" +
+            $"live_blocks_mined_during_benchmark={liveMinedDelta}\n" +
             $"managed_memory_mb={GC.GetTotalMemory(false) / (1024.0 * 1024.0):0.0}";
 
         GD.Print(report);
         using Godot.FileAccess file = Godot.FileAccess.Open("user://stress_benchmark_latest.txt", Godot.FileAccess.ModeFlags.Write);
         file?.StoreString(report);
+        _aggregateBenchmarkWorld = null;
     }
 }
