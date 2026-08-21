@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tools/generation_contract/**/*.cs" />
+    <Compile Remove="tools/replay_contract/**/*.cs" />
   </ItemGroup>
 </Project>
