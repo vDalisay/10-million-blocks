@@ -161,10 +161,17 @@ static void ValidateProfile(WorldProfile profile)
         for (int v = -faceRange; v <= faceRange; v++)
         for (int u = -faceRange; u <= faceRange; u++)
         {
-            if (source.TrySampleOutermostSurfaceVoxel(face, u, v, out Vector3I voxel, out BlockSample sample))
+            if (!source.TrySampleOutermostSurfaceVoxel(face, u, v, out Vector3I voxel, out BlockSample sample))
             {
-                cells[(u, v)] = (voxel, sample);
+                continue;
             }
+
+            // A seam coordinate can be reachable through two face projections. Runtime rendering keeps
+            // it only on the face that actually owns the resolved voxel, so the art contract must test
+            // that same visible topology instead of comparing a cross-face alias against unrelated
+            // neighbours on the losing projection.
+            if (source.GetOutwardNormal(voxel) != face) continue;
+            cells[(u, v)] = (voxel, sample);
         }
 
         foreach (((int u, int v), (Vector3I voxel, BlockSample sample)) in cells)
