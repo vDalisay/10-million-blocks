@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.World;
 using TenMillionBlocks.World.Authoring;
 using TenMillionBlocks.World.Generation;
 
@@ -49,24 +50,38 @@ static WorldProfile MakeProfile(int seed, float baseRadius)
     };
 
 static bool IsWater(WorldProfile p, string id)
-    => id == p.WaterBlock || id == p.ShallowWaterBlock || id == p.DeepWaterBlock;
+    => WorldStructuralRules.IsWater(p, id);
 
 static int Radial(Vector3I voxel, Vector3I normal)
     => normal.X != 0 ? voxel.X * normal.X : normal.Y != 0 ? voxel.Y * normal.Y : voxel.Z * normal.Z;
 
-static bool IsSeam(Vector3I voxel)
-{
-    int ax = Math.Abs(voxel.X);
-    int ay = Math.Abs(voxel.Y);
-    int az = Math.Abs(voxel.Z);
-    int max = Math.Max(ax, Math.Max(ay, az));
-    int ties = (ax == max ? 1 : 0) + (ay == max ? 1 : 0) + (az == max ? 1 : 0);
-    return max > 0 && ties >= 2;
-}
-
 static void Require(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
+}
+
+static bool TryFindRuntimeFaceSurface(
+    VirtualWorld world,
+    Vector3I face,
+    int u,
+    int v,
+    out Vector3I voxel,
+    out BlockSample sample)
+{
+    for (int radial = world.MaxCoordinate; radial >= 0; radial--)
+    {
+        Vector3I candidate = WorldStructuralRules.FaceVoxel(face, radial, u, v);
+        if (WorldStructuralRules.DominantNormal(candidate) != face) continue;
+        BlockSample candidateSample = world.SampleVoxel(candidate);
+        if (!candidateSample.Present) continue;
+        voxel = candidate;
+        sample = candidateSample;
+        return true;
+    }
+
+    voxel = default;
+    sample = BlockSample.Empty;
+    return false;
 }
 
 static void ValidateWaterComponents(
@@ -116,36 +131,53 @@ static void ValidateWaterComponents(
 
 static long ValidateProfile(WorldProfile profile)
 {
-    var source = new ProceduralWorldSource(profile);
+    var world = new VirtualWorld(profile);
     int max = profile.MaxCoordinate;
     long present = 0;
     long exposedSolid = 0;
     long water = 0;
     long sand = 0;
+    int expectedWaterRadial = Math.Max(0, Mathf.FloorToInt(profile.BaseRadius + 0.001f) - 1);
+    int faceBorder = Math.Max(0, Mathf.FloorToInt(profile.BaseRadius + 0.001f));
 
     for (int z = -max; z <= max; z++)
     for (int y = -max; y <= max; y++)
     for (int x = -max; x <= max; x++)
     {
         var voxel = new Vector3I(x, y, z);
-        BlockSample sample = source.SampleVoxel(voxel);
+        BlockSample sample = world.SampleVoxel(voxel);
         if (!sample.Present) continue;
         present++;
         if (IsWater(profile, sample.BlockId)) water++;
         if (sample.BlockId == profile.SandBlock) sand++;
 
-        Vector3I normal = source.GetOutwardNormal(voxel);
-        bool exposedOutward = !source.SampleVoxel(voxel + normal).Present;
-        if (!exposedOutward || IsWater(profile, sample.BlockId)) continue;
+        Vector3I normal = WorldStructuralRules.DominantNormal(voxel);
+        WorldStructuralRules.GetFaceTangents(voxel, normal, out int u, out int v, out int radial);
+
+        if (IsWater(profile, sample.BlockId))
+        {
+            Require(radial == expectedWaterRadial,
+                $"Water at {voxel} is not inset to radial {expectedWaterRadial} in {profile.Id}, seed {profile.Seed}.");
+            BlockSample outward = world.SampleVoxel(voxel + normal);
+            Require(!outward.Present,
+                $"Water at {voxel} has another block outward at {voxel + normal}; water must be the single inset surface layer.");
+            BlockSample inward = world.SampleVoxel(voxel - normal);
+            Require(inward.Present && !IsWater(profile, inward.BlockId) && inward.BlockId == profile.SandBlock,
+                $"Water at {voxel} is not backed directly by sand; inward {voxel - normal} is '{inward.BlockId}'.");
+            continue;
+        }
+
+        bool exposedOutward = !world.SampleVoxel(voxel + normal).Present;
+        if (!exposedOutward) continue;
         exposedSolid++;
 
-        Vector3I inward = voxel - normal;
+        Vector3I inwardSolid = voxel - normal;
         Require(
-            source.SampleVoxel(inward).Present,
-            $"Unsupported terrain at {voxel} ({sample.BlockId}); inward support {inward} is empty in {profile.Id}, seed {profile.Seed}.");
+            world.SampleVoxel(inwardSolid).Present,
+            $"Unsupported terrain at {voxel} ({sample.BlockId}); inward support {inwardSolid} is empty in {profile.Id}, seed {profile.Seed}.");
         Require(
-            !(IsSeam(voxel) && sample.BlockId == profile.SurfaceEdgeBlock),
-            $"Cube seam at {voxel} used dirt-sided surface-edge material in {profile.Id}, seed {profile.Seed}.");
+            !(sample.BlockId == profile.SurfaceEdgeBlock && Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder),
+            $"Outer face border at {voxel} used dirt-sided surface-edge material in {profile.Id}, seed {profile.Seed}.");
     }
 
     Vector3I[] faces =
@@ -161,38 +193,41 @@ static long ValidateProfile(WorldProfile profile)
         for (int v = -faceRange; v <= faceRange; v++)
         for (int u = -faceRange; u <= faceRange; u++)
         {
-            if (!source.TrySampleOutermostSurfaceVoxel(face, u, v, out Vector3I voxel, out BlockSample sample))
-            {
-                continue;
-            }
-
-            if (source.GetOutwardNormal(voxel) != face) continue;
+            if (!TryFindRuntimeFaceSurface(world, face, u, v, out Vector3I voxel, out BlockSample sample)) continue;
             cells[(u, v)] = (voxel, sample);
         }
 
         foreach (((int u, int v), (Vector3I voxel, BlockSample sample)) in cells)
         {
+            if (sample.BlockId == profile.SurfaceEdgeBlock
+                && Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder)
+            {
+                throw new InvalidOperationException(
+                    $"Visible outer line on face {face} at {voxel} is dirt-sided instead of uniform '{profile.SurfaceBlock}'.");
+            }
+
             if (!IsWater(profile, sample.BlockId)) continue;
             bool boundary = false;
+            int waterRadial = Radial(voxel, face);
             (int U, int V)[] neighbours = [(u + 1, v), (u - 1, v), (u, v + 1), (u, v - 1)];
             foreach ((int nu, int nv) in neighbours)
             {
-                if (!cells.TryGetValue((nu, nv), out var neighbour))
+                Require(cells.TryGetValue((nu, nv), out var neighbour),
+                    $"Inset water at {voxel} has no surface block beside it at tangent ({nu},{nv}) on face {face}.");
+
+                if (IsWater(profile, neighbour.Sample.BlockId))
                 {
-                    boundary = true;
+                    Require(Radial(neighbour.Voxel, face) == waterRadial,
+                        $"Adjacent water cells {voxel} and {neighbour.Voxel} are on different radial levels.");
                     continue;
                 }
-                if (IsWater(profile, neighbour.Sample.BlockId)) continue;
 
                 boundary = true;
-                int waterRadial = Radial(voxel, face);
                 int dryRadial = Radial(neighbour.Voxel, face);
-                if (Math.Abs(dryRadial - waterRadial) <= 1)
-                {
-                    Require(
-                        neighbour.Sample.BlockId == profile.SandBlock,
-                        $"Water at {voxel} touches non-sand shoreline {neighbour.Voxel} ({neighbour.Sample.BlockId}) in {profile.Id}, seed {profile.Seed}.");
-                }
+                Require(dryRadial >= waterRadial + 1,
+                    $"Water at {voxel} is not visibly inset below shoreline {neighbour.Voxel} in {profile.Id}.");
+                Require(neighbour.Sample.BlockId == profile.SandBlock,
+                    $"Water at {voxel} touches non-sand shoreline {neighbour.Voxel} ({neighbour.Sample.BlockId}) in {profile.Id}, seed {profile.Seed}.");
             }
 
             Require(
@@ -240,6 +275,38 @@ static IReadOnlyList<WorldProfile> LoadCommittedProfiles()
     throw new InvalidOperationException("Could not locate data/worlds/worlds.json for shipped-generation contracts.");
 }
 
+static void ValidateExactTutorialCompletion(IEnumerable<WorldProfile> profiles)
+{
+    foreach (WorldProfile profile in profiles.Where(item => item.Id.StartsWith("tutorial_", StringComparison.Ordinal)))
+    {
+        var world = new VirtualWorld(profile);
+        long initial = world.InitializeMineableBlockCount();
+        if (profile.TargetMineableBlocks > 0)
+        {
+            Require(initial == profile.TargetMineableBlocks,
+                $"Tutorial {profile.Id} target is {profile.TargetMineableBlocks:N0}, exact world contains {initial:N0}.");
+        }
+
+        int max = world.MaxCoordinate;
+        long removed = 0;
+        for (int z = -max; z <= max; z++)
+        for (int y = -max; y <= max; y++)
+        for (int x = -max; x <= max; x++)
+        {
+            var voxel = new Vector3I(x, y, z);
+            BlockSample sample = world.SampleVoxel(voxel);
+            if (!sample.Present || !sample.Mineable) continue;
+            if (world.TryMine(voxel, requireExposed: false, out _)) removed++;
+        }
+
+        Require(removed == initial,
+            $"Tutorial {profile.Id} removed only {removed:N0}/{initial:N0}; exact region accounting hid or rejected blocks.");
+        Require(world.RemainingMineableBlocks == 0 && world.State.MinedVoxelCount == initial,
+            $"Tutorial {profile.Id} cannot reach a real zero-block completion state after all physical voxels are mined.");
+        Console.WriteLine($"tutorial completion contract world={profile.Id}: exact clear {removed:N0}/{initial:N0}");
+    }
+}
+
 foreach (int seed in new[] { 73021, 73323, 1939109028 })
 {
     _ = ValidateProfile(MakeProfile(seed, 5.0f));
@@ -247,12 +314,15 @@ foreach (int seed in new[] { 73021, 73323, 1939109028 })
 }
 
 IReadOnlyList<WorldProfile> committedProfiles = LoadCommittedProfiles();
+ValidateExactTutorialCompletion(committedProfiles);
+
 var expectedPhysicalCounts = new Dictionary<string, long>(StringComparer.Ordinal)
 {
     ["reference_natural"] = 7_728L,
     ["reference_lakes"] = 64_611L,
     ["reference_ridges"] = 125_934L,
 };
+var countMismatches = new List<string>();
 
 foreach ((string worldId, long expectedCount) in expectedPhysicalCounts)
 {
@@ -265,16 +335,22 @@ foreach ((string worldId, long expectedCount) in expectedPhysicalCounts)
         $"gems={metrics.GemCount:N0}, water={metrics.WaterCoverage:P1}, soft={metrics.SoftTerrainCoverage:P1}, " +
         $"stone={metrics.ExposedStoneCoverage:P1}");
 
-    Require(generatedPresent == expectedCount,
-        $"Reviewed physical block count changed for {worldId}: expected {expectedCount:N0}, generated {generatedPresent:N0}. " +
-        "Treat this as a world-version/content review, not a silent generator change.");
-    Require(metrics.MineableBlocks == expectedCount,
-        $"Runtime mineable count drifted from the reviewed physical baseline for {worldId}: " +
-        $"expected {expectedCount:N0}, runtime {metrics.MineableBlocks:N0}.");
+    if (generatedPresent != expectedCount || metrics.MineableBlocks != expectedCount)
+    {
+        countMismatches.Add(
+            $"{worldId}: reviewed {expectedCount:N0}, generated {generatedPresent:N0}, runtime {metrics.MineableBlocks:N0}");
+    }
     Require(metrics.TreeCount > 0,
         $"Reviewed generated world {worldId} contains no trees; the combined-tool ecosystem contract regressed.");
     Require(metrics.GemCount > 0,
         $"Reviewed generated world {worldId} contains no special gems; late progression would lose its special-resource loop.");
+}
+
+if (countMismatches.Count > 0)
+{
+    throw new InvalidOperationException(
+        "Reviewed physical block counts changed after a structural generation revision. Version/review the new deterministic baselines:\n - " +
+        string.Join("\n - ", countMismatches));
 }
 
 Console.WriteLine("deterministic generation contracts passed");
