@@ -165,7 +165,20 @@ public sealed class WorldOverrideSet
         => _voxels.TryGetValue(coordinate, out sample);
 
     public bool TryGetFeature(Vector3I anchor, out FeatureSample feature)
-        => _features.TryGetValue(anchor, out feature);
+    {
+        if (_features.TryGetValue(anchor, out feature)) return true;
+        if (_suppressedFeatures.Contains(anchor))
+        {
+            // ProceduralWorldSource treats any authored non-tree feature result as a deliberate
+            // rejection before it reaches generated feature fallback. The sentinel therefore means
+            // "there is intentionally no feature here" without widening the runtime feature type.
+            feature = new FeatureSample("__suppressed__", anchor, Vector3I.Up);
+            return true;
+        }
+
+        feature = default;
+        return false;
+    }
 
     public bool SuppressesFeature(Vector3I anchor)
         => _suppressedFeatures.Contains(anchor);
