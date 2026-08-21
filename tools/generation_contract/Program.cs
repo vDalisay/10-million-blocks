@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Godot;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.World.Generation;
@@ -108,7 +109,7 @@ static void ValidateWaterComponents(
 
         Require(
             count >= 3 && maxU > minU && maxV > minV,
-            $"Water component on face {face} is a one-cell/narrow line: {count} cells, bounds U {minU}..{maxU}, V {minV}..{maxV}, seed {profile.Seed}.");
+            $"Water component on face {face} is a one-cell/narrow line: {count} cells, bounds U {minU}..{maxU}, V {minV}..{maxV}, world {profile.Id}, seed {profile.Seed}.");
     }
 }
 
@@ -142,10 +143,10 @@ static void ValidateProfile(WorldProfile profile)
         Vector3I inward = voxel - normal;
         Require(
             source.SampleVoxel(inward).Present,
-            $"Unsupported terrain at {voxel} ({sample.BlockId}); inward support {inward} is empty for seed {profile.Seed}.");
+            $"Unsupported terrain at {voxel} ({sample.BlockId}); inward support {inward} is empty in {profile.Id}, seed {profile.Seed}.");
         Require(
             !(IsSeam(voxel) && sample.BlockId == profile.SurfaceEdgeBlock),
-            $"Cube seam at {voxel} used dirt-sided surface-edge material for seed {profile.Seed}.");
+            $"Cube seam at {voxel} used dirt-sided surface-edge material in {profile.Id}, seed {profile.Seed}.");
     }
 
     Vector3I[] faces =
@@ -195,25 +196,47 @@ static void ValidateProfile(WorldProfile profile)
                 {
                     Require(
                         neighbour.Sample.BlockId == profile.SandBlock,
-                        $"Water at {voxel} touches non-sand shoreline {neighbour.Voxel} ({neighbour.Sample.BlockId}) for seed {profile.Seed}.");
+                        $"Water at {voxel} touches non-sand shoreline {neighbour.Voxel} ({neighbour.Sample.BlockId}) in {profile.Id}, seed {profile.Seed}.");
                 }
             }
 
             Require(
                 !(sample.BlockId == profile.DeepWaterBlock && boundary),
-                $"Deep-water material reached shoreline at {voxel} for seed {profile.Seed}.");
+                $"Deep-water material reached shoreline at {voxel} in {profile.Id}, seed {profile.Seed}.");
         }
 
         ValidateWaterComponents(profile, face, cells);
     }
 
-    Require(present > 0, $"Generation produced no terrain for seed {profile.Seed}.");
-    Require(exposedSolid > 0, $"Generation produced no exposed solid terrain for seed {profile.Seed}.");
-    Require(water > 0, $"Generation test profile produced no water for seed {profile.Seed}; hydrology contract is not exercised.");
-    Require(sand > 0, $"Generation test profile produced no sand for seed {profile.Seed}; shoreline contract is not exercised.");
+    Require(present > 0, $"Generation produced no terrain for {profile.Id}, seed {profile.Seed}.");
+    Require(exposedSolid > 0, $"Generation produced no exposed solid terrain for {profile.Id}, seed {profile.Seed}.");
+    Require(water > 0, $"Generation produced no water for {profile.Id}, seed {profile.Seed}; hydrology contract is not exercised.");
+    Require(sand > 0, $"Generation produced no sand for {profile.Id}, seed {profile.Seed}; shoreline contract is not exercised.");
 
     Console.WriteLine(
-        $"generation contract seed={profile.Seed} base={profile.BaseRadius:0.0}: blocks={present:N0}, exposed={exposedSolid:N0}, water={water:N0}, sand={sand:N0}");
+        $"generation contract world={profile.Id} seed={profile.Seed} base={profile.BaseRadius:0.0}: " +
+        $"blocks={present:N0}, exposed={exposedSolid:N0}, water={water:N0}, sand={sand:N0}");
+}
+
+static IReadOnlyList<WorldProfile> LoadCommittedProfiles()
+{
+    string? current = Directory.GetCurrentDirectory();
+    while (!string.IsNullOrWhiteSpace(current))
+    {
+        string candidate = Path.Combine(current, "data", "worlds", "worlds.json");
+        if (File.Exists(candidate))
+        {
+            string json = File.ReadAllText(candidate);
+            ProfileDocument? document = JsonSerializer.Deserialize<ProfileDocument>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            });
+            return document?.Worlds ?? Array.Empty<WorldProfile>();
+        }
+        current = Directory.GetParent(current)?.FullName;
+    }
+
+    throw new InvalidOperationException("Could not locate data/worlds/worlds.json for shipped-generation contracts.");
 }
 
 // Include both user-observed candidate seeds plus canonical Verdant. Validate compact authoring scale
@@ -224,4 +247,19 @@ foreach (int seed in new[] { 73021, 73323, 1939109028 })
     ValidateProfile(MakeProfile(seed, 9.5f));
 }
 
+// The same structural invariants must hold for every committed procedural Steam-demo world, not just
+// compact reproductions. This is intentionally exact and makes a bad reviewed seed/profile a CI failure
+// before a player can ever see floating terrain, water ribbons, grass shorelines or deep-water edges.
+IReadOnlyList<WorldProfile> committedProfiles = LoadCommittedProfiles();
+foreach (string worldId in new[] { "reference_natural", "reference_lakes", "reference_ridges" })
+{
+    WorldProfile profile = committedProfiles.Single(item => item.Id == worldId);
+    ValidateProfile(profile);
+}
+
 Console.WriteLine("deterministic generation contracts passed");
+
+internal sealed class ProfileDocument
+{
+    public List<WorldProfile> Worlds { get; set; } = new();
+}
