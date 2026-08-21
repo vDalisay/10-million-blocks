@@ -6,12 +6,12 @@ namespace TenMillionBlocks.UI;
 
 /// <summary>
 /// Root-level loading presentation that survives gameplay scene/session replacement. Transition
-/// callers show it one rendered frame before starting a synchronous world/replay load, so an expensive
+/// callers show it one rendered frame before starting a world/replay load, so an expensive
 /// deterministic world build never leaves the player staring at a frozen gameplay frame.
 ///
-/// The overlay dismisses itself only after it observes a different WorldView instance in the active
-/// scene. This makes the same screen work for main-menu -> game, next-world, revisit and replay loads
-/// without coupling the loading UI to GameRoot internals.
+/// Exact demo-world chunk creation is staged by WorldView across normal process frames. This overlay
+/// therefore remains animated until the replacement WorldView reports that every chunk required for
+/// its initial presentation has been resolved.
 /// </summary>
 public partial class WorldLoadingScreen : CanvasLayer
 {
@@ -34,6 +34,7 @@ public partial class WorldLoadingScreen : CanvasLayer
     private ColorRect _blockTop = null!;
     private ColorRect _blockSide = null!;
     private Label _label = null!;
+    private Label _subtitle = null!;
     private ulong _baselineWorldViewId;
     private int _replacementStableFrames;
     private double _elapsed;
@@ -107,19 +108,34 @@ public partial class WorldLoadingScreen : CanvasLayer
         _block.Scale = Vector2.One * pulse;
         _block.Rotation = MathF.Sin((float)_phase * 0.47f) * 0.025f;
 
-        ulong currentWorldViewId = FindWorldViewInstanceId(GetTree().CurrentScene);
-        if (currentWorldViewId != 0 && currentWorldViewId != _baselineWorldViewId)
+        WorldView? currentWorldView = FindWorldView(GetTree().CurrentScene);
+        ulong currentWorldViewId = currentWorldView?.GetInstanceId() ?? 0;
+        bool replacement = currentWorldViewId != 0 && currentWorldViewId != _baselineWorldViewId;
+        if (replacement && currentWorldView is not null)
         {
-            _replacementStableFrames++;
-            if (_replacementStableFrames >= 3)
+            float progress = currentWorldView.InitialPresentationProgress;
+            _subtitle.Text = currentWorldView.InitialPresentationReady
+                ? "FINALIZING..."
+                : $"PREPARING CUBE... {progress:P0}";
+
+            if (currentWorldView.InitialPresentationReady)
             {
-                HideLoading();
-                return;
+                _replacementStableFrames++;
+                if (_replacementStableFrames >= 3)
+                {
+                    HideLoading();
+                    return;
+                }
+            }
+            else
+            {
+                _replacementStableFrames = 0;
             }
         }
         else
         {
             _replacementStableFrames = 0;
+            _subtitle.Text = "PREPARING CUBE...";
         }
 
         // Do not permanently mask a fatal initialization error. Normal reviewed worlds should replace
@@ -132,11 +148,12 @@ public partial class WorldLoadingScreen : CanvasLayer
 
     private void Begin(string label)
     {
-        _baselineWorldViewId = FindWorldViewInstanceId(GetTree().CurrentScene);
+        _baselineWorldViewId = FindWorldView(GetTree().CurrentScene)?.GetInstanceId() ?? 0;
         _replacementStableFrames = 0;
         _elapsed = 0.0;
         _phase = 0.0;
         _label.Text = string.IsNullOrWhiteSpace(label) ? "LOADING WORLD" : label.ToUpperInvariant();
+        _subtitle.Text = "PREPARING CUBE...";
         RandomizeBlockPalette();
         _block.Scale = Vector2.One;
         _block.Rotation = 0.0f;
@@ -263,7 +280,7 @@ public partial class WorldLoadingScreen : CanvasLayer
         _label.AddThemeFontSizeOverride("font_size", 22);
         _root.AddChild(_label);
 
-        var subtitle = new Label
+        _subtitle = new Label
         {
             Text = "PREPARING CUBE...",
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -278,7 +295,7 @@ public partial class WorldLoadingScreen : CanvasLayer
             OffsetBottom = 144.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        _root.AddChild(subtitle);
+        _root.AddChild(_subtitle);
 
         RandomizeBlockPalette();
     }
@@ -291,16 +308,16 @@ public partial class WorldLoadingScreen : CanvasLayer
         _blockSide.Color = baseColor.Darkened(0.18f);
     }
 
-    private static ulong FindWorldViewInstanceId(Node? node)
+    private static WorldView? FindWorldView(Node? node)
     {
-        if (node is null) return 0;
-        if (node is WorldView worldView) return worldView.GetInstanceId();
+        if (node is null) return null;
+        if (node is WorldView worldView) return worldView;
 
         foreach (Node child in node.GetChildren())
         {
-            ulong found = FindWorldViewInstanceId(child);
-            if (found != 0) return found;
+            WorldView? found = FindWorldView(child);
+            if (found is not null) return found;
         }
-        return 0;
+        return null;
     }
 }
