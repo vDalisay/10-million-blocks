@@ -99,7 +99,7 @@
     {
       "id": "tutorial_trees_gem_15",
       "displayName": "Roots & Core",
-      "introText": "Use the Forest Cutter on tree-blocked surface routes, then drill toward the exact central red gem and spend it on Wide Bore.",
+      "introText": "Trees now block shovel routes. Clear them manually, then drill toward the exact central red gem and spend it on Wide Bore.",
       "worldVersion": 1,
       "generationVersion": 1,
       "generationMode": "solid_cube",
@@ -107,7 +107,7 @@
       "currencyScope": "tutorial_local",
       "skillTreeAvailable": true,
       "automationAvailable": true,
-      "visibleSkillCategories": ["manual", "shovel", "automation", "drill", "patterns", "forest"],
+      "visibleSkillCategories": ["manual", "shovel", "automation", "drill", "patterns"],
       "seed": 15,
       "logicalWidth": 15,
       "logicalHeight": 15,
