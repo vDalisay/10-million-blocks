@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "worldId": "reference_natural",
+  "generationVersion": 2,
+  "overrides": [
+    {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "present": true,
+      "blockId": "gem_red",
+      "mineable": true
+    },
+    {
+      "x": 2,
+      "y": -1,
+      "z": 1,
+      "present": true,
+      "blockId": "gem_blue",
+      "mineable": true
+    },
+    {
+      "x": -2,
+      "y": 1,
+      "z": -1,
+      "present": true,
+      "blockId": "gem_green",
+      "mineable": true
+    }
+  ],
+  "features": []
+}
