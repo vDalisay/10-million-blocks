@@ -1,16 +1,16 @@
 using System;
 using System.Collections.Generic;
 using Godot;
-using TenMillionBlocks.Content;
 
 namespace TenMillionBlocks.World.Rendering;
 
 /// <summary>
-/// Presentation-only correction for procedural cube seams. The generator remains authoritative for
-/// terrain choice everywhere: grass stays grass, dirt-grass stays dirt-grass, sand stays sand, stone
-/// stays stone, etc. The only exception is a plain dirt/soil block that lands on the outer cube-face
-/// perimeter; that one is rendered with the clean green cube so the seam does not expose a brown strip.
-/// Logical block IDs are never changed, so saves, mining rewards and replay baselines are unaffected.
+/// Presentation-only correction for one very specific procedural cube seam case.
+/// The procedural generator remains authoritative everywhere: normal grass stays normal grass,
+/// dirt stays dirt, sand stays sand, stone stays stone, and natural dirt-backed grass ledges keep
+/// their brown sides and grassy fringe. Only a dirt-backed grass edge block that actually lies on
+/// the geometric outer seam between cube faces is rendered with the clean green cube mesh.
+/// Logical block IDs are never changed, so saves, rewards and replay baselines are unaffected.
 /// </summary>
 public partial class WorldView
 {
@@ -40,7 +40,7 @@ public partial class WorldView
         }
 
         // WorldView adds the chunk root first and its MultiMesh batches immediately afterwards. Defer
-        // one turn so the whole chunk exists before splitting its terrain instances by appearance.
+        // one turn so the whole chunk exists before splitting the one eligible terrain batch.
         Callable.From(() => ApplyCubeRimAppearance(chunkRoot)).CallDeferred();
     }
 
@@ -64,14 +64,15 @@ public partial class WorldView
 
         chunkRoot.SetMeta(RimAppearanceAppliedMeta, true);
 
-        // Only dirt can change appearance now. Ignore every other batch up front so procedural terrain
-        // selection remains exactly as generated for grass, dirt-grass, sand, stone, water and specials.
+        // The user's "dirt block with grass on top" is the procedural SurfaceEdgeBlock
+        // (normally dirt_grass). Plain underground SoilBlock/dirt is deliberately NOT touched.
+        string sourceBlockId = _world.Profile.SurfaceEdgeBlock;
         var batches = new List<MultiMeshInstance3D>();
         foreach (Node child in chunkRoot.GetChildren())
         {
             if (child is MultiMeshInstance3D batch
                 && batch.Multimesh is not null
-                && string.Equals(batch.Name.ToString(), $"Batch_{_world.Profile.SoilBlock}", StringComparison.Ordinal))
+                && string.Equals(batch.Name.ToString(), $"Batch_{sourceBlockId}", StringComparison.Ordinal))
             {
                 batches.Add(batch);
             }
@@ -79,7 +80,6 @@ public partial class WorldView
 
         foreach (MultiMeshInstance3D batch in batches)
         {
-            string sourceBlockId = _world.Profile.SoilBlock;
             MultiMesh source = batch.Multimesh;
             int count = source.VisibleInstanceCount >= 0
                 ? Math.Min(source.InstanceCount, source.VisibleInstanceCount)
@@ -92,7 +92,7 @@ public partial class WorldView
             {
                 Transform3D transform = source.GetInstanceTransform(i);
                 Vector3I voxel = WorldPositionToVoxel(transform.Origin);
-                if (IsOuterCubeFaceRim(voxel))
+                if (IsTrueOuterCubeSeam(voxel))
                 {
                     cleanGreen.Add(transform);
                 }
@@ -131,8 +131,8 @@ public partial class WorldView
     }
 
     /// <summary>
-    /// Returns only the presentation skin for mining feedback. The procedural block type is preserved;
-    /// only plain soil exactly on the outer cube-face rim receives the clean-green visual replacement.
+    /// Returns only the presentation skin for mining feedback. Only the same dirt-backed grass block
+    /// on the actual cube seam gets the clean-green mesh; every other generated block keeps its asset.
     /// </summary>
     private string ResolveSurfaceVisualBlockId(Vector3I voxel, string blockId)
     {
@@ -143,8 +143,8 @@ public partial class WorldView
             return blockId;
         }
 
-        if (string.Equals(blockId, _world.Profile.SoilBlock, StringComparison.Ordinal)
-            && IsOuterCubeFaceRim(voxel))
+        if (string.Equals(blockId, _world.Profile.SurfaceEdgeBlock, StringComparison.Ordinal)
+            && IsTrueOuterCubeSeam(voxel))
         {
             return OuterRimVisualBlockId;
         }
@@ -152,34 +152,29 @@ public partial class WorldView
         return blockId;
     }
 
-    private bool IsOuterCubeFaceRim(Vector3I voxel)
+    /// <summary>
+    /// A cube perimeter is where two (or three at a corner) equally outer coordinate axes meet.
+    /// The previous implementation used "tangent >= BaseRadius", which described a broad border BAND;
+    /// that is why legitimate interior dirt/grass ledges near an edge were incorrectly turned green.
+    /// Requiring tied dominant axes reduces the rule to the actual one-block seam line.
+    /// </summary>
+    private bool IsTrueOuterCubeSeam(Vector3I voxel)
     {
         if (!_world.IsPresent(voxel) || !_world.IsExposed(voxel)) return false;
 
-        Vector3I normal = _world.Source.GetOutwardNormal(voxel);
-        int tangentA;
-        int tangentB;
-        if (Math.Abs(normal.X) == 1)
-        {
-            tangentA = Math.Abs(voxel.Y);
-            tangentB = Math.Abs(voxel.Z);
-        }
-        else if (Math.Abs(normal.Y) == 1)
-        {
-            tangentA = Math.Abs(voxel.X);
-            tangentB = Math.Abs(voxel.Z);
-        }
-        else
-        {
-            tangentA = Math.Abs(voxel.X);
-            tangentB = Math.Abs(voxel.Y);
-        }
+        int ax = Math.Abs(voxel.X);
+        int ay = Math.Abs(voxel.Y);
+        int az = Math.Abs(voxel.Z);
+        int outer = Math.Max(ax, Math.Max(ay, az));
 
-        // Procedural face coordinates use BaseRadius N+0.5, making floor(BaseRadius) the last integer
-        // column before the adjacent face takes over. Requiring exposure prevents mined-through interior
-        // soil from being recolored merely because it shares the same tangent coordinate.
-        int faceBorder = Math.Max(1, Mathf.FloorToInt(_world.Profile.BaseRadius + 0.001f));
-        return Math.Max(tangentA, tangentB) >= faceBorder;
+        // Avoid classifying an arbitrary tied coordinate inside a mined cavity as a world seam.
+        int minimumSeamRadius = Math.Max(1, Mathf.FloorToInt(_world.Profile.BaseRadius + 0.001f));
+        if (outer < minimumSeamRadius) return false;
+
+        int dominantAxisCount = (ax == outer ? 1 : 0)
+            + (ay == outer ? 1 : 0)
+            + (az == outer ? 1 : 0);
+        return dominantAxisCount >= 2;
     }
 
     private Vector3I WorldPositionToVoxel(Vector3 position)
