@@ -128,7 +128,10 @@ public sealed class MiningService
             return Detonate(voxel, source);
         }
 
-        if (!_world.TryMine(voxel, requireExposed, out BlockSample mined))
+        // We already sampled this voxel above to inspect mineability/special behavior. Reuse that
+        // authoritative sample instead of making VirtualWorld re-read the same coordinate before the
+        // mutation. Exposure is still verified by the world against the six neighbours.
+        if (!_world.TryMine(voxel, before, requireExposed, out BlockSample mined))
         {
             return Failure(voxel, source);
         }
