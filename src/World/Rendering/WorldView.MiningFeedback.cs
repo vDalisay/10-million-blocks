@@ -35,11 +35,12 @@ public partial class WorldView
     /// <summary>
     /// Short-lived copy of the mined block used for manual/replay feedback. Nodes are pooled and the
     /// animation is advanced centrally, avoiding a Tween + QueueFree allocation for every mined block
-    /// during high-rate hover mining/replay.
+    /// during high-rate hover mining/replay. Off-screen events are culled before acquiring a pooled node.
     /// </summary>
     public void SpawnManualMinePop(Vector3I voxel, string blockId, float peakScale = 1.12f)
     {
-        if (_activeMinePops.Count >= MaxActiveMinePops)
+        Vector3 worldPosition = VoxelToWorld(voxel);
+        if (_activeMinePops.Count >= MaxActiveMinePops || !ShouldSpawnMiningFx(worldPosition, 72.0f))
         {
             DroppedMinePopCount++;
             return;
@@ -58,7 +59,7 @@ public partial class WorldView
         pop.Node.Name = $"MinePop_{voxel.X}_{voxel.Y}_{voxel.Z}";
         pop.Node.Mesh = _assets.GetMesh(visualBlockId);
         pop.Node.MaterialOverride = _assets.GetMaterialOverride(visualBlockId);
-        pop.Node.Transform = new Transform3D(basis, VoxelToWorld(voxel));
+        pop.Node.Transform = new Transform3D(basis, worldPosition);
         pop.Node.Scale = Vector3.One * 0.985f;
         pop.Node.Visible = true;
         _activeMinePops.Add(pop);
@@ -67,22 +68,21 @@ public partial class WorldView
     /// <summary>
     /// Shared mining-only debris used by live mining and replay. Bursts are pooled and each burst uses
     /// one MultiMesh for all fragments, so dense mining does not create/free dozens of MeshInstance3D,
-    /// BoxMesh and Material objects per action.
+    /// BoxMesh and Material objects per action. Off-screen replay/automation events stay simulation-only.
     /// </summary>
     public void SpawnMiningDebris(Vector3I voxel, string blockId, int seed, string name = "MiningDebris")
     {
-        if (_activeDebrisBursts >= MaxActiveDebrisBursts)
+        Vector3I outwardI = _world.Source.GetOutwardNormal(voxel);
+        Vector3 outward = (Vector3)outwardI;
+        float spacing = _world.Profile.BlockSpacing;
+        Vector3 position = VoxelToWorld(voxel) + outward * spacing * 0.48f;
+        if (_activeDebrisBursts >= MaxActiveDebrisBursts || !ShouldSpawnMiningFx(position, 96.0f))
         {
             DroppedDebrisBurstCount++;
             return;
         }
 
         string visualBlockId = ResolveSurfaceVisualBlockId(voxel, blockId);
-        Vector3I outwardI = _world.Source.GetOutwardNormal(voxel);
-        Vector3 outward = (Vector3)outwardI;
-        float spacing = _world.Profile.BlockSpacing;
-        Vector3 position = VoxelToWorld(voxel) + outward * spacing * 0.48f;
-
         DrillDebrisBurst burst;
         if (_debrisPool.Count > 0)
         {
@@ -97,6 +97,17 @@ public partial class WorldView
 
         _activeDebrisBursts++;
         burst.Play(position, outward, visualBlockId, spacing, seed, name);
+    }
+
+    private bool ShouldSpawnMiningFx(Vector3 worldPosition, float screenMargin)
+    {
+        Camera3D? camera = GetViewport().GetCamera3D();
+        if (camera is null) return true;
+        if (camera.IsPositionBehind(worldPosition)) return false;
+
+        Vector2 screen = camera.UnprojectPosition(worldPosition);
+        Rect2 visible = GetViewport().GetVisibleRect().Grow(screenMargin);
+        return visible.HasPoint(screen);
     }
 
     private void EnsureMiningFeedbackTicker()
