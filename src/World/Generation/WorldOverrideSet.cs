@@ -187,7 +187,7 @@ public sealed class WorldOverrideSet
         // Calling Godot.FileAccess from such a process can enter native engine code without an initialized
         // project and terminate the process. Tools therefore opt into a managed res:// root explicitly;
         // normal gameplay/export behavior still uses FileAccess so packed resources continue to work.
-        string? managedRoot = Environment.GetEnvironmentVariable(ResourceRootEnvironmentVariable);
+        string? managedRoot = System.Environment.GetEnvironmentVariable(ResourceRootEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(managedRoot)
             && resourcePath.StartsWith("res://", StringComparison.OrdinalIgnoreCase))
         {
