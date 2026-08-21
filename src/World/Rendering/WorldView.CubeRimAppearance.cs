@@ -6,12 +6,11 @@ using TenMillionBlocks.Content;
 namespace TenMillionBlocks.World.Rendering;
 
 /// <summary>
-/// Presentation-only surface policy for cube worlds. The logical block IDs remain untouched so saves,
-/// mining rewards and replay baselines do not change just because the terrain art is refined.
-///
-/// The very outer one-block rim of every procedural cube face is rendered as a clean solid-green block.
-/// Everywhere else a logical grass surface uses the dirt-backed grass mesh, so natural ledges and holes
-/// still expose brown soil rather than looking like solid green plastic.
+/// Presentation-only correction for procedural cube seams. The generator remains authoritative for
+/// terrain choice everywhere: grass stays grass, dirt-grass stays dirt-grass, sand stays sand, stone
+/// stays stone, etc. The only exception is a plain dirt/soil block that lands on the outer cube-face
+/// perimeter; that one is rendered with the clean green cube so the seam does not expose a brown strip.
+/// Logical block IDs are never changed, so saves, mining rewards and replay baselines are unaffected.
 /// </summary>
 public partial class WorldView
 {
@@ -65,13 +64,14 @@ public partial class WorldView
 
         chunkRoot.SetMeta(RimAppearanceAppliedMeta, true);
 
-        // Copy the child list because each processed batch is replaced in-place.
+        // Only dirt can change appearance now. Ignore every other batch up front so procedural terrain
+        // selection remains exactly as generated for grass, dirt-grass, sand, stone, water and specials.
         var batches = new List<MultiMeshInstance3D>();
         foreach (Node child in chunkRoot.GetChildren())
         {
             if (child is MultiMeshInstance3D batch
                 && batch.Multimesh is not null
-                && batch.Name.ToString().StartsWith("Batch_", StringComparison.Ordinal))
+                && string.Equals(batch.Name.ToString(), $"Batch_{_world.Profile.SoilBlock}", StringComparison.Ordinal))
             {
                 batches.Add(batch);
             }
@@ -79,105 +79,74 @@ public partial class WorldView
 
         foreach (MultiMeshInstance3D batch in batches)
         {
-            string batchName = batch.Name.ToString();
-            string sourceBlockId = batchName["Batch_".Length..];
-            BlockDefinition definition;
-            try
-            {
-                definition = _assets.GetDefinition(sourceBlockId);
-            }
-            catch (KeyNotFoundException)
-            {
-                continue;
-            }
-
-            // Trees, water, gems and other decorative/special batches are not terrain skin.
-            if (!string.Equals(definition.RenderClass, "terrain", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
+            string sourceBlockId = _world.Profile.SoilBlock;
             MultiMesh source = batch.Multimesh;
             int count = source.VisibleInstanceCount >= 0
                 ? Math.Min(source.InstanceCount, source.VisibleInstanceCount)
                 : source.InstanceCount;
             if (count <= 0) continue;
 
-            var groups = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
+            var unchanged = new List<Transform3D>(count);
+            var cleanGreen = new List<Transform3D>();
             for (int i = 0; i < count; i++)
             {
                 Transform3D transform = source.GetInstanceTransform(i);
                 Vector3I voxel = WorldPositionToVoxel(transform.Origin);
-                string visualBlockId = ResolveSurfaceVisualBlockId(voxel, sourceBlockId);
-                if (!groups.TryGetValue(visualBlockId, out List<Transform3D>? transforms))
+                if (IsOuterCubeFaceRim(voxel))
                 {
-                    transforms = new List<Transform3D>();
-                    groups.Add(visualBlockId, transforms);
+                    cleanGreen.Add(transform);
                 }
-                transforms.Add(transform);
+                else
+                {
+                    unchanged.Add(transform);
+                }
             }
 
-            // If nothing changes, keep the original batch untouched.
-            if (groups.Count == 1
-                && groups.TryGetValue(sourceBlockId, out List<Transform3D>? unchanged)
-                && unchanged.Count == count)
+            if (cleanGreen.Count == 0)
             {
                 continue;
             }
 
-            foreach ((string visualBlockId, List<Transform3D> transforms) in groups)
+            if (unchanged.Count > 0)
             {
                 AddAppearanceBatch(
                     chunkRoot,
                     sourceBlockId,
-                    visualBlockId,
-                    transforms,
+                    sourceBlockId,
+                    unchanged,
                     batch.CastShadow,
                     batch.Visible);
             }
+
+            AddAppearanceBatch(
+                chunkRoot,
+                sourceBlockId,
+                OuterRimVisualBlockId,
+                cleanGreen,
+                batch.CastShadow,
+                batch.Visible);
 
             batch.QueueFree();
         }
     }
 
     /// <summary>
-    /// Returns only the visual skin for a logical terrain block. Mining/reward code continues to use
-    /// the original block ID.
+    /// Returns only the presentation skin for mining feedback. The procedural block type is preserved;
+    /// only plain soil exactly on the outer cube-face rim receives the clean-green visual replacement.
     /// </summary>
     private string ResolveSurfaceVisualBlockId(Vector3I voxel, string blockId)
     {
-        if (_world is null || _assets is null || _world.Profile.UsesSingleBlockGenerator || _world.Profile.UsesSolidCubeGenerator)
+        if (_world is null
+            || _world.Profile.UsesSingleBlockGenerator
+            || _world.Profile.UsesSolidCubeGenerator)
         {
             return blockId;
         }
 
-        BlockDefinition definition;
-        try
-        {
-            definition = _assets.GetDefinition(blockId);
-        }
-        catch (KeyNotFoundException)
-        {
-            return blockId;
-        }
-
-        if (!string.Equals(definition.RenderClass, "terrain", StringComparison.OrdinalIgnoreCase))
-        {
-            return blockId;
-        }
-
-        // The cube-face perimeter is intentionally biome-neutral presentation: even a shoreline or
-        // cliff that mathematically reaches the seam reads as the same clean green world border.
-        if (IsOuterCubeFaceRim(voxel))
+        if (string.Equals(blockId, _world.Profile.SoilBlock, StringComparison.Ordinal)
+            && IsOuterCubeFaceRim(voxel))
         {
             return OuterRimVisualBlockId;
-        }
-
-        // Away from the border, ordinary grass must retain dirt-backed sides. This is what makes an
-        // interior cut, ledge or mined hole reveal brown soil while the upward surface stays grassy.
-        if (string.Equals(blockId, _world.Profile.SurfaceBlock, StringComparison.Ordinal))
-        {
-            return _world.Profile.SurfaceEdgeBlock;
         }
 
         return blockId;
@@ -207,8 +176,8 @@ public partial class WorldView
         }
 
         // Procedural face coordinates use BaseRadius N+0.5, making floor(BaseRadius) the last integer
-        // column before the adjacent face takes over. Requiring the current block to be exposed keeps
-        // deeper blocks brown after the green rim itself has been mined away.
+        // column before the adjacent face takes over. Requiring exposure prevents mined-through interior
+        // soil from being recolored merely because it shares the same tangent coordinate.
         int faceBorder = Math.Max(1, Mathf.FloorToInt(_world.Profile.BaseRadius + 0.001f));
         return Math.Max(tangentA, tangentB) >= faceBorder;
     }
