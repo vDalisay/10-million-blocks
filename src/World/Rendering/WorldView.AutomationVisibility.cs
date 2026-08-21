@@ -6,6 +6,12 @@ namespace TenMillionBlocks.World.Rendering;
 public partial class WorldView
 {
     private readonly HashSet<ChunkCoord> _deferredAutomationChunks = new();
+    private readonly List<ChunkCoord> _deferredPromotionScratch = new();
+    private bool _deferredRefreshStateInitialized;
+    private Vector3 _lastDeferredRefreshCameraPosition;
+    private int _lastDeferredRefreshCount = -1;
+    private int _lastDeferredRefreshDesiredCount = -1;
+    private int _lastDeferredRefreshResidentCount = -1;
 
     public long AutomationPresentationUpdatesQueued { get; private set; }
     public long AutomationPresentationUpdatesSuppressed { get; private set; }
@@ -76,20 +82,41 @@ public partial class WorldView
     /// ticks can collapse into one deferred chunk rebuild instead of rebuilding the same hidden mesh on
     /// every tick. Full-surface worlds may promote modified interior chunks once their cube face is
     /// viewed; macro-streamed experiments still require the chunk to be in the camera working set.
+    ///
+    /// The deferred set can stay unchanged for seconds while automation keeps working in the same hidden
+    /// chunks. Cache that state and the camera position so the 8 Hz policy tick does not repeatedly walk
+    /// the same HashSet. The promotion list is also retained as scratch storage to avoid periodic GC.
     /// </summary>
     public void RefreshDeferredAutomationPresentation()
     {
         if (_deferredAutomationChunks.Count == 0 || _camera?.Camera is null)
         {
+            _deferredRefreshStateInitialized = false;
             return;
         }
 
-        var promote = new List<ChunkCoord>();
+        Vector3 cameraPosition = _camera.Camera.GlobalPosition;
+        bool unchanged = _deferredRefreshStateInitialized
+            && _lastDeferredRefreshCount == _deferredAutomationChunks.Count
+            && _lastDeferredRefreshDesiredCount == _desiredChunks.Count
+            && _lastDeferredRefreshResidentCount == _chunkRoots.Count
+            && cameraPosition.DistanceSquaredTo(_lastDeferredRefreshCameraPosition) < 0.0004f;
+        if (unchanged)
+        {
+            return;
+        }
+
+        _deferredRefreshStateInitialized = true;
+        _lastDeferredRefreshCameraPosition = cameraPosition;
+        _lastDeferredRefreshDesiredCount = _desiredChunks.Count;
+        _lastDeferredRefreshResidentCount = _chunkRoots.Count;
+
+        _deferredPromotionScratch.Clear();
         foreach (ChunkCoord chunk in _deferredAutomationChunks)
         {
             if (!ChunkInWorldBounds(chunk))
             {
-                promote.Add(chunk);
+                _deferredPromotionScratch.Add(chunk);
                 continue;
             }
 
@@ -107,14 +134,15 @@ public partial class WorldView
                 // MarkChunkDirty adds a modified interior chunk to the full-surface working set only at
                 // this point, after it has become presentation-relevant.
                 MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
-                promote.Add(chunk);
+                _deferredPromotionScratch.Add(chunk);
             }
         }
 
-        foreach (ChunkCoord chunk in promote)
+        foreach (ChunkCoord chunk in _deferredPromotionScratch)
         {
             _deferredAutomationChunks.Remove(chunk);
         }
+        _lastDeferredRefreshCount = _deferredAutomationChunks.Count;
     }
 
     public void FocusAutomationVoxel(Vector3I voxel)
