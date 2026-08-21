@@ -9,11 +9,13 @@ namespace TenMillionBlocks.Replay;
 
 /// <summary>
 /// Compact replay codec. The event payload uses tick deltas and ZigZag-varint linear-index deltas,
-/// then Brotli-compresses the stream. Schema 2 pins the replay to a world version + canonical content
-/// hash while retaining read compatibility with development schema-1 files.
+/// then Brotli-compresses the stream. Schema 2 pinned replay identity to a frozen world hash; schema 3
+/// additionally packs consecutive same-tick/same-source removals into one batch record while decoding
+/// back to the same flat logical removal stream used by ReplayPlayer.
 /// </summary>
 public static class ReplayBinaryCodec
 {
+    private const int MinimumBatchLength = 3;
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("CMBR");
 
     public static void Write(string absolutePath, ReplayHeader header, IReadOnlyList<ReplayRemovalEvent> events)
@@ -23,11 +25,11 @@ public static class ReplayBinaryCodec
         ArgumentNullException.ThrowIfNull(events);
         if (header.WorldVersion <= 0)
         {
-            throw new InvalidDataException("Replay schema 2 requires a positive world version.");
+            throw new InvalidDataException("Replay schema 3 requires a positive world version.");
         }
         if (string.IsNullOrWhiteSpace(header.WorldContentHash))
         {
-            throw new InvalidDataException("Replay schema 2 requires a frozen world content hash.");
+            throw new InvalidDataException("Replay schema 3 requires a frozen world content hash.");
         }
 
         byte[] eventBytes = EncodeEvents(events);
@@ -89,8 +91,8 @@ public static class ReplayBinaryCodec
         }
         else
         {
-            // Schema 1 predates immutable world-version/hash identity. It can still be viewed and
-            // upgraded by a development build after its older generation/bounds checks pass.
+            // Schema 1 predates immutable world-version/hash identity. It can still be viewed after
+            // its older generation/bounds checks pass.
             generationVersion = reader.ReadInt32();
         }
 
@@ -111,7 +113,7 @@ public static class ReplayBinaryCodec
         }
         if (schema >= 2 && (worldVersion <= 0 || string.IsNullOrWhiteSpace(worldContentHash)))
         {
-            throw new InvalidDataException("Replay schema 2 is missing frozen world identity.");
+            throw new InvalidDataException($"Replay schema {schema} is missing frozen world identity.");
         }
         if (checksumLength <= 0 || checksumLength > 1024)
         {
@@ -155,20 +157,54 @@ public static class ReplayBinaryCodec
         using var stream = new MemoryStream();
         uint previousTick = 0;
         long previousIndex = 0;
+        int cursor = 0;
 
-        foreach (ReplayRemovalEvent item in events)
+        while (cursor < events.Count)
         {
-            if (item.Tick < previousTick)
+            ReplayRemovalEvent first = events[cursor];
+            if (first.Tick < previousTick)
             {
                 throw new InvalidDataException("Replay events must be ordered by nondecreasing tick.");
             }
 
+            int runLength = 1;
+            while (cursor + runLength < events.Count)
+            {
+                ReplayRemovalEvent next = events[cursor + runLength];
+                if (next.Tick < first.Tick)
+                {
+                    throw new InvalidDataException("Replay events must be ordered by nondecreasing tick.");
+                }
+                if (next.Tick != first.Tick || next.Source != first.Source) break;
+                runLength++;
+            }
+
+            if (runLength >= MinimumBatchLength)
+            {
+                stream.WriteByte((byte)ReplayEventKind.RemoveVoxelBatch);
+                WriteVarUInt(stream, first.Tick - previousTick);
+                WriteVarUInt(stream, checked((ulong)runLength));
+                stream.WriteByte((byte)first.Source);
+
+                for (int i = 0; i < runLength; i++)
+                {
+                    ReplayRemovalEvent item = events[cursor + i];
+                    WriteVarUInt(stream, ZigZag(item.LinearIndex - previousIndex));
+                    previousIndex = item.LinearIndex;
+                }
+
+                previousTick = first.Tick;
+                cursor += runLength;
+                continue;
+            }
+
             stream.WriteByte((byte)ReplayEventKind.RemoveVoxel);
-            WriteVarUInt(stream, item.Tick - previousTick);
-            WriteVarUInt(stream, ZigZag(item.LinearIndex - previousIndex));
-            stream.WriteByte((byte)item.Source);
-            previousTick = item.Tick;
-            previousIndex = item.LinearIndex;
+            WriteVarUInt(stream, first.Tick - previousTick);
+            WriteVarUInt(stream, ZigZag(first.LinearIndex - previousIndex));
+            stream.WriteByte((byte)first.Source);
+            previousTick = first.Tick;
+            previousIndex = first.LinearIndex;
+            cursor++;
         }
 
         return stream.ToArray();
@@ -189,20 +225,39 @@ public static class ReplayBinaryCodec
         while (offset < bytes.Length)
         {
             ReplayEventKind kind = (ReplayEventKind)bytes[offset++];
-            if (kind != ReplayEventKind.RemoveVoxel)
+            switch (kind)
             {
-                throw new InvalidDataException($"Unknown replay event kind {(byte)kind}.");
-            }
+                case ReplayEventKind.RemoveVoxel:
+                    tick = checked(tick + (uint)ReadVarUInt(bytes, ref offset));
+                    index = checked(index + UnZigZag(ReadVarUInt(bytes, ref offset)));
+                    ReplayMiningSource source = ReadSource(bytes, ref offset);
+                    result.Add(new ReplayRemovalEvent(tick, index, source));
+                    break;
 
-            tick = checked(tick + (uint)ReadVarUInt(bytes, ref offset));
-            index = checked(index + UnZigZag(ReadVarUInt(bytes, ref offset)));
-            if (offset >= bytes.Length) throw new EndOfStreamException("Replay source byte is missing.");
-            ReplayMiningSource source = (ReplayMiningSource)bytes[offset++];
-            if (!Enum.IsDefined(source))
-            {
-                throw new InvalidDataException($"Replay contains unknown mining source {(byte)source}.");
+                case ReplayEventKind.RemoveVoxelBatch:
+                    tick = checked(tick + (uint)ReadVarUInt(bytes, ref offset));
+                    ulong rawCount = ReadVarUInt(bytes, ref offset);
+                    if (rawCount == 0 || rawCount > int.MaxValue)
+                    {
+                        throw new InvalidDataException($"Replay batch length {rawCount:N0} is invalid.");
+                    }
+                    if ((long)result.Count + (long)rawCount > expectedCount)
+                    {
+                        throw new InvalidDataException("Replay batch exceeds the event count declared by the header.");
+                    }
+
+                    ReplayMiningSource batchSource = ReadSource(bytes, ref offset);
+                    int batchCount = checked((int)rawCount);
+                    for (int i = 0; i < batchCount; i++)
+                    {
+                        index = checked(index + UnZigZag(ReadVarUInt(bytes, ref offset)));
+                        result.Add(new ReplayRemovalEvent(tick, index, batchSource));
+                    }
+                    break;
+
+                default:
+                    throw new InvalidDataException($"Unknown replay event kind {(byte)kind}.");
             }
-            result.Add(new ReplayRemovalEvent(tick, index, source));
         }
 
         if (result.Count != expectedCount)
@@ -211,6 +266,17 @@ public static class ReplayBinaryCodec
         }
 
         return result;
+    }
+
+    private static ReplayMiningSource ReadSource(ReadOnlySpan<byte> bytes, ref int offset)
+    {
+        if (offset >= bytes.Length) throw new EndOfStreamException("Replay source byte is missing.");
+        ReplayMiningSource source = (ReplayMiningSource)bytes[offset++];
+        if (!Enum.IsDefined(source))
+        {
+            throw new InvalidDataException($"Replay contains unknown mining source {(byte)source}.");
+        }
+        return source;
     }
 
     private static byte[] Compress(byte[] raw)
