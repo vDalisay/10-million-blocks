@@ -29,6 +29,10 @@ public sealed class SkillDerivedStats
     public int ShovelHeightTolerance { get; internal set; } = 0;
     public int ShovelSearchRadius { get; internal set; } = 1;
 
+    // World-event automation deliberately starts as partial automation: the player can still click
+    // clouds to accelerate them, while the late-game charger periodically contributes charge itself.
+    public bool AutoCloudChargerUnlocked { get; internal set; }
+
     public HashSet<string> UnlockedMiners { get; } = new(StringComparer.Ordinal);
     public HashSet<string> UnlockedPatterns { get; } = new(StringComparer.Ordinal) { "line" };
     public HashSet<string> ResourceFilters { get; } = new(StringComparer.Ordinal);
@@ -310,6 +314,9 @@ public sealed class SkillTreeService
                 break;
             case "unlock_resource_filter":
                 if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.ResourceFilters.Add(effect.StringValue);
+                break;
+            case "unlock_auto_cloud_charger":
+                stats.AutoCloudChargerUnlocked = true;
                 break;
         }
     }
