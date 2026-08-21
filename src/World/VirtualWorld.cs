@@ -68,10 +68,15 @@ public sealed class VirtualWorld
     public bool IsPresent(Vector3I coordinate) => SampleVoxel(coordinate).Present;
 
     public bool IsExposed(Vector3I coordinate)
-    {
-        BlockSample sample = SampleVoxel(coordinate);
-        return sample.Present && HasExposedFace(coordinate);
-    }
+        => IsExposed(coordinate, SampleVoxel(coordinate));
+
+    /// <summary>
+    /// Exposure check for callers that already sampled the center voxel. This is common in placement,
+    /// shovel/tree targeting and unstable-block handling; avoiding a second center lookup keeps those
+    /// policies at one center sample plus the six required neighbour samples.
+    /// </summary>
+    public bool IsExposed(Vector3I coordinate, BlockSample knownSample)
+        => knownSample.Present && HasExposedFace(coordinate);
 
     public bool TryMine(Vector3I coordinate, out BlockSample mined)
         => TryMine(coordinate, requireExposed: true, out mined);
