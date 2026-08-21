@@ -334,8 +334,11 @@ for shovel_surface in ("grass", "dirt_grass", "dirt"):
     assert "sand" in set(blocks[shovel_surface].get("tags", [])), (
         f"{shovel_surface} must remain valid shovel terrain via the sand tag"
     )
-assert blocks["grass"].get("asset_path") == blocks["dirt_grass"].get("asset_path"), (
-    "grass terrain should keep the dirt-backed grass mesh so exposed side/interior faces remain soil"
+assert blocks["grass"].get("asset_path") == "res://Assets/gltf/grass.gltf", (
+    "outer cube seams must use the uniform grass mesh so outward corner faces do not expose soil"
+)
+assert blocks["dirt_grass"].get("asset_path") == "res://Assets/gltf/dirt_with_grass.gltf", (
+    "natural terrain ledges must keep the dirt-backed grass mesh for exposed soil sides"
 )
 assert miners["line_miner"].get("tool_class") == "drill", "line_miner must remain the primary Drill"
 
