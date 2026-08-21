@@ -14,6 +14,7 @@ public partial class WorldCompleteView : CanvasLayer
     private Button _replay = null!;
     private Button _continue = null!;
     private Tween? _transition;
+    private bool _hasNextWorld;
 
     public event Action? ContinueRequested;
     public event Action? ReplayRequested;
@@ -109,6 +110,7 @@ public partial class WorldCompleteView : CanvasLayer
         long automatedBlocks,
         bool replayAvailable)
     {
+        _hasNextWorld = next is not null;
         bool demoFinale = next is null && completed.Id == "reference_ridges";
         _title.Text = demoFinale
             ? "STEAM DEMO COMPLETE"
@@ -169,7 +171,7 @@ public partial class WorldCompleteView : CanvasLayer
     {
         if (_replay.Disabled) return;
         _replay.Disabled = true;
-        ReplayRequested?.Invoke();
+        WorldLoadingScreen.RunTransition(this, "LOADING REPLAY", () => ReplayRequested?.Invoke());
     }
 
     private void OnContinuePressed()
@@ -184,6 +186,16 @@ public partial class WorldCompleteView : CanvasLayer
         _transition.SetTrans(Tween.TransitionType.Quad);
         _transition.TweenProperty(_root, "modulate:a", 0.0f, 0.16f);
         _transition.TweenProperty(_panel, "scale", Vector2.One * 0.97f, 0.16f);
-        _transition.Chain().TweenCallback(Callable.From(() => ContinueRequested?.Invoke()));
+        _transition.Chain().TweenCallback(Callable.From(() =>
+        {
+            if (_hasNextWorld)
+            {
+                WorldLoadingScreen.RunTransition(this, "LOADING NEXT WORLD", () => ContinueRequested?.Invoke());
+            }
+            else
+            {
+                ContinueRequested?.Invoke();
+            }
+        }));
     }
 }
