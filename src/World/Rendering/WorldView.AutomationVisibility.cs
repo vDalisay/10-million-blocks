@@ -17,12 +17,6 @@ public partial class WorldView
     public long AutomationPresentationUpdatesSuppressed { get; private set; }
     public int DeferredAutomationChunkCount => _deferredAutomationChunks.Count;
 
-    /// <summary>
-    /// Automation simulation is authoritative regardless of camera position, but presentation work is
-    /// only useful when the automation is in the currently observed detail set and on the camera-facing
-    /// side of the cube. Hidden/back-side/deep automations can therefore stay computational-only.
-    /// Small authored worlds retain their eager behavior.
-    /// </summary>
     public bool ShouldPresentAutomation(Vector3I voxel, Vector3I outward)
     {
         if (!StreamingEnabled)
@@ -40,11 +34,9 @@ public partial class WorldView
     }
 
     /// <summary>
-    /// World state is already authoritative before this method is called. For large worlds, only queue
-    /// exact mesh rebuilds when the changed area can contribute pixels now. A drill on the far side or
-    /// deep inside the cube therefore keeps mining computationally without forcing hidden chunk scans.
-    /// Suppressed chunks are remembered and rebuilt in a coalesced pass when the player later faces
-    /// their side of the cube.
+    /// World state is authoritative regardless of camera position. Hidden automation collapses to a
+    /// deferred chunk marker; visible automation uses the same sparse full-surface presentation path as
+    /// manual mining so a busy machine cannot trigger repeated 16^3 exact scans.
     /// </summary>
     public void MarkAutomationDirty(Vector3I voxel)
     {
@@ -64,9 +56,6 @@ public partial class WorldView
 
         if (!ShouldPresentAutomation(voxel, outward))
         {
-            // Exposure in another render chunk can only change when this voxel touches that chunk's
-            // border. Most automated removals therefore defer one chunk rather than computing/inserting
-            // the same current chunk seven times through the six voxel neighbours.
             DeferAutomationChunk(changedChunk);
             DeferBoundaryAutomationChunks(changedChunk, localX, localY, localZ, chunkSize);
             AutomationPresentationUpdatesSuppressed++;
@@ -78,16 +67,6 @@ public partial class WorldView
         AutomationPresentationUpdatesQueued++;
     }
 
-    /// <summary>
-    /// Called at the same low frequency as automation visibility checks. Hundreds of off-screen mining
-    /// ticks can collapse into one deferred chunk rebuild instead of rebuilding the same hidden mesh on
-    /// every tick. Full-surface worlds may promote modified interior chunks once their cube face is
-    /// viewed; macro-streamed experiments still require the chunk to be in the camera working set.
-    ///
-    /// The deferred set can stay unchanged for seconds while automation keeps working in the same hidden
-    /// chunks. Cache that state and the camera position so the 8 Hz policy tick does not repeatedly walk
-    /// the same HashSet. The promotion list is also retained as scratch storage to avoid periodic GC.
-    /// </summary>
     public void RefreshDeferredAutomationPresentation()
     {
         if (_deferredAutomationChunks.Count == 0 || _camera?.Camera is null)
@@ -132,9 +111,7 @@ public partial class WorldView
             bool eligible = FullSurfaceRenderer || inWorkingSet;
             if (eligible && IsAutomationFaceCameraFacing(center, outward))
             {
-                // MarkChunkDirty adds a modified interior chunk to the full-surface working set only at
-                // this point, after it has become presentation-relevant.
-                MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
+                MarkInteractiveChunkDirty(chunk);
                 _deferredPromotionScratch.Add(chunk);
             }
         }
@@ -209,7 +186,7 @@ public partial class WorldView
     {
         if (_desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk))
         {
-            MarkChunkDirty(chunk, forceExact: FullSurfaceRenderer);
+            MarkInteractiveChunkDirty(chunk);
             _deferredAutomationChunks.Remove(chunk);
         }
     }
