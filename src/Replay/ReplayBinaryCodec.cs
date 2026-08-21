@@ -16,6 +16,9 @@ namespace TenMillionBlocks.Replay;
 public static class ReplayBinaryCodec
 {
     private const int MinimumBatchLength = 3;
+    private const int Sha256Length = 32;
+    private const int MaxReplayPayloadBytes = 128 * 1024 * 1024;
+    private const long MaxReplayEvents = 20_000_000L;
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("CMBR");
 
     public static void Write(string absolutePath, ReplayHeader header, IReadOnlyList<ReplayRemovalEvent> events)
@@ -104,21 +107,40 @@ public static class ReplayBinaryCodec
         int rawLength = reader.ReadInt32();
         int compressedLength = reader.ReadInt32();
         int checksumLength = reader.ReadInt32();
-        byte[] checksum = reader.ReadBytes(checksumLength);
-        byte[] compressed = reader.ReadBytes(compressedLength);
 
-        if (rawLength < 0 || compressedLength < 0 || eventCount < 0 || axisSize <= 0 || tickRate <= 0)
+        // Validate every declared allocation before reading variable-length data from disk. Corrupt
+        // local replay files must fail as data errors, not turn into giant allocations or OOM failures.
+        if (rawLength < 0 || compressedLength < 0 || eventCount < 0 || finalMinedCount < 0
+            || axisSize <= 0 || tickRate <= 0)
         {
             throw new InvalidDataException("Replay header contains invalid sizes.");
+        }
+        if (rawLength > MaxReplayPayloadBytes || compressedLength > MaxReplayPayloadBytes)
+        {
+            throw new InvalidDataException("Replay payload exceeds the supported size limit.");
+        }
+        if (eventCount > MaxReplayEvents)
+        {
+            throw new InvalidDataException($"Replay contains {eventCount:N0} events; the supported limit is {MaxReplayEvents:N0}.");
         }
         if (schema >= 2 && (worldVersion <= 0 || string.IsNullOrWhiteSpace(worldContentHash)))
         {
             throw new InvalidDataException($"Replay schema {schema} is missing frozen world identity.");
         }
-        if (checksumLength <= 0 || checksumLength > 1024)
+        if (checksumLength != Sha256Length)
         {
             throw new InvalidDataException("Replay checksum length is invalid.");
         }
+
+        long remaining = stream.Length - stream.Position;
+        long declaredTail = (long)checksumLength + compressedLength;
+        if (remaining < declaredTail)
+        {
+            throw new EndOfStreamException("Replay ended before its declared payload completed.");
+        }
+
+        byte[] checksum = reader.ReadBytes(checksumLength);
+        byte[] compressed = reader.ReadBytes(compressedLength);
         if (compressed.Length != compressedLength || checksum.Length != checksumLength)
         {
             throw new EndOfStreamException("Replay ended before its declared payload completed.");
@@ -294,13 +316,26 @@ public static class ReplayBinaryCodec
         using var input = new MemoryStream(compressed, writable: false);
         using var brotli = new BrotliStream(input, CompressionMode.Decompress);
         using var output = expectedLength > 0 ? new MemoryStream(expectedLength) : new MemoryStream();
-        brotli.CopyTo(output);
-        byte[] raw = output.ToArray();
-        if (raw.Length != expectedLength)
+        byte[] buffer = new byte[81_920];
+        int total = 0;
+
+        while (true)
         {
-            throw new InvalidDataException($"Replay decompressed to {raw.Length} bytes; header declared {expectedLength}.");
+            int read = brotli.Read(buffer, 0, buffer.Length);
+            if (read <= 0) break;
+            total = checked(total + read);
+            if (total > expectedLength)
+            {
+                throw new InvalidDataException("Replay decompressed beyond its declared payload length.");
+            }
+            output.Write(buffer, 0, read);
         }
-        return raw;
+
+        if (total != expectedLength)
+        {
+            throw new InvalidDataException($"Replay decompressed to {total} bytes; header declared {expectedLength}.");
+        }
+        return output.ToArray();
     }
 
     private static ulong ZigZag(long value)
