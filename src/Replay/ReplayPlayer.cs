@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Authoring;
@@ -103,17 +104,22 @@ public partial class ReplayPlayer : Node
 
     public void Restart(bool autoplay = true)
     {
-        // Restore the untouched deterministic baseline without reconstructing gameplay services. Mark
-        // every previously affected voxel dirty; WorldView's dirty chunk HashSet naturally coalesces
-        // thousands of historical removals into a bounded number of chunk rebuilds.
+        // Restore the untouched deterministic baseline without reconstructing gameplay services.
+        // Presentation invalidation is batched to unique chunks, which matters for a 50³ full-clear
+        // replay where resetting 125k historical voxels should not enqueue 875k independent paths.
         int previouslyApplied = _cursor;
         _world.State.RestoreSnapshot(
             Array.Empty<MinedChunkSnapshot>(),
             Array.Empty<ExhaustedRegionSnapshot>());
 
-        for (int i = 0; i < previouslyApplied && i < _data.Events.Count; i++)
+        if (previouslyApplied > 0)
         {
-            _view.MarkDirtyAround(FromLinearIndex(_data.Events[i].LinearIndex));
+            var restored = new List<Vector3I>(previouslyApplied);
+            for (int i = 0; i < previouslyApplied && i < _data.Events.Count; i++)
+            {
+                restored.Add(FromLinearIndex(_data.Events[i].LinearIndex));
+            }
+            _view.MarkDirtyBatch(restored);
         }
 
         _cursor = 0;
@@ -126,6 +132,7 @@ public partial class ReplayPlayer : Node
     private void ApplyThroughTick(double targetTick)
     {
         int appliedBefore = _cursor;
+        List<Vector3I>? changedVoxels = null;
         while (_cursor < _data.Events.Count && _data.Events[_cursor].Tick <= targetTick)
         {
             ReplayRemovalEvent item = _data.Events[_cursor];
@@ -142,12 +149,13 @@ public partial class ReplayPlayer : Node
                     $"Replay event {_cursor:N0} duplicates voxel {voxel} in '{_world.Profile.Id}'.");
             }
 
-            _view.MarkDirtyAround(voxel);
+            (changedVoxels ??= new List<Vector3I>()).Add(voxel);
             _cursor++;
         }
 
         if (_cursor != appliedBefore)
         {
+            _view.MarkDirtyBatch(changedVoxels!);
             Changed?.Invoke();
         }
 
