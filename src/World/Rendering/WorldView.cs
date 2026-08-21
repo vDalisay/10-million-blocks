@@ -53,6 +53,38 @@ public partial class WorldView : Node3D
     public double AverageChunkBuildMilliseconds
         => TotalChunkBuilds == 0 ? 0.0 : _chunkBuildTotalMilliseconds / TotalChunkBuilds;
 
+    /// <summary>
+    /// True once every chunk required for the initial view has been resolved at least once. Empty
+    /// chunks count as resolved too, so callers can keep a loading presentation up until the world is
+    /// genuinely ready instead of dismissing it merely because a WorldView node exists.
+    /// </summary>
+    public bool InitialPresentationReady
+    {
+        get
+        {
+            if (_loadQueue.Count > 0 || _dirtyChunks.Count > 0) return false;
+            foreach (ChunkCoord desired in _desiredChunks)
+            {
+                if (!_resolvedChunks.Contains(desired)) return false;
+            }
+            return true;
+        }
+    }
+
+    public float InitialPresentationProgress
+    {
+        get
+        {
+            if (_desiredChunks.Count == 0) return 1.0f;
+            int resolved = 0;
+            foreach (ChunkCoord desired in _desiredChunks)
+            {
+                if (_resolvedChunks.Contains(desired)) resolved++;
+            }
+            return Mathf.Clamp(resolved / (float)_desiredChunks.Count, 0.0f, 1.0f);
+        }
+    }
+
     public void Initialize(BlockAssetRegistry assets, VirtualWorld world, OrbitCameraController? camera = null)
     {
         _assets = assets;
@@ -202,12 +234,20 @@ public partial class WorldView : Node3D
         int minChunk = _world.MinChunkCoordinate;
         int maxChunk = _world.MaxChunkCoordinate;
 
+        // Exact demo worlds used to synchronously rebuild every chunk from Initialize(), which made a
+        // world change look like the application had frozen. Queue the same exact chunks and let the
+        // normal per-frame loader resolve them instead. No generation or rendering rules change; only
+        // the scheduling does, so the loading screen can keep animating while the world is prepared.
         for (int z = minChunk; z <= maxChunk; z++)
         for (int y = minChunk; y <= maxChunk; y++)
         for (int x = minChunk; x <= maxChunk; x++)
         {
-            RebuildChunk(new ChunkCoord(x, y, z));
+            var chunk = new ChunkCoord(x, y, z);
+            _desiredChunks.Add(chunk);
+            QueueDesiredChunk(chunk);
         }
+
+        GD.Print($"Queued {_desiredChunks.Count:N0} exact chunks for staged initial load of '{_world.Profile.Id}'.");
     }
 
     private void InitializeFullSurfaceSet()
