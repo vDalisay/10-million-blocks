@@ -4,13 +4,17 @@ public partial class SkillTreeView
 {
     public override void _ExitTree()
     {
-        // SpecialResourceInventory is player-global and survives world/session switches. Without this
-        // unsubscribe it would retain every old SkillTreeView and invoke Refresh on freed controls after
-        // revisits/replays. Session-local SkillTreeService/MiningService subscriptions can die with their
-        // publisher/view cycle; this persistent publisher must be detached explicitly.
+        // SpecialResourceInventory is player-global and survives world/session switches. Always detach
+        // it explicitly; detach the session-local publishers too now that the handlers are named rather
+        // than anonymous delegates.
         if (_skills is not null)
         {
-            _skills.SpecialResources.Changed -= Refresh;
+            _skills.Changed -= RequestRefresh;
+            _skills.SpecialResources.Changed -= RequestRefresh;
+        }
+        if (_mining is not null)
+        {
+            _mining.CurrencyChanged -= OnCurrencyChanged;
         }
     }
 }
