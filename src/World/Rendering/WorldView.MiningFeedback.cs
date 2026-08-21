@@ -10,7 +10,7 @@ public partial class WorldView
     /// still rebuilt normally; this copy exists only long enough to create the small "pop" scale-up
     /// before disappearing, so mining feels tactile without adding persistent block nodes.
     /// </summary>
-    public void SpawnManualMinePop(Vector3I voxel, string blockId)
+    public void SpawnManualMinePop(Vector3I voxel, string blockId, float peakScale = 1.12f)
     {
         Vector3I outward = _world.Source.GetOutwardNormal(voxel);
         Basis basis = ShouldOrientToCubeFace(blockId)
@@ -31,7 +31,7 @@ public partial class WorldView
         Tween tween = pop.CreateTween();
         tween.SetEase(Tween.EaseType.Out);
         tween.SetTrans(Tween.TransitionType.Back);
-        tween.TweenProperty(pop, "scale", Vector3.One * 1.12f, 0.075);
+        tween.TweenProperty(pop, "scale", Vector3.One * peakScale, 0.075);
         tween.SetEase(Tween.EaseType.In);
         tween.SetTrans(Tween.TransitionType.Quad);
         tween.TweenProperty(pop, "scale", Vector3.One * 0.92f, 0.055);
