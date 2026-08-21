@@ -70,20 +70,7 @@ public sealed class VirtualWorld
     public bool IsExposed(Vector3I coordinate)
     {
         BlockSample sample = SampleVoxel(coordinate);
-        if (!sample.Present)
-        {
-            return false;
-        }
-
-        foreach (Vector3I direction in VoxelMath.Neighbors)
-        {
-            if (!SampleVoxel(coordinate + direction).Present)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return sample.Present && HasExposedFace(coordinate);
     }
 
     public bool TryMine(Vector3I coordinate, out BlockSample mined)
@@ -91,8 +78,24 @@ public sealed class VirtualWorld
 
     public bool TryMine(Vector3I coordinate, bool requireExposed, out BlockSample mined)
     {
-        mined = SampleVoxel(coordinate);
-        if (!mined.Present || !mined.Mineable || (requireExposed && !IsExposed(coordinate)))
+        BlockSample sample = SampleVoxel(coordinate);
+        return TryMine(coordinate, sample, requireExposed, out mined);
+    }
+
+    /// <summary>
+    /// MiningService already samples a block to inspect special behavior such as unstable blocks. Feed
+    /// that sample into the mutation path rather than sampling the same coordinate again. Exposure still
+    /// checks the six neighbours, but no longer re-reads the known-present center voxel. This removes a
+    /// hot duplicate state/cache lookup from every ordinary manual and automated mining operation.
+    /// </summary>
+    public bool TryMine(
+        Vector3I coordinate,
+        BlockSample knownSample,
+        bool requireExposed,
+        out BlockSample mined)
+    {
+        mined = knownSample;
+        if (!mined.Present || !mined.Mineable || (requireExposed && !HasExposedFace(coordinate)))
         {
             mined = BlockSample.Empty;
             return false;
@@ -227,6 +230,18 @@ public sealed class VirtualWorld
         float min = (-MaxCoordinate - 0.5f) * spacing;
         float size = (MaxCoordinate * 2 + 1) * spacing;
         return new Aabb(new Vector3(min, min, min), new Vector3(size, size, size));
+    }
+
+    private bool HasExposedFace(Vector3I coordinate)
+    {
+        foreach (Vector3I direction in VoxelMath.Neighbors)
+        {
+            if (!SampleVoxel(coordinate + direction).Present)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private BlockSample SampleGeneratedCached(Vector3I coordinate)
