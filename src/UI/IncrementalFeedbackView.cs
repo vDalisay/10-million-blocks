@@ -21,6 +21,8 @@ public partial class IncrementalFeedbackView : CanvasLayer
     private const double AggregationWindowSeconds = 0.11;
     private const float FlightDurationSeconds = 0.58f;
 
+    private readonly record struct PendingKey(string VisualId, bool Special);
+
     private sealed class CounterChip
     {
         public PanelContainer Root { get; init; } = null!;
@@ -51,6 +53,14 @@ public partial class IncrementalFeedbackView : CanvasLayer
         public float Duration;
     }
 
+    private sealed class PulseAnimation
+    {
+        public Control Target { get; set; } = null!;
+        public float Age;
+        public float Duration;
+        public float StartScale;
+    }
+
     private VirtualWorld _world = null!;
     private WorldView _worldView = null!;
     private MiningService _mining = null!;
@@ -64,13 +74,17 @@ public partial class IncrementalFeedbackView : CanvasLayer
     private CounterChip _resourcesChip = null!;
 
     private readonly Dictionary<string, CounterChip> _specialChips = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, PendingBucket> _pending = new(StringComparer.Ordinal);
+    private readonly Dictionary<PendingKey, PendingBucket> _pending = new();
+    private readonly List<PendingKey> _readyBuckets = new();
     private readonly List<PickupFlight> _activeFlights = new();
     private readonly Stack<PickupFlight> _flightPool = new();
+    private readonly List<PulseAnimation> _activePulses = new();
+    private readonly Stack<PulseAnimation> _pulsePool = new();
     private readonly Dictionary<string, Texture2D> _previewTextures = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SubViewport> _previewViewports = new(StringComparer.Ordinal);
 
     private bool _subscribed;
+    private bool _counterRefreshPending;
 
     public long SpawnedFeedbackCount { get; private set; }
     public long AggregatedFeedbackCount { get; private set; }
@@ -107,8 +121,18 @@ public partial class IncrementalFeedbackView : CanvasLayer
 
     public override void _Process(double delta)
     {
+        // Mining can emit BlockMined + CurrencyChanged many times in one frame. The authoritative values
+        // are already current, so rebuild the displayed strings once at the next presentation tick rather
+        // than once per event. This eliminates a large amount of formatting/layout garbage under dense
+        // automation without changing gameplay accounting.
+        if (_counterRefreshPending)
+        {
+            RefreshCounters();
+        }
+
         FlushReadyBuckets(delta);
         AdvanceFlights((float)delta);
+        AdvancePulses((float)delta);
     }
 
     private void BuildUi()
@@ -265,8 +289,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
     {
         if (!result.Success || !result.Removed) return;
 
-        // Values change immediately. Flights only explain the already-completed authoritative gain.
-        RefreshCounters();
+        _counterRefreshPending = true;
         Pulse(_blocksChip.Root, strong: false);
         if (result.Reward > 0) Pulse(_resourcesChip.Root, strong: false);
 
@@ -282,7 +305,6 @@ public partial class IncrementalFeedbackView : CanvasLayer
         else
         {
             QueuePickup(
-                "block:" + result.BlockId,
                 result.BlockId,
                 _blocksChip.Root,
                 result.BlocksRemoved,
@@ -297,7 +319,6 @@ public partial class IncrementalFeedbackView : CanvasLayer
             CounterChip specialChip = EnsureSpecialChip(result.BlockId);
             Pulse(specialChip.Root, strong: true);
             QueuePickup(
-                "special:" + result.BlockId,
                 result.BlockId,
                 specialChip.Root,
                 1L,
@@ -311,7 +332,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
     private void OnBulkMined(BulkMiningResult result)
     {
         if (!result.Success) return;
-        RefreshCounters();
+        _counterRefreshPending = true;
         Pulse(_blocksChip.Root, strong: true);
         if (result.Reward > 0) Pulse(_resourcesChip.Root, strong: true);
         AggregatedFeedbackCount = checked(AggregatedFeedbackCount + Math.Max(1L, result.BlocksMined));
@@ -319,16 +340,17 @@ public partial class IncrementalFeedbackView : CanvasLayer
 
     private void OnCurrencyChanged(long _)
     {
-        RefreshCounters();
+        _counterRefreshPending = true;
     }
 
     private void OnSpecialResourcesChanged()
     {
-        RefreshSpecialCounters();
+        _counterRefreshPending = true;
     }
 
     private void RefreshCounters()
     {
+        _counterRefreshPending = false;
         if (_blocksChip is null || _resourcesChip is null) return;
         _blocksChip.Value.Text =
             $"{IncrementalNumberFormatter.Format(_mining.TotalMined)} / {IncrementalNumberFormatter.Format(_world.InitialMineableBlocks)}";
@@ -354,7 +376,6 @@ public partial class IncrementalFeedbackView : CanvasLayer
     }
 
     private void QueuePickup(
-        string key,
         string visualId,
         Control target,
         long count,
@@ -363,6 +384,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
         bool hasSource,
         bool special)
     {
+        var key = new PendingKey(visualId, special);
         if (_pending.TryGetValue(key, out PendingBucket? bucket))
         {
             bucket.Count = checked(bucket.Count + Math.Max(1L, count));
@@ -393,15 +415,15 @@ public partial class IncrementalFeedbackView : CanvasLayer
     {
         if (_pending.Count == 0) return;
 
-        var ready = new List<string>();
-        foreach ((string key, PendingBucket bucket) in _pending)
+        _readyBuckets.Clear();
+        foreach ((PendingKey key, PendingBucket bucket) in _pending)
         {
             bucket.Age += delta;
-            if (bucket.Age >= AggregationWindowSeconds) ready.Add(key);
+            if (bucket.Age >= AggregationWindowSeconds) _readyBuckets.Add(key);
         }
 
         int spawned = 0;
-        foreach (string key in ready)
+        foreach (PendingKey key in _readyBuckets)
         {
             if (!_pending.Remove(key, out PendingBucket? bucket)) continue;
 
@@ -524,12 +546,53 @@ public partial class IncrementalFeedbackView : CanvasLayer
     {
         if (target is null || !IsInstanceValid(target)) return;
 
+        float startScale = strong ? 1.12f : 1.055f;
+        float duration = strong ? 0.24f : 0.16f;
         target.PivotOffset = target.Size * 0.5f;
-        target.Scale = Vector2.One * (strong ? 1.12f : 1.055f);
-        Tween tween = CreateTween();
-        tween.SetEase(Tween.EaseType.Out);
-        tween.SetTrans(Tween.TransitionType.Back);
-        tween.TweenProperty(target, "scale", Vector2.One, strong ? 0.24f : 0.16f);
+        target.Scale = Vector2.One * startScale;
+
+        // Repeated mining usually hits the same two counters many times in one frame. Reset the existing
+        // pulse instead of allocating a Godot Tween for every event.
+        foreach (PulseAnimation pulse in _activePulses)
+        {
+            if (!ReferenceEquals(pulse.Target, target)) continue;
+            pulse.Age = 0.0f;
+            pulse.Duration = duration;
+            pulse.StartScale = startScale;
+            return;
+        }
+
+        PulseAnimation animation = _pulsePool.Count > 0 ? _pulsePool.Pop() : new PulseAnimation();
+        animation.Target = target;
+        animation.Age = 0.0f;
+        animation.Duration = duration;
+        animation.StartScale = startScale;
+        _activePulses.Add(animation);
+    }
+
+    private void AdvancePulses(float delta)
+    {
+        float dt = Math.Max(0.0f, delta);
+        for (int i = _activePulses.Count - 1; i >= 0; i--)
+        {
+            PulseAnimation pulse = _activePulses[i];
+            if (!IsInstanceValid(pulse.Target))
+            {
+                _activePulses.RemoveAt(i);
+                _pulsePool.Push(pulse);
+                continue;
+            }
+
+            pulse.Age += dt;
+            float t = Math.Clamp(pulse.Age / Math.Max(0.001f, pulse.Duration), 0.0f, 1.0f);
+            float eased = 1.0f - MathF.Pow(1.0f - t, 3.0f);
+            pulse.Target.Scale = Vector2.One * Mathf.Lerp(pulse.StartScale, 1.0f, eased);
+            if (t < 1.0f) continue;
+
+            pulse.Target.Scale = Vector2.One;
+            _activePulses.RemoveAt(i);
+            _pulsePool.Push(pulse);
+        }
     }
 
     private Texture2D GetPreviewTexture(string blockId)
