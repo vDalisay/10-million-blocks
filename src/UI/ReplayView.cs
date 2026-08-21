@@ -12,6 +12,7 @@ public partial class ReplayView : CanvasLayer
     private Label _status = null!;
     private Button _playPause = null!;
     private HSlider _speedSlider = null!;
+    private bool _exitPending;
 
     public event Action? ExitRequested;
 
@@ -125,7 +126,7 @@ public partial class ReplayView : CanvasLayer
             Text = "Exit Replay [Esc]",
             CustomMinimumSize = new Vector2(0.0f, 34.0f),
         };
-        exit.Pressed += () => ExitRequested?.Invoke();
+        exit.Pressed += RequestExit;
         column.AddChild(exit);
 
         Refresh();
@@ -150,9 +151,16 @@ public partial class ReplayView : CanvasLayer
         }
         else if (key.Keycode == Key.Escape)
         {
-            ExitRequested?.Invoke();
+            RequestExit();
             GetViewport().SetInputAsHandled();
         }
+    }
+
+    private void RequestExit()
+    {
+        if (_exitPending) return;
+        _exitPending = true;
+        WorldLoadingScreen.RunTransition(this, "RETURNING TO WORLD", () => ExitRequested?.Invoke());
     }
 
     private void Refresh()
