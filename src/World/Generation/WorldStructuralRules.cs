@@ -29,13 +29,17 @@ public static class WorldStructuralRules
         Vector3I normal = DominantNormal(coordinate);
         GetFaceTangents(coordinate, normal, out int u, out int v, out int radial);
 
-        // The visible perimeter where two cube faces meet must use the all-green surface material.
-        // Coordinate-tie tests are insufficient here: relief can make the owning face radial one block
-        // larger than its tangent edge, which is exactly how dirt-sided grass leaked onto corners.
+        // The literal perimeter where two cube faces meet is read from several camera angles. A normal
+        // dirt-sided grass block (and occasionally the first soil block beneath it) exposes a brown
+        // third face there. Keep only that outer one-block border uniformly green; real inland ledges
+        // still use the dirt-sided material.
         int faceBorder = Math.Max(0, Mathf.FloorToInt(profile.BaseRadius + 0.001f));
+        bool onOuterFaceBorder = Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder;
+        bool nearOuterSurface = radial >= Math.Max(0, faceBorder - 1);
         if (generated.Present
-            && generated.BlockId == profile.SurfaceEdgeBlock
-            && Math.Max(Math.Abs(u), Math.Abs(v)) >= faceBorder)
+            && onOuterFaceBorder
+            && nearOuterSurface
+            && (generated.BlockId == profile.SurfaceEdgeBlock || generated.BlockId == profile.SoilBlock))
         {
             generated = new BlockSample(true, profile.SurfaceBlock, generated.Mineable);
         }
