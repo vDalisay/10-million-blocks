@@ -13,6 +13,8 @@ public partial class OrbitCameraController : Node3D
 
     private const float ReferenceWorldRadius = 24.0f;
     private const float LargeWorldFocusThreshold = ReferenceWorldRadius * 4.0f;
+    private const double IdleOrbitDelaySeconds = 30.0;
+    private const float IdleOrbitDegreesPerSecond = 1.6f;
 
     [Export] public float OrbitSensitivity { get; set; } = 0.22f;
     [Export] public float PanSensitivity { get; set; } = 0.025f;
@@ -41,6 +43,8 @@ public partial class OrbitCameraController : Node3D
     private bool _surfaceFocusEnabled;
     private float _surfaceFocusBlend;
     private float _surfaceClearance;
+    private bool _forceFarOnNextPreset;
+    private double _mouseIdleSeconds;
 
     public string ActivePresetName { get; private set; } = MediumPreset.Name;
     public Camera3D Camera => _camera;
@@ -72,9 +76,36 @@ public partial class OrbitCameraController : Node3D
         ApplyPreset(MediumPreset, immediate: true);
     }
 
+    public override void _Input(InputEvent @event)
+    {
+        // Count mouse activity even when a UI Control later consumes the event. Keyboard activity does
+        // not cancel the ambient showcase orbit because this mode is specifically about mouse/click idle.
+        if (@event is InputEventMouseMotion motion)
+        {
+            if (motion.Relative.LengthSquared() > 0.0001f) ResetIdleOrbit();
+            return;
+        }
+
+        if (@event is InputEventMouseButton)
+        {
+            ResetIdleOrbit();
+        }
+    }
+
     public override void _Process(double delta)
     {
-        float blend = 1.0f - MathF.Exp(-Smoothing * (float)delta);
+        double safeDelta = Math.Max(0.0, delta);
+        if (!_orbitHeld && !_panHeld)
+        {
+            _mouseIdleSeconds += safeDelta;
+            if (_mouseIdleSeconds >= IdleOrbitDelaySeconds)
+            {
+                // Match the direction produced by dragging the mouse to the right: slowly orbit right.
+                _targetYaw -= Mathf.DegToRad(IdleOrbitDegreesPerSecond) * (float)safeDelta;
+            }
+        }
+
+        float blend = 1.0f - MathF.Exp(-Smoothing * (float)safeDelta);
         _yaw = Mathf.LerpAngle(_yaw, _targetYaw, blend);
         _pitch = Mathf.Lerp(_pitch, _targetPitch, blend);
         _distance = Mathf.Lerp(_distance, _targetDistance, blend);
@@ -132,6 +163,8 @@ public partial class OrbitCameraController : Node3D
         _worldRadius = MathF.Max(1.0f, worldRadius);
         _presetScale = MathF.Max(1.0f, _worldRadius / ReferenceWorldRadius);
         _surfaceFocusEnabled = _worldRadius >= LargeWorldFocusThreshold;
+        _forceFarOnNextPreset = true;
+        ResetIdleOrbit();
 
         if (_surfaceFocusEnabled)
         {
@@ -156,6 +189,15 @@ public partial class OrbitCameraController : Node3D
 
     public void ApplyPreset(CameraPreset preset, bool immediate = false)
     {
+        // GameRoot applies an authored default immediately after configuring each world/replay. Override
+        // that first request so every fresh world view consistently begins with the complete Far framing.
+        if (_forceFarOnNextPreset)
+        {
+            preset = FarPreset;
+            _forceFarOnNextPreset = false;
+        }
+
+        ResetIdleOrbit();
         ActivePresetName = preset.Name;
         _targetYaw = Mathf.DegToRad(preset.YawDegrees);
         _targetPitch = Mathf.DegToRad(preset.PitchDegrees);
@@ -188,6 +230,7 @@ public partial class OrbitCameraController : Node3D
     public void Recenter()
     {
         _targetPan = Vector3.Zero;
+        ResetIdleOrbit();
     }
 
     public void AddOrbitDegrees(float yawDegrees, float pitchDegrees = 0.0f)
@@ -198,6 +241,7 @@ public partial class OrbitCameraController : Node3D
             Mathf.DegToRad(-78.0f),
             Mathf.DegToRad(78.0f));
         ActivePresetName = "Benchmark";
+        ResetIdleOrbit();
     }
 
     private void HandleMouseButton(InputEventMouseButton button)
@@ -391,5 +435,10 @@ public partial class OrbitCameraController : Node3D
     {
         float outside = MathF.Max(MathF.Abs(worldPosition.X), MathF.Max(MathF.Abs(worldPosition.Y), MathF.Abs(worldPosition.Z)));
         return MathF.Max(0.0f, outside - _worldRadius);
+    }
+
+    private void ResetIdleOrbit()
+    {
+        _mouseIdleSeconds = 0.0;
     }
 }
