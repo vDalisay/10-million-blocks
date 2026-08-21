@@ -9,6 +9,7 @@ public enum MinerStopReason
     BlockedMaterial = 2,
     NoReachableTarget = 3,
     NoTreeTarget = 4,
+    BlockedFeature = 5,
 }
 
 public sealed class MinerInstance
