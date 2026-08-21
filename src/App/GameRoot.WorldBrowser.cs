@@ -53,34 +53,76 @@ public partial class GameRoot
 
     private void OnWorldRevisitRequested(string worldId)
     {
-        if (!_sessionPersists || _world is null || !_save.UnlockedWorldIds.Contains(worldId)) return;
-        if (string.Equals(_world.Profile.Id, worldId, StringComparison.Ordinal)) return;
+        if (!_sessionPersists
+            || _world is null
+            || !_save.UnlockedWorldIds.Contains(worldId)
+            || string.Equals(_world.Profile.Id, worldId, StringComparison.Ordinal))
+        {
+            RecoverWorldBrowserTransition("Revisit request became invalid before it could start.");
+            return;
+        }
 
-        CaptureCurrentSession();
-        TrySaveCurrentSession(captureFirst: false);
-        _progression.RestoreWorld(worldId);
-        _save.CurrentWorldId = worldId;
-        _saveService.Save(_save);
-        BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: false, persistSession: true);
+        try
+        {
+            CaptureCurrentSession();
+            TrySaveCurrentSession(captureFirst: false);
+            _progression.RestoreWorld(worldId);
+            _save.CurrentWorldId = worldId;
+            _saveService.Save(_save);
+            BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: false, persistSession: true);
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"Could not revisit world '{worldId}': {exception}");
+            RecoverWorldBrowserTransition($"Could not load {_worlds.Get(worldId).DisplayName}. See the Godot log.");
+        }
     }
 
     private void OnWorldReplayRequested(string worldId)
     {
-        if (!_sessionPersists || _world is null || !_save.CompletedWorldIds.Contains(worldId)) return;
+        if (!_sessionPersists || _world is null || !_save.CompletedWorldIds.Contains(worldId))
+        {
+            RecoverWorldBrowserTransition("Replay request became invalid before it could start.");
+            return;
+        }
         if (!_save.Worlds.TryGetValue(worldId, out WorldSaveData? savedWorld)
             || string.IsNullOrWhiteSpace(savedWorld.ReplayFile))
         {
+            RecoverWorldBrowserTransition("That world no longer has a replay file recorded.");
             return;
         }
 
         string absolute = ProjectSettings.GlobalizePath(savedWorld.ReplayFile);
-        if (!System.IO.File.Exists(absolute)) return;
+        if (!System.IO.File.Exists(absolute))
+        {
+            RecoverWorldBrowserTransition("The replay file is missing from disk.");
+            return;
+        }
 
-        string activeWorldId = _world.Profile.Id;
-        CaptureCurrentSession();
-        TrySaveCurrentSession(captureFirst: false);
-        _replayReturnWorldId = activeWorldId;
-        ReplayData replay = ReplayBinaryCodec.Read(absolute);
-        BuildReplaySession(_worlds.Get(worldId), replay);
+        try
+        {
+            string activeWorldId = _world.Profile.Id;
+            CaptureCurrentSession();
+            TrySaveCurrentSession(captureFirst: false);
+            _replayReturnWorldId = activeWorldId;
+            ReplayData replay = ReplayBinaryCodec.Read(absolute);
+            BuildReplaySession(_worlds.Get(worldId), replay);
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"Could not open replay for '{worldId}': {exception}");
+            _replayReturnWorldId = string.Empty;
+            RecoverWorldBrowserTransition("The replay could not be opened. See the Godot log.");
+        }
+    }
+
+    private void RecoverWorldBrowserTransition(string message)
+    {
+        WorldLoadingScreen.CancelGlobal();
+        GD.PushWarning(message);
+        if (_worldBrowser is not null && IsInstanceValid(_worldBrowser))
+        {
+            _worldBrowser.Open();
+        }
     }
 }
