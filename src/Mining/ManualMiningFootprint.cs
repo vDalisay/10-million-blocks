@@ -18,6 +18,21 @@ public enum ManualMiningFootprintKind
 /// </summary>
 public static class ManualMiningFootprint
 {
+    // Footprint shapes are immutable content, not per-hover state. Keep one template for the lifetime of
+    // the process so Square10 does not allocate/build a 100-element List every time the cursor moves or
+    // hover mining exposes the next layer.
+    private static readonly Vector2I[] SingleOffsets = [Vector2I.Zero];
+    private static readonly Vector2I[] Plus3Offsets =
+    [
+        Vector2I.Zero,
+        Vector2I.Left,
+        Vector2I.Right,
+        Vector2I.Up,
+        Vector2I.Down,
+    ];
+    private static readonly Vector2I[] Square3Offsets = BuildSquare(3);
+    private static readonly Vector2I[] Square10Offsets = BuildSquare(10);
+
     /// <summary>
     /// Expands one authoritative raycast hit across the face that the cursor entered. Camera angle can
     /// never move the surrounding cells away from the hovered centre because no secondary rays are cast.
@@ -28,38 +43,27 @@ public static class ManualMiningFootprint
         ManualMiningFootprintKind kind,
         Vector3I surfaceNormal)
     {
-        var result = new List<Vector3I>();
-        result.Add(hovered);
+        Vector2I[] offsets = OffsetArray(kind);
+        var result = new List<Vector3I>(offsets.Length) { hovered };
         if (kind == ManualMiningFootprintKind.Single) return result;
 
         Vector3I outward = LineMiningPattern.Cardinal(surfaceNormal);
         (Vector3I tangentA, Vector3I tangentB) = LineMiningPattern.PerpendicularAxes(outward);
 
-        foreach (Vector2I offset in Offsets(kind))
+        foreach (Vector2I offset in offsets)
         {
             if (offset == Vector2I.Zero) continue;
             Vector3I candidate = hovered + tangentA * offset.X + tangentB * offset.Y;
-            if (world.IsPresent(candidate) && world.IsExposed(candidate)) result.Add(candidate);
+
+            // IsExposed already rejects missing voxels, so the old IsPresent + IsExposed pair sampled the
+            // candidate center twice for every surrounding cell.
+            if (world.IsExposed(candidate)) result.Add(candidate);
         }
         return result;
     }
 
     public static IReadOnlyList<Vector2I> Offsets(ManualMiningFootprintKind kind)
-        => kind switch
-        {
-            ManualMiningFootprintKind.Single => new[] { Vector2I.Zero },
-            ManualMiningFootprintKind.Plus3 => new[]
-            {
-                Vector2I.Zero,
-                Vector2I.Left,
-                Vector2I.Right,
-                Vector2I.Up,
-                Vector2I.Down,
-            },
-            ManualMiningFootprintKind.Square3 => BuildSquare(3),
-            ManualMiningFootprintKind.Square10 => BuildSquare(10),
-            _ => new[] { Vector2I.Zero },
-        };
+        => OffsetArray(kind);
 
     public static ManualMiningFootprintKind Parse(string? value)
         => value?.Trim().ToLowerInvariant() switch
@@ -70,15 +74,25 @@ public static class ManualMiningFootprint
             _ => ManualMiningFootprintKind.Single,
         };
 
-    private static IReadOnlyList<Vector2I> BuildSquare(int size)
+    private static Vector2I[] OffsetArray(ManualMiningFootprintKind kind)
+        => kind switch
+        {
+            ManualMiningFootprintKind.Plus3 => Plus3Offsets,
+            ManualMiningFootprintKind.Square3 => Square3Offsets,
+            ManualMiningFootprintKind.Square10 => Square10Offsets,
+            _ => SingleOffsets,
+        };
+
+    private static Vector2I[] BuildSquare(int size)
     {
-        var result = new List<Vector2I>(size * size);
+        var result = new Vector2I[size * size];
         int min = -(size / 2);
         int maxExclusive = min + size;
+        int index = 0;
         for (int y = min; y < maxExclusive; y++)
         for (int x = min; x < maxExclusive; x++)
         {
-            result.Add(new Vector2I(x, y));
+            result[index++] = new Vector2I(x, y);
         }
         return result;
     }
