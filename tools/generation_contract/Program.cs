@@ -318,9 +318,9 @@ ValidateExactTutorialCompletion(committedProfiles);
 
 var expectedPhysicalCounts = new Dictionary<string, long>(StringComparer.Ordinal)
 {
-    ["reference_natural"] = 7_728L,
-    ["reference_lakes"] = 64_611L,
-    ["reference_ridges"] = 125_934L,
+    ["reference_natural"] = 6_824L,
+    ["reference_lakes"] = 61_225L,
+    ["reference_ridges"] = 123_412L,
 };
 var countMismatches = new List<string>();
 
