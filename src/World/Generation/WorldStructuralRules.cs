@@ -205,6 +205,49 @@ public static class WorldStructuralRules
         int minimumRadial,
         out string waterBlockId)
     {
+        if (!TryFindRawWaterColumn(profile, source, normal, u, v, minimumRadial, out waterBlockId))
+        {
+            return false;
+        }
+
+        // Re-apply the Minecraft-like broad-patch rule *after* structural edge/face ownership filters.
+        // Trimming an otherwise coherent raw lake near a face boundary must not leave a one- or two-cell
+        // water filament. Every accepted cell must belong to at least one accepted 2x2 basin square.
+        bool broadPatch =
+            (HasRawWater(profile, source, normal, u + 1, v, minimumRadial)
+                && HasRawWater(profile, source, normal, u, v + 1, minimumRadial)
+                && HasRawWater(profile, source, normal, u + 1, v + 1, minimumRadial))
+            || (HasRawWater(profile, source, normal, u - 1, v, minimumRadial)
+                && HasRawWater(profile, source, normal, u, v + 1, minimumRadial)
+                && HasRawWater(profile, source, normal, u - 1, v + 1, minimumRadial))
+            || (HasRawWater(profile, source, normal, u + 1, v, minimumRadial)
+                && HasRawWater(profile, source, normal, u, v - 1, minimumRadial)
+                && HasRawWater(profile, source, normal, u + 1, v - 1, minimumRadial))
+            || (HasRawWater(profile, source, normal, u - 1, v, minimumRadial)
+                && HasRawWater(profile, source, normal, u, v - 1, minimumRadial)
+                && HasRawWater(profile, source, normal, u - 1, v - 1, minimumRadial));
+
+        return broadPatch;
+    }
+
+    private static bool HasRawWater(
+        WorldProfile profile,
+        ProceduralWorldSource source,
+        Vector3I normal,
+        int u,
+        int v,
+        int minimumRadial)
+        => TryFindRawWaterColumn(profile, source, normal, u, v, minimumRadial, out _);
+
+    private static bool TryFindRawWaterColumn(
+        WorldProfile profile,
+        ProceduralWorldSource source,
+        Vector3I normal,
+        int u,
+        int v,
+        int minimumRadial,
+        out string waterBlockId)
+    {
         waterBlockId = string.Empty;
 
         // Reserve one complete dry/sand ring before the literal cube-face border. This means neither
