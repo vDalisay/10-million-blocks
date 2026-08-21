@@ -66,6 +66,7 @@ public partial class GameplayEventBridge : Node
             _miners.MinerPlaced -= OnMinerPlaced;
             _miners.MinerStopped -= OnMinerStopped;
         }
+        DetachWorldEvents();
     }
 
     private void OnBlockMined(MiningResult result)
