@@ -93,13 +93,20 @@ public sealed class MiningService
     public MiningResult TryMine(Vector3I voxel, MiningSource source, bool requireExposed)
     {
         BlockSample before = _world.SampleVoxel(voxel);
-        if (!before.Present || !before.Mineable || (requireExposed && !_world.IsExposed(voxel)))
+        if (!before.Present || !before.Mineable)
         {
             return Failure(voxel, source);
         }
 
         if (before.BlockId == "bomb")
         {
+            // Bombs don't pass through the ordinary TryMine mutation until they detonate, so preserve
+            // the exposure gate here. Ordinary blocks let VirtualWorld perform this check exactly once.
+            if (requireExposed && !_world.IsExposed(voxel))
+            {
+                return Failure(voxel, source);
+            }
+
             // Manual mining gets the requested multi-hit anticipation. Automation detonates an
             // unstable block on contact rather than stepping past a half-damaged bomb.
             if (source == MiningSource.Manual)
@@ -129,8 +136,8 @@ public sealed class MiningService
         }
 
         // We already sampled this voxel above to inspect mineability/special behavior. Reuse that
-        // authoritative sample instead of making VirtualWorld re-read the same coordinate before the
-        // mutation. Exposure is still verified by the world against the six neighbours.
+        // authoritative sample and let VirtualWorld perform the exposure test exactly once against the
+        // six neighbours before mutation.
         if (!_world.TryMine(voxel, before, requireExposed, out BlockSample mined))
         {
             return Failure(voxel, source);
