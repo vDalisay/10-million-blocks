@@ -8,7 +8,8 @@ namespace TenMillionBlocks.World.Generation;
 /// Final deterministic structural pass shared by gameplay, authoring metrics and generation CI.
 /// ProceduralWorldSource owns the broad terrain language; this pass enforces hard visual/voxel
 /// invariants that must never depend on a lucky seed: water is a single inset surface layer with a
-/// solid basin immediately behind it, and the literal outer cube border never uses dirt-sided grass.
+/// solid basin immediately behind it, every visible shoreline is sand, and the literal outer cube
+/// border never uses dirt-sided grass.
 /// </summary>
 public static class WorldStructuralRules
 {
@@ -67,6 +68,21 @@ public static class WorldStructuralRules
             // A raw water classification that belongs to no accepted structural basin is invalid as
             // visible water. Fill it with sand rather than leaving a detached/stacked water voxel.
             generated = new BlockSample(true, profile.SandBlock, generated.Mineable);
+        }
+
+        // Every dry surface cell directly beside an accepted water column is an authored shoreline.
+        // Make that immediate ring sand unconditionally. This is deliberately stronger than a noise
+        // threshold: the player should never see an inset lake touching grass/soil/stone on its first
+        // cardinal ring simply because the neighbouring terrain sample crossed a biome threshold.
+        if (generated.Present && !IsWater(profile, generated.BlockId))
+        {
+            foreach (Vector3I normal in FaceNormals)
+            {
+                GetFaceTangents(coordinate, normal, out int u, out int v, out int radial);
+                if (radial < waterRadial + 1) continue;
+                if (!HasAdjacentWaterColumn(profile, source, normal, u, v, waterRadial)) continue;
+                return new BlockSample(true, profile.SandBlock, generated.Mineable);
+            }
         }
 
         // The literal perimeter where two cube faces meet is read from several camera angles. A normal
@@ -140,6 +156,18 @@ public static class WorldStructuralRules
         if (normal == Vector3I.Back) return new Vector3I(u, v, radial);
         return new Vector3I(u, v, -radial);
     }
+
+    private static bool HasAdjacentWaterColumn(
+        WorldProfile profile,
+        ProceduralWorldSource source,
+        Vector3I normal,
+        int u,
+        int v,
+        int minimumRadial)
+        => TryFindWaterColumn(profile, source, normal, u + 1, v, minimumRadial, out _)
+            || TryFindWaterColumn(profile, source, normal, u - 1, v, minimumRadial, out _)
+            || TryFindWaterColumn(profile, source, normal, u, v + 1, minimumRadial, out _)
+            || TryFindWaterColumn(profile, source, normal, u, v - 1, minimumRadial, out _);
 
     private static bool TryFindWaterColumn(
         WorldProfile profile,
