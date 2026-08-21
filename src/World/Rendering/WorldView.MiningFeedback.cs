@@ -22,6 +22,7 @@ public partial class WorldView
     private readonly List<MinePopVisual> _activeMinePops = new();
     private readonly Stack<MinePopVisual> _minePopPool = new();
     private readonly Stack<DrillDebrisBurst> _debrisPool = new();
+    private WorldMiningFeedbackTicker? _miningFeedbackTicker;
     private int _activeDebrisBursts;
 
     public int ActiveMinePopCount => _activeMinePops.Count;
@@ -33,8 +34,8 @@ public partial class WorldView
 
     /// <summary>
     /// Short-lived copy of the mined block used for manual/replay feedback. Nodes are pooled and the
-    /// animation is advanced centrally by WorldView, avoiding a Tween + QueueFree allocation for every
-    /// mined block during high-rate hover mining/replay.
+    /// animation is advanced centrally, avoiding a Tween + QueueFree allocation for every mined block
+    /// during high-rate hover mining/replay.
     /// </summary>
     public void SpawnManualMinePop(Vector3I voxel, string blockId, float peakScale = 1.12f)
     {
@@ -44,6 +45,7 @@ public partial class WorldView
             return;
         }
 
+        EnsureMiningFeedbackTicker();
         string visualBlockId = ResolveSurfaceVisualBlockId(voxel, blockId);
         Vector3I outward = _world.Source.GetOutwardNormal(voxel);
         Basis basis = ShouldOrientToCubeFace(visualBlockId)
@@ -97,10 +99,14 @@ public partial class WorldView
         burst.Play(position, outward, visualBlockId, spacing, seed, name);
     }
 
-    /// <summary>
-    /// Called once from the existing WorldView process loop. Pooling the pop nodes also lets one loop
-    /// update every effect instead of giving every transient object its own process callback.
-    /// </summary>
+    private void EnsureMiningFeedbackTicker()
+    {
+        if (_miningFeedbackTicker is not null && IsInstanceValid(_miningFeedbackTicker)) return;
+        _miningFeedbackTicker = new WorldMiningFeedbackTicker { Name = "MiningFeedbackTicker" };
+        _miningFeedbackTicker.Tick = AdvanceMiningFeedback;
+        AddChild(_miningFeedbackTicker);
+    }
+
     private void AdvanceMiningFeedback(double delta)
     {
         if (_activeMinePops.Count == 0) return;
