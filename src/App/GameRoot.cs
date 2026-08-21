@@ -460,6 +460,7 @@ public partial class GameRoot : Node3D
             return;
         }
 
+        _replayReturnWorldId = worldId;
         ReplayData replay = ReplayBinaryCodec.Read(absolute);
         BuildReplaySession(_worlds.Get(worldId), replay);
     }
@@ -467,8 +468,17 @@ public partial class GameRoot : Node3D
     private void OnReplayExitRequested()
     {
         if (_world is null) return;
-        string worldId = _world.Profile.Id;
-        BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: false, persistSession: true);
+
+        string replayWorldId = _world.Profile.Id;
+        string returnWorldId = string.IsNullOrWhiteSpace(_replayReturnWorldId)
+            ? replayWorldId
+            : _replayReturnWorldId;
+        _replayReturnWorldId = string.Empty;
+
+        _progression.RestoreWorld(returnWorldId);
+        _save.CurrentWorldId = returnWorldId;
+        _saveService.Save(_save);
+        BuildWorldSession(_worlds.Get(returnWorldId), applyOfflineProgress: false, persistSession: true);
     }
 
     private void CaptureCurrentSession()
