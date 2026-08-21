@@ -28,6 +28,16 @@ public partial class ManualMiningController : Node3D
     private double _hoverMiningAccumulator;
     private bool _hoverMiningEnabled;
 
+    // Voxel DDA is cheap compared with physics picking, but there is no reason to repeat it every
+    // rendered frame while both the pointer and camera are stationary. Large worlds make this more
+    // valuable because a ray can cross many logical cells. Mining/skill changes explicitly invalidate
+    // the cache so the next deeper surface or upgraded footprint is still resolved immediately.
+    private bool _hoverRayCacheValid;
+    private Vector2 _lastHoverMouse;
+    private Vector3 _lastHoverCameraPosition;
+    private Vector3 _lastHoverCameraForward;
+    private Vector3 _lastHoverCameraUp;
+
     public Vector3I? HoveredVoxel => _hoveredVoxel;
     public bool InputEnabled { get; set; } = true;
     public bool PlacementMode { get; set; }
@@ -98,7 +108,7 @@ public partial class ManualMiningController : Node3D
         int actions = MineManualTick(_hoverTargets, hoverMining: false);
         if (actions > 0)
         {
-            UpdateHover(button.Position);
+            UpdateHover(button.Position, force: true);
             _highlight.PulseMine();
             GetViewport().SetInputAsHandled();
         }
@@ -158,7 +168,7 @@ public partial class ManualMiningController : Node3D
         if (MineManualTick(_hoverTargets, hoverMining: true) > 0)
         {
             _highlight.PulseMine();
-            UpdateHover(mouse);
+            UpdateHover(mouse, force: true);
         }
         _hoverIndicator?.SetState(
             true,
@@ -231,12 +241,33 @@ public partial class ManualMiningController : Node3D
             result.EffectRadius > 0 ? "BlastDebris" : "ManualMiningDebris");
     }
 
-    private void UpdateHover(Vector2 mouse)
+    private void UpdateHover(Vector2 mouse, bool force = false)
     {
+        Camera3D camera = _camera.Camera;
+        Vector3 cameraPosition = camera.GlobalPosition;
+        Vector3 cameraForward = -camera.GlobalBasis.Z.Normalized();
+        Vector3 cameraUp = camera.GlobalBasis.Y.Normalized();
+
+        if (!force
+            && _hoverRayCacheValid
+            && mouse.DistanceSquaredTo(_lastHoverMouse) < 0.01f
+            && cameraPosition.DistanceSquaredTo(_lastHoverCameraPosition) < 0.000001f
+            && cameraForward.Dot(_lastHoverCameraForward) > 0.999999f
+            && cameraUp.Dot(_lastHoverCameraUp) > 0.999999f)
+        {
+            return;
+        }
+
+        _hoverRayCacheValid = true;
+        _lastHoverMouse = mouse;
+        _lastHoverCameraPosition = cameraPosition;
+        _lastHoverCameraForward = cameraForward;
+        _lastHoverCameraUp = cameraUp;
+
         float rayDistance = _world.GetWorldBounds().Size.Length() * 2.5f;
         if (VoxelRaycaster.TryRaycast(
             _world,
-            _camera.Camera,
+            camera,
             mouse,
             rayDistance,
             out Vector3I voxel,
@@ -252,15 +283,18 @@ public partial class ManualMiningController : Node3D
         }
         else
         {
-            ClearHover();
+            // Keep the miss cached as long as the pointer/camera do not move. Otherwise an empty patch
+            // of space would still force a full DDA attempt every frame.
+            ClearHover(invalidateRayCache: false);
         }
     }
 
-    private void ClearHover()
+    private void ClearHover(bool invalidateRayCache = true)
     {
         _hoveredVoxel = null;
         _hoverTargets = Array.Empty<Vector3I>();
         _highlight.HideVoxel();
+        if (invalidateRayCache) _hoverRayCacheValid = false;
     }
 
     private void OnBlockMined(MiningResult result)
@@ -281,7 +315,7 @@ public partial class ManualMiningController : Node3D
         RefreshHoverMiningUi();
         if (InputEnabled)
         {
-            UpdateHover(GetViewport().GetMousePosition());
+            UpdateHover(GetViewport().GetMousePosition(), force: true);
         }
     }
 
