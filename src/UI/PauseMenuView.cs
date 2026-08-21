@@ -7,7 +7,7 @@ namespace TenMillionBlocks.UI;
 /// <summary>
 /// Lightweight in-game pause/settings overlay. The overlay itself always processes so it can resume
 /// the game while SceneTree.Paused is true; the world, automation, camera and event simulation remain
-/// frozen underneath it. Graphics preferences reuse the persistent runtime shared with the main menu.
+/// frozen underneath it. Presentation preferences reuse the persistent runtime shared with the main menu.
 /// </summary>
 public partial class PauseMenuView : CanvasLayer
 {
@@ -178,7 +178,7 @@ public partial class PauseMenuView : CanvasLayer
 
     private Control BuildSettingsPanel()
     {
-        PanelContainer panel = CenteredPanel(285.0f, 285.0f);
+        PanelContainer panel = CenteredPanel(285.0f, 305.0f);
         var margin = StandardMargin();
         panel.AddChild(margin);
         var column = StandardColumn();
@@ -186,7 +186,7 @@ public partial class PauseMenuView : CanvasLayer
 
         var title = new Label
         {
-            Text = "GRAPHICS",
+            Text = "GRAPHICS & PRESENTATION",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         title.AddThemeFontSizeOverride("font_size", 23);
@@ -244,9 +244,19 @@ public partial class PauseMenuView : CanvasLayer
         glow.Toggled += _graphics.SetGlowEnabled;
         column.AddChild(glow);
 
+        var idleOrbit = new CheckButton
+        {
+            Text = "Idle camera rotation",
+            ButtonPressed = _graphics.IdleCameraOrbitEnabled,
+            TooltipText = "After 30 seconds without mouse input, slowly rotate around the cube.",
+            CustomMinimumSize = new Vector2(0.0f, 38.0f),
+        };
+        idleOrbit.Toggled += _graphics.SetIdleCameraOrbitEnabled;
+        column.AddChild(idleOrbit);
+
         var defaults = new Button
         {
-            Text = "RESET GRAPHICS DEFAULTS",
+            Text = "RESET PRESENTATION DEFAULTS",
             CustomMinimumSize = new Vector2(0.0f, 38.0f),
         };
         defaults.Pressed += () =>
@@ -256,6 +266,7 @@ public partial class PauseMenuView : CanvasLayer
             msaa.Select(0);
             ao.SetPressedNoSignal(true);
             glow.SetPressedNoSignal(false);
+            idleOrbit.SetPressedNoSignal(true);
         };
         column.AddChild(defaults);
 
