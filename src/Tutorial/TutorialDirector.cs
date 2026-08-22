@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Save;
 
 namespace TenMillionBlocks.Tutorial;
@@ -152,6 +153,11 @@ public partial class TutorialDirector : CanvasLayer
         _panel.PivotOffset = _panel.Size * 0.5f;
         _hideTimer = message.VisibleSeconds;
 
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            return;
+        }
+
         _panel.Scale = Vector2.One * 0.96f;
         Tween tween = CreateTween();
         tween.SetEase(Tween.EaseType.Out);
@@ -165,8 +171,6 @@ public partial class TutorialDirector : CanvasLayer
         _panel.Visible = false;
         if (!showNext || _pending.Count == 0) return;
 
-        // Defer by one frame so the outgoing Control has a clean visibility boundary. This avoids a
-        // same-frame close/open flicker while still making queued guidance feel continuous.
         TutorialMessage next = _pending.Dequeue();
         Callable.From(() =>
         {
@@ -179,8 +183,6 @@ public partial class TutorialDirector : CanvasLayer
         title = "TIP";
         body = string.Empty;
 
-        // World-start role text remains useful in every authored world. Detailed instruction events are
-        // intentionally restricted to the four tutorial worlds until their final copy is reviewed.
         if (gameplayEvent.Kind == GameplayEventKind.WorldStarted)
         {
             title = _profile.DisplayName.ToUpperInvariant();
