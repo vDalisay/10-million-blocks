@@ -34,10 +34,10 @@ public partial class PerformanceHud : CanvasLayer
             Visible = false,
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -560.0f,
+            OffsetLeft = -580.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 548.0f,
+            OffsetBottom = 580.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -112,10 +112,11 @@ public partial class PerformanceHud : CanvasLayer
             $"renderer: {renderer}  camera: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
             $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
             $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  backface/frustum: {_view.BackfaceCulledChunkCount}/{_view.FrustumCulledChunkCount}\n" +
+            $"cavity roots total/presented/frustum: {_view.SparseExposureOverlayRootCount:N0}/{_view.PresentedSparseOverlayCount:N0}/{_view.FrustumCulledSparseOverlayCount:N0}\n" +
             $"LOD tree batches hidden: {_view.LodHiddenTreeBatchCount:N0}  shadow batches disabled: {_view.LodShadowDisabledBatchCount:N0}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"sparse exposure pending/frontier/builds: {_view.PendingSparseExposureOverlays:N0}/{_view.SparseExposureFrontierCandidateCount:N0}/{_view.SparseExposureOverlayBuilds:N0}  ms last/avg: {_view.LastSparseExposureOverlayBuildMilliseconds:0.00}/{_view.AverageSparseExposureOverlayBuildMilliseconds:0.00}\n" +
             automationBudget + "\n" +
-            $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred chunks: {_view.DeferredAutomationChunkCount:N0}\n" +
+            $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred/pending chunks: {_view.DeferredAutomationChunkCount:N0}/{_view.PendingVisibleAutomationChunkCount:N0}  flushes: {_view.AutomationPresentationChunkFlushes:N0}\n" +
             $"mining FX pop active/pool/dropped: {_view.ActiveMinePopCount}/{_view.PooledMinePopCount}/{_view.DroppedMinePopCount:N0}  debris active/pool/dropped: {_view.ActiveDebrisBurstCount}/{_view.PooledDebrisBurstCount}/{_view.DroppedDebrisBurstCount:N0}\n" +
             feedbackMetrics + "\n" +
             $"generated sample cache hit/miss: {_world.GeneratedSampleCacheHits:N0}/{_world.GeneratedSampleCacheMisses:N0}  hit rate: {cacheHitPercent:0.0}%\n" +
