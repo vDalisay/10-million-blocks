@@ -133,9 +133,13 @@ public partial class WorldView : Node3D
             }
         }
 
-        int maxBuilds = FullSurfaceRenderer ? 10 : StreamingEnabled ? 4 : 2;
+        // The million-block benchmark showed ~2.5 ms per full-surface chunk rebuild and sustained
+        // bursts of 80+ rebuilds/s. Allowing up to ten rebuilds in one rendered frame created avoidable
+        // CPU spikes even though the HashSet already coalesces repeated dirties. Two builds/frame still
+        // sustains ~120 builds/s at 60 FPS while bounding presentation work much more tightly.
+        int maxBuilds = FullSurfaceRenderer ? 2 : StreamingEnabled ? 4 : 2;
         double frameBuildBudgetMs = FullSurfaceRenderer
-            ? 6.0
+            ? 4.0
             : StreamingEnabled ? 2.5 : double.PositiveInfinity;
         ulong buildFrameStarted = Time.GetTicksUsec();
         int builds = 0;
@@ -469,33 +473,26 @@ public partial class WorldView : Node3D
         var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         var treeBatches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         long sampledColumns = 0L;
-
-        foreach (Vector3I normal in RelevantFullSurfaceNormals(chunk))
-        {
-            SampleFaceColumns(
-                chunk,
-                normal,
-                includeFeatures: true,
-                batches,
-                treeBatches,
-                ref sampledColumns);
-        }
-
-        StoreSurfaceChunk(chunk, "FullSurface", batches, treeBatches, started, sampledColumns);
-    }
-
-    private IEnumerable<Vector3I> RelevantFullSurfaceNormals(ChunkCoord chunk)
-    {
         int depth = Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
         int min = _world.MinChunkCoordinate;
         int max = _world.MaxChunkCoordinate;
 
-        if (max - chunk.X < depth) yield return Vector3I.Right;
-        if (chunk.X - min < depth) yield return Vector3I.Left;
-        if (max - chunk.Y < depth) yield return Vector3I.Up;
-        if (chunk.Y - min < depth) yield return Vector3I.Down;
-        if (max - chunk.Z < depth) yield return Vector3I.Back;
-        if (chunk.Z - min < depth) yield return Vector3I.Forward;
+        // Avoid the iterator/yield allocation that used to run for every rebuild. Under the F11 trace
+        // this path executes thousands of times, while at most six simple face checks are required.
+        if (max - chunk.X < depth)
+            SampleFaceColumns(chunk, Vector3I.Right, true, batches, treeBatches, ref sampledColumns);
+        if (chunk.X - min < depth)
+            SampleFaceColumns(chunk, Vector3I.Left, true, batches, treeBatches, ref sampledColumns);
+        if (max - chunk.Y < depth)
+            SampleFaceColumns(chunk, Vector3I.Up, true, batches, treeBatches, ref sampledColumns);
+        if (chunk.Y - min < depth)
+            SampleFaceColumns(chunk, Vector3I.Down, true, batches, treeBatches, ref sampledColumns);
+        if (max - chunk.Z < depth)
+            SampleFaceColumns(chunk, Vector3I.Back, true, batches, treeBatches, ref sampledColumns);
+        if (chunk.Z - min < depth)
+            SampleFaceColumns(chunk, Vector3I.Forward, true, batches, treeBatches, ref sampledColumns);
+
+        StoreSurfaceChunk(chunk, "FullSurface", batches, treeBatches, started, sampledColumns);
     }
 
     private void RebuildStreamedSurfaceChunk(ChunkCoord chunk, ulong started)
@@ -635,9 +632,16 @@ public partial class WorldView : Node3D
 
     private bool ResolveVisibleStreamedVoxel(Vector3I normal, ref Vector3I voxel, ref BlockSample sample)
     {
-        if (!_world.State.IsMined(voxel))
+        // The column locator intentionally samples the raw deterministic source because it can find an
+        // outer face without scanning the volume. The visible block, however, must come from VirtualWorld
+        // so generation-v3 structural rules (inset water, sand support/shoreline, cube-rim rules) and mined
+        // state are honored. The previous full-surface fast path returned the raw water cap directly,
+        // which is why the 100^3 debug world visibly used non-inset water despite the structural pass.
+        BlockSample resolved = _world.SampleVoxel(voxel);
+        if (resolved.Present)
         {
-            return sample.Present;
+            sample = resolved;
+            return true;
         }
 
         int maxInward = FullSurfaceRenderer
@@ -683,7 +687,7 @@ public partial class WorldView : Node3D
 
             scanned++;
             BlockSample sample = _world.SampleVoxel(voxel);
-            if (!sample.Present || !_world.IsExposed(voxel))
+            if (!sample.Present || !_world.IsExposed(voxel, sample))
             {
                 continue;
             }
