@@ -25,6 +25,7 @@ public partial class GraphicsSettingsRuntime : Node
     public bool AmbientOcclusionEnabled { get; private set; } = true;
     public bool GlowEnabled { get; private set; }
     public bool IdleCameraOrbitEnabled { get; private set; } = true;
+    public bool ReducedMotionEnabled { get; private set; }
 
     public static GraphicsSettingsRuntime? Current
         => _instance is not null && GodotObject.IsInstanceValid(_instance) ? _instance : null;
@@ -109,6 +110,13 @@ public partial class GraphicsSettingsRuntime : Node
         Save();
     }
 
+    public void SetReducedMotionEnabled(bool enabled)
+    {
+        if (ReducedMotionEnabled == enabled) return;
+        ReducedMotionEnabled = enabled;
+        Save();
+    }
+
     public void RestoreDefaults()
     {
         ResolutionScale = 1.0f;
@@ -116,6 +124,7 @@ public partial class GraphicsSettingsRuntime : Node
         AmbientOcclusionEnabled = true;
         GlowEnabled = false;
         IdleCameraOrbitEnabled = true;
+        ReducedMotionEnabled = false;
         ApplyViewport();
         ApplyEnvironment(force: true);
         Save();
@@ -140,6 +149,7 @@ public partial class GraphicsSettingsRuntime : Node
         AmbientOcclusionEnabled = (bool)config.GetValue(Section, "ambient_occlusion", true);
         GlowEnabled = (bool)config.GetValue(Section, "glow", false);
         IdleCameraOrbitEnabled = (bool)config.GetValue(Section, "idle_camera_orbit", true);
+        ReducedMotionEnabled = (bool)config.GetValue(Section, "reduced_motion", false);
     }
 
     private void Save()
@@ -150,6 +160,7 @@ public partial class GraphicsSettingsRuntime : Node
         config.SetValue(Section, "ambient_occlusion", AmbientOcclusionEnabled);
         config.SetValue(Section, "glow", GlowEnabled);
         config.SetValue(Section, "idle_camera_orbit", IdleCameraOrbitEnabled);
+        config.SetValue(Section, "reduced_motion", ReducedMotionEnabled);
         Error result = config.Save(SettingsPath);
         if (result != Error.Ok)
         {
