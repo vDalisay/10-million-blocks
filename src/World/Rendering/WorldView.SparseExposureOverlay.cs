@@ -35,6 +35,7 @@ public partial class WorldView
     private readonly Dictionary<ChunkCoord, HashSet<Vector3I>> _sparseExposureFrontierByChunk = new();
     private readonly HashSet<ChunkCoord> _sparseExposureInitializedChunks = new();
     private readonly List<Vector3I> _sparseExposureRemovalScratch = new();
+    private readonly List<int> _sparseMinedIndexScratch = new();
     private SparseExposureWorker? _sparseExposureWorker;
     private double _sparseOverlayBuildTotalMilliseconds;
     private long _sparseExposureFrontierCandidateCount;
@@ -49,18 +50,28 @@ public partial class WorldView
             : _sparseOverlayBuildTotalMilliseconds / SparseExposureOverlayBuilds;
 
     /// <summary>
-    /// Shared mining/automation dirty path. Full-surface worlds intentionally do not set forceExact:
-    /// their base chunk is rebuilt through the cheap surface-column path while the sparse overlay below
-    /// accounts for non-column tunnel walls. Other renderer modes retain their existing behavior.
+    /// Shared mining/automation dirty path. Full-surface shell chunks rebuild their cheap outward-column
+    /// base while the sparse overlay accounts for tunnel/cavity walls. Interior chunks have no base face
+    /// columns at all, so rebuilding them through RebuildFullSurfaceChunk only destroyed/recreated sparse
+    /// roots and spent CPU sampling zero useful surface columns. Keep those chunks sparse-only.
     /// </summary>
     private void MarkInteractiveChunkDirty(ChunkCoord chunk)
     {
         if (!ChunkInWorldBounds(chunk)) return;
-        MarkChunkDirty(chunk, forceExact: false);
+
         if (FullSurfaceRenderer)
         {
+            _desiredChunks.Add(chunk);
             QueueSparseExposureOverlay(chunk);
+            int depth = Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
+            if (IsShellChunk(chunk, depth))
+            {
+                MarkChunkDirty(chunk, forceExact: false);
+            }
+            return;
         }
+
+        MarkChunkDirty(chunk, forceExact: false);
     }
 
     /// <summary>
@@ -169,6 +180,33 @@ public partial class WorldView
     }
 
     /// <summary>
+    /// Conservative visibility hint for excavated interior chunks. Their cavity walls are not aligned to
+    /// the original cube face, so chunk-level cube-backface culling is invalid once mining reaches them.
+    /// This uses compact chunk-state membership only; no mined-index lists are allocated.
+    /// </summary>
+    private bool HasSparseExposurePotential(ChunkCoord chunk)
+    {
+        if (_sparseExposureFrontierByChunk.TryGetValue(chunk, out HashSet<Vector3I>? frontier)
+            && frontier.Count > 0)
+        {
+            return true;
+        }
+
+        foreach (ChunkCoord offset in SparseOverlaySourceOffsets)
+        {
+            ChunkCoord sourceChunk = new(
+                chunk.X + offset.X,
+                chunk.Y + offset.Y,
+                chunk.Z + offset.Z);
+            if (ChunkInWorldBounds(sourceChunk) && _world.State.HasMinedVoxels(sourceChunk))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// When loading an existing save, or when off-screen automation was deliberately collapsed to a
     /// chunk marker, we do not have the live mutation frontier. Reconstruct it once from the compact
     /// mined bitsets in this chunk and its six neighbours. Subsequent mining is incremental again.
@@ -186,11 +224,10 @@ public partial class WorldView
                 chunk.Z + offset.Z);
             if (!ChunkInWorldBounds(sourceChunk)) continue;
 
-            IReadOnlyCollection<int> minedIndices = _world.State.GetMinedLocalIndices(sourceChunk);
-            if (minedIndices.Count == 0) continue;
+            if (_world.State.CopyMinedLocalIndices(sourceChunk, _sparseMinedIndexScratch) == 0) continue;
 
             Vector3I sourceMin = sourceChunk.MinVoxel(chunkSize);
-            foreach (int index in minedIndices)
+            foreach (int index in _sparseMinedIndexScratch)
             {
                 int x = index % chunkSize;
                 int yz = index / chunkSize;
@@ -226,7 +263,7 @@ public partial class WorldView
                 chunk.Y + offset.Y,
                 chunk.Z + offset.Z);
             if (!ChunkInWorldBounds(sourceChunk)) continue;
-            if (_world.State.GetMinedLocalIndices(sourceChunk).Count == 0) continue;
+            if (!_world.State.HasMinedVoxels(sourceChunk)) continue;
             QueueSparseExposureOverlay(chunk);
             return;
         }
@@ -263,6 +300,15 @@ public partial class WorldView
     {
         foreach (ChunkCoord candidate in _sparseOverlayDirtyChunks)
         {
+            // A base surface rebuild destroys/replaces its chunk root. Do not attach a fresh sparse
+            // overlay to the old root while that rebuild is pending, otherwise the next WorldView tick
+            // frees the just-built tunnel walls and leaves a persistent see-through hole. Keeping the
+            // candidate queued guarantees the overlay is attached after the replacement base root.
+            if (_dirtyChunks.Contains(candidate) || _pendingVisibleAutomationChunks.Contains(candidate))
+            {
+                continue;
+            }
+
             chunk = candidate;
             _sparseOverlayDirtyChunks.Remove(candidate);
             return true;
@@ -434,15 +480,7 @@ public partial class WorldView
             AddChild(root);
             _chunkRoots[chunk] = root;
             _resolvedChunks.Add(chunk);
-
-            if (_camera?.Camera is not null)
-            {
-                int chunkSize = _world.Profile.ChunkSize;
-                Vector3I minVoxel = chunk.MinVoxel(chunkSize);
-                Vector3I centerVoxel = minVoxel + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
-                Vector3 toCamera = _camera.Camera.GlobalPosition - VoxelToWorld(centerVoxel);
-                root.Visible = IsFullSurfaceChunkCameraFacing(chunk, centerVoxel, toCamera);
-            }
+            root.Visible = IsChunkPresentationRelevant(chunk);
         }
 
         var overlay = new Node3D { Name = SparseOverlayNodeName };
@@ -455,6 +493,11 @@ public partial class WorldView
         {
             AddBatch(overlay, variant, transforms, true);
         }
+
+        // Chunk count may not change when an overlay is replaced under an existing surface root, which
+        // means the pose cache would otherwise skip the next visibility pass. Force a refresh so newly
+        // created cavity geometry immediately receives the correct conservative culling/LOD policy.
+        _visibilityPoseInitialized = false;
     }
 
     private void RemoveSparseOverlayNode(ChunkCoord chunk)
@@ -465,6 +508,7 @@ public partial class WorldView
         {
             root.RemoveChild(oldOverlay);
             oldOverlay.QueueFree();
+            _visibilityPoseInitialized = false;
         }
 
         if (root.Name.ToString().StartsWith("SparseExposureChunk_", StringComparison.Ordinal))
