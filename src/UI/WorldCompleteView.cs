@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Presentation;
 
 namespace TenMillionBlocks.UI;
 
@@ -140,10 +141,18 @@ public partial class WorldCompleteView : CanvasLayer
         _replay.Disabled = false;
         _continue.Disabled = false;
         _transition?.Kill();
+        _transition = null;
         _root.Visible = true;
+
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            _root.Modulate = Colors.White;
+            _panel.Scale = Vector2.One;
+            return;
+        }
+
         _root.Modulate = new Color(1, 1, 1, 0);
         _panel.Scale = Vector2.One * 0.93f;
-
         _transition = CreateTween();
         _transition.SetParallel(true);
         _transition.SetEase(Tween.EaseType.Out);
@@ -169,9 +178,6 @@ public partial class WorldCompleteView : CanvasLayer
 
     private void OnReplayPressed()
     {
-        // The global loading screen serializes transitions. Keep this button enabled so a missing or
-        // corrupt replay can recover back to the completion panel instead of leaving a permanently
-        // disabled control after the loader dismisses itself.
         WorldLoadingScreen.RunTransition(this, "LOADING REPLAY", () => ReplayRequested?.Invoke());
     }
 
@@ -179,14 +185,10 @@ public partial class WorldCompleteView : CanvasLayer
     {
         if (_hasNextWorld)
         {
-            // Keep the completion panel intact underneath the loader. If the next world fails to build,
-            // the loader can dismiss and the player still has a usable recovery surface.
             WorldLoadingScreen.RunTransition(this, "LOADING NEXT WORLD", () => ContinueRequested?.Invoke());
             return;
         }
 
-        // Terminal completion has no world transition: the GameRoot handler hides this panel and opens
-        // the completed-world browser immediately.
         ContinueRequested?.Invoke();
     }
 }
