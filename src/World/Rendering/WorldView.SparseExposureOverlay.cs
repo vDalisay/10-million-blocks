@@ -10,16 +10,20 @@ namespace TenMillionBlocks.World.Rendering;
 /// switch an affected 16^3 chunk to RebuildEagerChunk so tunnel side walls were correct, but that turns
 /// one click into thousands of generated voxel/exposure queries.
 ///
-/// The overlay is now an incremental exposed-frontier cache. A block removal can only make its six
+/// The overlay is an incremental exposed-frontier cache. A block removal can only make its six
 /// neighbours newly visible, so live mining records those neighbours directly instead of rescanning all
 /// previously mined voxels in the chunk on every rebuild. Existing save/deferred state is bootstrapped
 /// once, lazily, when that chunk next becomes presentation-relevant.
+///
+/// Cavity geometry deliberately owns an independent top-level render root. The base full-surface chunk
+/// renderer is allowed to destroy/recreate its outward-column root, but doing so must never destroy a
+/// tunnel wall that was already reconstructed by this sparse renderer. This also lets cavity geometry use
+/// conservative frustum culling without inheriting the cube-face backface policy of the outer shell.
 /// </summary>
 public partial class WorldView
 {
     private const int SparseOverlayBuildsPerFrame = 2;
     private const double SparseOverlayFrameBudgetMilliseconds = 1.75;
-    private const string SparseOverlayNodeName = "SparseExposureOverlay";
     private static readonly ChunkCoord[] SparseOverlaySourceOffsets =
     {
         new(0, 0, 0),
@@ -34,13 +38,17 @@ public partial class WorldView
     private readonly HashSet<ChunkCoord> _sparseOverlayDirtyChunks = new();
     private readonly Dictionary<ChunkCoord, HashSet<Vector3I>> _sparseExposureFrontierByChunk = new();
     private readonly HashSet<ChunkCoord> _sparseExposureInitializedChunks = new();
+    private readonly Dictionary<ChunkCoord, Node3D> _sparseOverlayRoots = new();
     private readonly List<Vector3I> _sparseExposureRemovalScratch = new();
     private readonly List<int> _sparseMinedIndexScratch = new();
+    private readonly Dictionary<string, List<Transform3D>> _sparseBatchScratch = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<Transform3D>> _sparseTreeBatchScratch = new(StringComparer.Ordinal);
     private SparseExposureWorker? _sparseExposureWorker;
     private double _sparseOverlayBuildTotalMilliseconds;
     private long _sparseExposureFrontierCandidateCount;
 
     public int PendingSparseExposureOverlays => _sparseOverlayDirtyChunks.Count;
+    public int SparseExposureOverlayRootCount => _sparseOverlayRoots.Count;
     public long SparseExposureFrontierCandidateCount => _sparseExposureFrontierCandidateCount;
     public long SparseExposureOverlayBuilds { get; private set; }
     public double LastSparseExposureOverlayBuildMilliseconds { get; private set; }
@@ -52,8 +60,8 @@ public partial class WorldView
     /// <summary>
     /// Shared mining/automation dirty path. Full-surface shell chunks rebuild their cheap outward-column
     /// base while the sparse overlay accounts for tunnel/cavity walls. Interior chunks have no base face
-    /// columns at all, so rebuilding them through RebuildFullSurfaceChunk only destroyed/recreated sparse
-    /// roots and spent CPU sampling zero useful surface columns. Keep those chunks sparse-only.
+    /// columns at all, so rebuilding them through RebuildFullSurfaceChunk only spends CPU sampling zero
+    /// useful surface columns. Keep those chunks sparse-only.
     /// </summary>
     private void MarkInteractiveChunkDirty(ChunkCoord chunk)
     {
@@ -76,9 +84,8 @@ public partial class WorldView
 
     /// <summary>
     /// Records the only cells whose exposure can change after one exact block removal: the removed cell
-    /// itself (which must disappear from any old overlay) and its six neighbours. This is the same local
-    /// invalidation principle used by mature voxel/tile engines: mutation work is proportional to the
-    /// changed frontier, not to the total amount of excavation already stored in the chunk.
+    /// itself (which must disappear from any old overlay) and its six neighbours. Mutation work is
+    /// proportional to the changed frontier, not to the total amount of excavation already stored.
     /// </summary>
     private void RecordSparseExposureMutation(Vector3I minedVoxel)
     {
@@ -180,12 +187,13 @@ public partial class WorldView
     }
 
     /// <summary>
-    /// Conservative visibility hint for excavated interior chunks. Their cavity walls are not aligned to
-    /// the original cube face, so chunk-level cube-backface culling is invalid once mining reaches them.
-    /// This uses compact chunk-state membership only; no mined-index lists are allocated.
+    /// Conservative visibility hint used by automation presentation. Excavated geometry is no longer
+    /// assumed to face the original cube normal, so modified chunks may need presentation even when the
+    /// outer-shell base for that chunk is back-facing.
     /// </summary>
     private bool HasSparseExposurePotential(ChunkCoord chunk)
     {
+        if (_sparseOverlayRoots.ContainsKey(chunk)) return true;
         if (_sparseExposureFrontierByChunk.TryGetValue(chunk, out HashSet<Vector3I>? frontier)
             && frontier.Count > 0)
         {
@@ -300,15 +308,9 @@ public partial class WorldView
     {
         foreach (ChunkCoord candidate in _sparseOverlayDirtyChunks)
         {
-            // A base surface rebuild destroys/replaces its chunk root. Do not attach a fresh sparse
-            // overlay to the old root while that rebuild is pending, otherwise the next WorldView tick
-            // frees the just-built tunnel walls and leaves a persistent see-through hole. Keeping the
-            // candidate queued guarantees the overlay is attached after the replacement base root.
-            if (_dirtyChunks.Contains(candidate) || _pendingVisibleAutomationChunks.Contains(candidate))
-            {
-                continue;
-            }
-
+            // Sparse roots are independent from base-surface roots, so they no longer have to wait for a
+            // pending base replacement. This removes the old race where a correct cavity overlay could
+            // be attached to a root that was freed by the next chunk rebuild.
             chunk = candidate;
             _sparseOverlayDirtyChunks.Remove(candidate);
             return true;
@@ -322,6 +324,7 @@ public partial class WorldView
     {
         ulong started = Time.GetTicksUsec();
         EnsureSparseExposureFrontierInitialized(chunk);
+        _resolvedChunks.Add(chunk);
 
         if (!_sparseExposureFrontierByChunk.TryGetValue(chunk, out HashSet<Vector3I>? frontier)
             || frontier.Count == 0)
@@ -331,8 +334,8 @@ public partial class WorldView
             return;
         }
 
-        var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
-        var treeBatches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
+        ClearBatchScratch(_sparseBatchScratch);
+        ClearBatchScratch(_sparseTreeBatchScratch);
         _sparseExposureRemovalScratch.Clear();
         int max = _world.MaxCoordinate;
 
@@ -364,13 +367,13 @@ public partial class WorldView
             Basis blockBasis = ShouldOrientToCubeFace(visualBlockId)
                 ? BasisForNormal(outward)
                 : Basis.Identity;
-            AddTransform(batches, visualBlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
+            AddTransform(_sparseBatchScratch, visualBlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
             if ((sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
                 && _world.Source.TrySampleTree(voxel, out FeatureSample feature)
                 && !_world.IsPresent(voxel + feature.OutwardNormal))
             {
-                AddTransform(treeBatches, PickTree(voxel), TreeTransform(voxel, feature.OutwardNormal));
+                AddTransform(_sparseTreeBatchScratch, PickTree(voxel), TreeTransform(voxel, feature.OutwardNormal));
             }
         }
 
@@ -379,7 +382,7 @@ public partial class WorldView
             RemoveSparseExposureCandidate(chunk, stale);
         }
 
-        ReplaceSparseOverlayNode(chunk, batches, treeBatches);
+        ReplaceSparseOverlayNode(chunk, _sparseBatchScratch, _sparseTreeBatchScratch);
         FinishSparseExposureBuild(started);
     }
 
@@ -455,67 +458,62 @@ public partial class WorldView
         Dictionary<string, List<Transform3D>> batches,
         Dictionary<string, List<Transform3D>> treeBatches)
     {
-        _chunkRoots.TryGetValue(chunk, out Node3D? root);
-        Node3D? oldOverlay = root?.GetNodeOrNull<Node3D>(SparseOverlayNodeName);
-        if (oldOverlay is not null)
+        if (_sparseOverlayRoots.Remove(chunk, out Node3D? oldRoot))
         {
-            root!.RemoveChild(oldOverlay);
-            oldOverlay.QueueFree();
+            oldRoot.QueueFree();
         }
 
-        bool hasContent = batches.Count > 0 || treeBatches.Count > 0;
-        if (!hasContent)
+        if (!HasBatchContent(batches) && !HasBatchContent(treeBatches))
         {
-            if (root is not null && root.Name.ToString().StartsWith("SparseExposureChunk_", StringComparison.Ordinal))
-            {
-                _chunkRoots.Remove(chunk);
-                root.QueueFree();
-            }
+            _visibilityPoseInitialized = false;
             return;
         }
 
-        if (root is null)
+        var overlayRoot = new Node3D
         {
-            root = new Node3D { Name = $"SparseExposureChunk_{chunk.X}_{chunk.Y}_{chunk.Z}" };
-            AddChild(root);
-            _chunkRoots[chunk] = root;
-            _resolvedChunks.Add(chunk);
-            root.Visible = IsChunkPresentationRelevant(chunk);
-        }
+            Name = $"SparseExposureOverlay_{chunk.X}_{chunk.Y}_{chunk.Z}",
+        };
+        AddChild(overlayRoot);
 
-        var overlay = new Node3D { Name = SparseOverlayNodeName };
-        root.AddChild(overlay);
         foreach ((string blockId, List<Transform3D> transforms) in batches)
         {
-            AddBatch(overlay, blockId, transforms, true);
+            if (transforms.Count > 0) AddBatch(overlayRoot, blockId, transforms, true);
         }
         foreach ((string variant, List<Transform3D> transforms) in treeBatches)
         {
-            AddBatch(overlay, variant, transforms, true);
+            if (transforms.Count > 0) AddBatch(overlayRoot, variant, transforms, true);
         }
 
-        // Chunk count may not change when an overlay is replaced under an existing surface root, which
-        // means the pose cache would otherwise skip the next visibility pass. Force a refresh so newly
-        // created cavity geometry immediately receives the correct conservative culling/LOD policy.
+        _sparseOverlayRoots[chunk] = overlayRoot;
+        _resolvedChunks.Add(chunk);
+        // Show immediately; the next visibility refresh may frustum-cull it, but never hide a newly
+        // exposed wall for a frame merely because the previous base-root pose cache was unchanged.
+        overlayRoot.Visible = true;
         _visibilityPoseInitialized = false;
     }
 
     private void RemoveSparseOverlayNode(ChunkCoord chunk)
     {
-        if (!_chunkRoots.TryGetValue(chunk, out Node3D? root)) return;
-        Node3D? oldOverlay = root.GetNodeOrNull<Node3D>(SparseOverlayNodeName);
-        if (oldOverlay is not null)
-        {
-            root.RemoveChild(oldOverlay);
-            oldOverlay.QueueFree();
-            _visibilityPoseInitialized = false;
-        }
+        if (!_sparseOverlayRoots.Remove(chunk, out Node3D? oldRoot)) return;
+        oldRoot.QueueFree();
+        _visibilityPoseInitialized = false;
+    }
 
-        if (root.Name.ToString().StartsWith("SparseExposureChunk_", StringComparison.Ordinal))
+    private static void ClearBatchScratch(Dictionary<string, List<Transform3D>> batches)
+    {
+        foreach (List<Transform3D> transforms in batches.Values)
         {
-            _chunkRoots.Remove(chunk);
-            root.QueueFree();
+            transforms.Clear();
         }
+    }
+
+    private static bool HasBatchContent(Dictionary<string, List<Transform3D>> batches)
+    {
+        foreach (List<Transform3D> transforms in batches.Values)
+        {
+            if (transforms.Count > 0) return true;
+        }
+        return false;
     }
 
     private sealed partial class SparseExposureWorker : Node
