@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Godot;
 
 namespace TenMillionBlocks.Skills;
@@ -42,6 +43,13 @@ public sealed class SkillNodeDefinition
     public string Category { get; set; } = string.Empty;
     public string PurchaseMode { get; set; } = "once"; // once | repeatable
     public List<SkillPrerequisiteDefinition> Prerequisites { get; set; } = new();
+
+    // Optional progressive-disclosure rule. World staging still decides whether a skill belongs in the
+    // current world's tree at all; this flag only decides whether that staged node is revealed before
+    // its authored prerequisite ranks have been reached.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HideUntilPrerequisitesMet { get; set; }
+
     public long Cost { get; set; }
     public List<SkillSpecialCostDefinition> SpecialCosts { get; set; } = new();
     public int MaxRank { get; set; } = 1;
