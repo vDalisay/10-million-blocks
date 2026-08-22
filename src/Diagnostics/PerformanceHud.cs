@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using TenMillionBlocks.Automation;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.UI;
 using TenMillionBlocks.World;
@@ -36,7 +37,7 @@ public partial class PerformanceHud : CanvasLayer
             OffsetLeft = -540.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 500.0f,
+            OffsetBottom = 520.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -99,6 +100,10 @@ public partial class PerformanceHud : CanvasLayer
         string feedbackMetrics = feedback is null
             ? "incremental feedback: unavailable"
             : $"incremental feedback active/pool: {feedback.ActiveFeedbackCount}/{feedback.PooledFeedbackCount}  spawned/aggregated/dropped: {feedback.SpawnedFeedbackCount:N0}/{feedback.AggregatedFeedbackCount:N0}/{feedback.DroppedFeedbackCount:N0}";
+        MinerSimulationService? miners = GetParent()?.GetNodeOrNull<MinerSimulationService>("MinerSimulation");
+        string automationBudget = miners is null
+            ? "automation scheduler: unavailable"
+            : $"automation scheduler: {miners.Miners.Count:N0} units  max work units/frame: {miners.MaxMiningOperationsPerFrame:N0}";
 
         _label.Text =
             "PERFORMANCE [F9]\n" +
@@ -107,7 +112,8 @@ public partial class PerformanceHud : CanvasLayer
             $"renderer: {renderer}  camera: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
             $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
             $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
-            $"sparse exposure pending: {_view.PendingSparseExposureOverlays}  builds: {_view.SparseExposureOverlayBuilds:N0}  ms last/avg: {_view.LastSparseExposureOverlayBuildMilliseconds:0.00}/{_view.AverageSparseExposureOverlayBuildMilliseconds:0.00}\n" +
+            $"sparse exposure pending/frontier/builds: {_view.PendingSparseExposureOverlays:N0}/{_view.SparseExposureFrontierCandidateCount:N0}/{_view.SparseExposureOverlayBuilds:N0}  ms last/avg: {_view.LastSparseExposureOverlayBuildMilliseconds:0.00}/{_view.AverageSparseExposureOverlayBuildMilliseconds:0.00}\n" +
+            automationBudget + "\n" +
             $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred chunks: {_view.DeferredAutomationChunkCount:N0}\n" +
             $"mining FX pop active/pool/dropped: {_view.ActiveMinePopCount}/{_view.PooledMinePopCount}/{_view.DroppedMinePopCount:N0}  debris active/pool/dropped: {_view.ActiveDebrisBurstCount}/{_view.PooledDebrisBurstCount}/{_view.DroppedDebrisBurstCount:N0}\n" +
             feedbackMetrics + "\n" +
