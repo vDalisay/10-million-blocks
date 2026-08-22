@@ -91,6 +91,12 @@ public sealed class SkillTreeService
     public bool PrerequisitesMet(SkillNodeDefinition node)
         => node.Prerequisites.All(prerequisite => GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank);
 
+    public bool IsRevealed(SkillNodeDefinition node)
+        => !node.HideUntilPrerequisitesMet
+            || node.Prerequisites.Count == 0
+            || GetRank(node.Id) > 0
+            || PrerequisitesMet(node);
+
     public bool SpecialCostsAffordable(SkillNodeDefinition node)
         => node.SpecialCosts.All(cost => _specialResources.CanAfford(cost.ResourceId, cost.Amount));
 
