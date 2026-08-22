@@ -56,6 +56,7 @@ public partial class GameRoot
         if (!_sessionPersists
             || _world is null
             || !_save.UnlockedWorldIds.Contains(worldId)
+            || !_worlds.Worlds.ContainsKey(worldId)
             || string.Equals(_world.Profile.Id, worldId, StringComparison.Ordinal))
         {
             RecoverWorldBrowserTransition("Revisit request became invalid before it could start.");
@@ -63,32 +64,53 @@ public partial class GameRoot
         }
 
         string activeWorldId = _world.Profile.Id;
+        string displayName = _worlds.Get(worldId).DisplayName;
+        WorldLoadingScreen.RunTransition(
+            this,
+            $"LOADING {displayName}",
+            () => PerformWorldRevisit(worldId, activeWorldId));
+    }
+
+    private void PerformWorldRevisit(string worldId, string activeWorldId)
+    {
         try
         {
-            // Do not leave the active world until its latest state has actually reached disk. The
-            // ordinary autosave helper intentionally swallows I/O errors, which is appropriate for a
-            // background retry but not for an explicit navigation operation.
-            CaptureCurrentSession();
+            // Save the active world before changing progression. BuildWorldSession normally performs a
+            // defensive capture of the previous persistent session, but doing that after CurrentWorldId
+            // has already moved to the target makes navigation order-dependent. This path saves once,
+            // then temporarily marks the outgoing session non-persistent while it is replaced.
+            SaveActiveWorldForNavigation();
+
+            _progression.RestoreWorld(worldId);
+            _save.CurrentWorldId = worldId;
+            BuildPersistentWorldAfterExplicitSave(_worlds.Get(worldId));
+            _save.CurrentWorldId = worldId;
             _saveService.Save(_save);
             _autosaveDirty = false;
             _autosaveTimer = 0.0;
 
-            _progression.RestoreWorld(worldId);
-            _save.CurrentWorldId = worldId;
-            _saveService.Save(_save);
-            BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: false, persistSession: true);
+            if (_world?.Profile.Id != worldId)
+            {
+                throw new InvalidOperationException(
+                    $"World revisit resolved to '{_world?.Profile.Id ?? "none"}' instead of requested '{worldId}'.");
+            }
+
+            GD.Print($"Revisited world '{worldId}'.");
         }
         catch (Exception exception)
         {
             GD.PushError($"Could not revisit world '{worldId}': {exception}");
             RestoreActiveWorldAfterFailedTransition(activeWorldId);
-            RecoverWorldBrowserTransition("Could not load the selected world. The previous world was restored.");
+            RecoverWorldBrowserTransition("Could not load the selected world. The previous world was restored; see the Godot log for the exact reason.");
         }
     }
 
     private void OnWorldReplayRequested(string worldId)
     {
-        if (!_sessionPersists || _world is null || !_save.CompletedWorldIds.Contains(worldId))
+        if (!_sessionPersists
+            || _world is null
+            || !_save.CompletedWorldIds.Contains(worldId)
+            || !_worlds.Worlds.ContainsKey(worldId))
         {
             RecoverWorldBrowserTransition("Replay request became invalid before it could start.");
             return;
@@ -108,23 +130,59 @@ public partial class GameRoot
         }
 
         string activeWorldId = _world.Profile.Id;
+        string displayName = _worlds.Get(worldId).DisplayName;
+        WorldLoadingScreen.RunTransition(
+            this,
+            $"LOADING {displayName} REPLAY",
+            () => PerformWorldReplay(worldId, activeWorldId, absolute));
+    }
+
+    private void PerformWorldReplay(string worldId, string activeWorldId, string absoluteReplayPath)
+    {
         try
         {
-            CaptureCurrentSession();
-            _saveService.Save(_save);
-            _autosaveDirty = false;
-            _autosaveTimer = 0.0;
-
+            SaveActiveWorldForNavigation();
             _replayReturnWorldId = activeWorldId;
-            ReplayData replay = ReplayBinaryCodec.Read(absolute);
+            ReplayData replay = ReplayBinaryCodec.Read(absoluteReplayPath);
             BuildReplaySession(_worlds.Get(worldId), replay);
+
+            if (_world?.Profile.Id != worldId || _replayView is null)
+            {
+                throw new InvalidOperationException(
+                    $"Replay resolved to '{_world?.Profile.Id ?? "none"}' instead of requested '{worldId}'.");
+            }
+
+            GD.Print($"Opened replay for world '{worldId}', returning to '{activeWorldId}' on exit.");
         }
         catch (Exception exception)
         {
             GD.PushError($"Could not open replay for '{worldId}': {exception}");
             _replayReturnWorldId = string.Empty;
             RestoreActiveWorldAfterFailedTransition(activeWorldId);
-            RecoverWorldBrowserTransition("The replay could not be opened. The active world was restored.");
+            RecoverWorldBrowserTransition("The replay could not be opened. The active world was restored; see the Godot log for the exact reason.");
+        }
+    }
+
+    private void SaveActiveWorldForNavigation()
+    {
+        CaptureCurrentSession();
+        _saveService.Save(_save);
+        _autosaveDirty = false;
+        _autosaveTimer = 0.0;
+    }
+
+    private void BuildPersistentWorldAfterExplicitSave(WorldProfile profile)
+    {
+        bool previousPersistence = _sessionPersists;
+        _sessionPersists = false;
+        try
+        {
+            BuildWorldSession(profile, applyOfflineProgress: false, persistSession: true);
+        }
+        catch
+        {
+            _sessionPersists = previousPersistence;
+            throw;
         }
     }
 
@@ -144,7 +202,9 @@ public partial class GameRoot
                 return;
             }
 
-            BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: false, persistSession: true);
+            BuildPersistentWorldAfterExplicitSave(_worlds.Get(worldId));
+            _save.CurrentWorldId = worldId;
+            _saveService.Save(_save);
         }
         catch (Exception restoreException)
         {
