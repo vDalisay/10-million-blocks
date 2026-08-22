@@ -15,7 +15,9 @@ public partial class GameRoot
         _pauseMenu = new PauseMenuView { Name = "PauseMenuView" };
         _pauseMenu.Initialize(graphics, CanOpenPauseMenu);
         _pauseMenu.ReturnToMainMenuRequested += OnPauseReturnToMainMenuRequested;
+        _pauseMenu.WorldsRequested += OnPauseWorldsRequested;
         AddChild(_pauseMenu);
+        _pauseMenu.EnableWorldBrowserEntry();
 
         Callable.From(AttachDemoCompletionActions).CallDeferred();
     }
@@ -42,6 +44,22 @@ public partial class GameRoot
             return false;
         }
         return true;
+    }
+
+    private void OnPauseWorldsRequested()
+    {
+        if (!_sessionPersists || _world is null) return;
+
+        if (_worldBrowser is null
+            || !GodotObject.IsInstanceValid(_worldBrowser)
+            || _worldBrowser.GetParent() != _sessionRoot)
+        {
+            AttachWorldBrowser(_world.Profile);
+        }
+
+        _pauseMenu?.Close();
+        GetTree().Paused = false;
+        _worldBrowser?.Open();
     }
 
     private void OnPauseReturnToMainMenuRequested()
