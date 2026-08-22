@@ -33,13 +33,15 @@ public partial class GraphicsSettingsRuntime : Node
     {
         if (_instance is not null && GodotObject.IsInstanceValid(_instance)) return _instance;
 
-        _instance = new GraphicsSettingsRuntime
+        GraphicsSettingsRuntime instance = new GraphicsSettingsRuntime
         {
             Name = "PersistentGraphicsSettings",
             ProcessMode = ProcessModeEnum.Always,
         };
-        tree.Root.AddChild(_instance);
-        return _instance;
+        _instance = instance;
+        instance.Load();
+        Callable.From(() => tree.Root.AddChild(instance)).CallDeferred();
+        return instance;
     }
 
     public override void _Ready()

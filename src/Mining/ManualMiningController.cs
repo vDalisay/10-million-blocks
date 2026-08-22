@@ -377,9 +377,11 @@ public partial class ManualMiningController : Node3D
         _hoverToggle.TooltipText = unlocked
             ? "Toggle automatic manual mining while the cursor rests on a block. Camera movement and placement pause it."
             : string.Empty;
-        if (!HoverMiningEnabled)
+        if (!HoverMiningEnabled
+            && _hoverIndicator is not null
+            && GetViewport() is Viewport viewport)
         {
-            _hoverIndicator?.SetState(false, GetViewport().GetMousePosition(), _skills.Derived.ManualFootprint, 0.0f);
+            _hoverIndicator.SetState(false, viewport.GetMousePosition(), _skills.Derived.ManualFootprint, 0.0f);
         }
     }
 
