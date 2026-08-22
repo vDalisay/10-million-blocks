@@ -21,11 +21,9 @@ public readonly record struct DiagnosticRelocationBatch(
 
 public partial class MinerSimulationService
 {
-    // Failed nearest-neighbour searches used to be retried five times per second. The supplied F11
-    // trace spent 15.4 seconds of CPU time on 1.65 million relocation candidate checks, with one pass
-    // reaching 392 ms. A short retry backoff keeps recovery responsive while preventing a known-bad
-    // neighbourhood from being rescanned every 200 ms before the terrain around it has meaningfully
-    // changed.
+    // Failed nearest-neighbour searches used to be retried five times per second. A short retry backoff
+    // keeps recovery responsive while preventing a known-bad neighbourhood from being rescanned before
+    // the surrounding terrain has meaningfully changed.
     private const ulong DiagnosticRelocationFailureCooldownMs = 1_000UL;
 
     private readonly HashSet<Vector3I> _diagnosticSpawnVoxels = new();
@@ -131,17 +129,14 @@ public partial class MinerSimulationService
     /// that metric rather than a random teleport.
     ///
     /// Shovels deliberately recover onto the authored dirt-backed surface-edge material, not merely any
-    /// generic shovel-compatible tile. This keeps the stress harness from bouncing a stuck shovel among
-    /// sand patches and matches the requested "put it back on dirt" recovery behavior.
+    /// generic shovel-compatible tile. Drills require the anchor block itself to be mineable by the
+    /// fully-upgraded drill. If the local area contains no valid anchor, the same nearest search is
+    /// repeated around the active manual-mining front supplied by the F11 suite.
     ///
-    /// Drills require the anchor block itself to be mineable by the fully-upgraded drill. If the local
-    /// area contains no valid anchor, the same nearest search is repeated around the active manual-mining
-    /// front supplied by the F11 suite.
-    ///
-    /// Candidate validation is allocation-free and uses a per-pass O(1) occupied-anchor set. The previous
-    /// diagnostic path called CanPlaceMiner for every candidate, which rescanned all miners and repeated
-    /// voxel/exposure sampling; with 120 machines that made relocation itself the benchmark's largest CPU
-    /// spike. Normal gameplay placement semantics are unchanged.
+    /// Candidate validation rejects incompatible materials before the six-neighbour exposure query. The
+    /// latest 120-unit trace spent several seconds inside failed relocation searches; most candidates are
+    /// the wrong material, so there is no reason to pay seven voxel samples for them. Normal gameplay
+    /// placement semantics are unchanged.
     /// </summary>
     public DiagnosticRelocationBatch RelocateStoppedDiagnosticMiners(
         int relocationBudget,
@@ -348,25 +343,31 @@ public partial class MinerSimulationService
         }
 
         BlockSample sample = _world.SampleVoxel(candidate);
-        if (!sample.Present || !_world.IsExposed(candidate, sample)) return false;
+        if (!sample.Present) return false;
 
+        // Material compatibility is much cheaper than exposure. Reject the overwhelming majority of
+        // candidates here, then pay the six-neighbour exposure query only for a plausible destination.
         if (IsPrimaryDrill(definition))
         {
-            return CanPrimaryDrillMine(sample);
+            return CanPrimaryDrillMine(sample) && _world.IsExposed(candidate, sample);
         }
 
         if (IsShovel(definition))
         {
-            // Stress relocation intentionally prefers/forces the dirt-backed authored shovel surface.
-            // Normal player placement still accepts the full production shovel material vocabulary.
-            if (sample.BlockId != _world.Profile.SurfaceEdgeBlock) return false;
+            if (sample.BlockId != _world.Profile.SurfaceEdgeBlock || !IsShovelMaterial(sample)) return false;
+            if (!_world.IsExposed(candidate, sample)) return false;
             Vector3I outward = _world.Source.GetOutwardNormal(candidate);
-            return IsShovelMaterial(sample) && !HasBlockingShovelSurfaceFeature(candidate, outward);
+            return !HasBlockingShovelSurfaceFeature(candidate, outward);
         }
 
-        if (IsAxe(definition)) return IsTreeAnchor(candidate);
+        if (IsAxe(definition))
+        {
+            return _world.IsExposed(candidate, sample) && IsTreeAnchor(candidate);
+        }
+
         if (!MatchesAllowedTags(definition, _mining.GetBlockDefinition(sample.BlockId))) return false;
-        return _patterns.Contains(EffectivePatternId(definition));
+        if (!_patterns.Contains(EffectivePatternId(definition))) return false;
+        return _world.IsExposed(candidate, sample);
     }
 
     private static int NextDiagnosticInt(ref uint state, int exclusiveMax)
