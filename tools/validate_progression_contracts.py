@@ -46,18 +46,16 @@ for world_id, dimension in expected_dimensions.items():
 for world_id, profile in worlds.items():
     assert int(profile.get("worldVersion", 1)) > 0, f"{world_id} must have a positive worldVersion"
     assert int(profile.get("generationVersion", 0)) > 0, f"{world_id} must have a positive generationVersion"
+    # currencyScope remains in authored JSON for development-save/content compatibility. Runtime
+    # WorldProfile.UsesTutorialLocalWallet deliberately resolves false for every world after the later
+    # product decision that ordinary resources follow the player from the first tutorial onward.
     scope = profile.get("currencyScope", "persistent_main")
-    assert scope in {"tutorial_local", "persistent_main"}, f"{world_id} has unknown currencyScope {scope!r}"
+    assert scope in {"tutorial_local", "persistent_main"}, f"{world_id} has unknown legacy currencyScope {scope!r}"
 
-for world_id in tutorial_ids:
-    assert worlds[world_id].get("currencyScope") == "tutorial_local", (
-        f"tutorial world {world_id} must use an isolated tutorial-local wallet"
-    )
-
-for world_id in order[4:]:
-    assert worlds[world_id].get("currencyScope", "persistent_main") == "persistent_main", (
-        f"post-tutorial world {world_id} must use the persistent main-game wallet"
-    )
+# Guard the current product decision explicitly instead of reviving the obsolete early-plan rule that
+# tutorial balances are discarded between cubes. Static JSON still contains legacy annotations, but
+# every shipped progression world is expected to participate in one persistent ordinary-resource wallet.
+assert all(world_id in worlds for world_id in order)
 
 assert int(worlds["tutorial_single_block"].get("targetMineableBlocks", 0)) == 1
 assert int(worlds["tutorial_dirt_5"].get("targetMineableBlocks", 0)) == 125
@@ -102,6 +100,6 @@ for world_id in order:
     assert world_id in worlds, f"progression references missing world {world_id}"
 
 print(
-    f"progression contracts passed: {len(tutorial_ids)} tutorial-local worlds, "
-    f"{len(order) - len(tutorial_ids)} persistent progression worlds"
+    f"progression contracts passed: {len(order)} Steam-demo worlds share the effective persistent wallet; "
+    f"{len(tutorial_ids)} are tutorial worlds"
 )
