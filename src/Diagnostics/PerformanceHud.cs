@@ -34,10 +34,10 @@ public partial class PerformanceHud : CanvasLayer
             Visible = false,
             AnchorLeft = 1.0f,
             AnchorRight = 1.0f,
-            OffsetLeft = -540.0f,
+            OffsetLeft = -560.0f,
             OffsetTop = 16.0f,
             OffsetRight = -16.0f,
-            OffsetBottom = 520.0f,
+            OffsetBottom = 548.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         AddChild(_panel);
@@ -111,7 +111,8 @@ public partial class PerformanceHud : CanvasLayer
             $"fps: {Engine.GetFramesPerSecond():0}  managed: {memoryMb:0.0} MB  GC: {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}\n" +
             $"renderer: {renderer}  camera: {_camera.CurrentDistance:0.0}  clearance: {_camera.SurfaceClearance:0.00}  drag: {(_camera.IsManipulating ? "active" : "idle")}\n" +
             $"surface focus: {_camera.SurfaceFocusBlend:0.00}  detail radius: {_view.CurrentStreamingDetailRadius}  {context}\n" +
-            $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
+            $"chunks resident: {_view.VisibleChunkCount}  presented/culled: {_view.PresentedChunkCount}/{_view.CulledChunkCount}  backface/frustum: {_view.BackfaceCulledChunkCount}/{_view.FrustumCulledChunkCount}\n" +
+            $"LOD tree batches hidden: {_view.LodHiddenTreeBatchCount:N0}  shadow batches disabled: {_view.LodShadowDisabledBatchCount:N0}  queue: {_view.PendingChunkLoads}  dirty: {_view.PendingChunkRebuilds}\n" +
             $"sparse exposure pending/frontier/builds: {_view.PendingSparseExposureOverlays:N0}/{_view.SparseExposureFrontierCandidateCount:N0}/{_view.SparseExposureOverlayBuilds:N0}  ms last/avg: {_view.LastSparseExposureOverlayBuildMilliseconds:0.00}/{_view.AverageSparseExposureOverlayBuildMilliseconds:0.00}\n" +
             automationBudget + "\n" +
             $"automation presentation queued/suppressed: {_view.AutomationPresentationUpdatesQueued:N0}/{_view.AutomationPresentationUpdatesSuppressed:N0}  deferred chunks: {_view.DeferredAutomationChunkCount:N0}\n" +
