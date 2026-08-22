@@ -7,8 +7,11 @@ namespace TenMillionBlocks.Automation;
 
 public partial class MinerSimulationService
 {
+    private const int MaxVisualPolicyChecksPerRefresh = 256;
+
     private int _lastDrillMaterialTier;
     private double _visualVisibilityRefreshTimer;
+    private int _visualPolicyCursor;
 
     public event Action<MinerInstance>? MinerStopped;
 
@@ -71,7 +74,6 @@ public partial class MinerSimulationService
     {
         if (miner.StopReason == MinerStopReason.BlockedMaterial)
         {
-            // Deep drill blockers are easier to understand from their tunnel entrance.
             return miner.Origin;
         }
         if (miner.StopReason is MinerStopReason.BlockedFeature or MinerStopReason.BlockedTerrain)
@@ -148,9 +150,6 @@ public partial class MinerSimulationService
         Vector3I blockedVoxel = default,
         string blockedBlockId = "")
     {
-        // The pathfinder only returns eligible soft cells. When none exists, inspect the same reachable
-        // surface vocabulary once more for the first meaningful obstruction so attention/tutorial UI can
-        // distinguish tree, water and stone from a route that simply ran out of terrain.
         if (reason == MinerStopReason.NoReachableTarget
             && IsShovel(_catalog.Get(miner.DefinitionId))
             && TryFindShovelSurfaceBlocker(
@@ -303,8 +302,6 @@ public partial class MinerSimulationService
 
         if (miner.StopReason == MinerStopReason.BlockedTerrain)
         {
-            // Shovel terrain capability itself does not widen. Resume only when the exact physical
-            // obstruction was removed, after which normal pathfinding decides where to continue.
             return !_world.IsPresent(miner.BlockedVoxel);
         }
 
@@ -317,6 +314,12 @@ public partial class MinerSimulationService
         return !sample.Present || CanPrimaryDrillMine(sample);
     }
 
+    /// <summary>
+    /// Visibility/resume policy is presentation-adjacent and need not scan an arbitrarily large fleet
+    /// eight times per second. Small fleets retain the old immediate behavior; large fleets are walked
+    /// round-robin in bounded slices. MinerStopped itself remains immediate, so the player still gets
+    /// instant feedback when a machine encounters a blocker.
+    /// </summary>
     private void RefreshAutomationVisualVisibility(double delta)
     {
         _visualVisibilityRefreshTimer += delta;
@@ -329,9 +332,19 @@ public partial class MinerSimulationService
         _view.RefreshViewDependentPresentation();
         _view.RefreshDeferredAutomationPresentation();
 
-        bool resumed = false;
-        foreach (MinerInstance miner in _miners)
+        int minerCount = _miners.Count;
+        if (minerCount == 0)
         {
+            _visualPolicyCursor = 0;
+            return;
+        }
+
+        bool resumed = false;
+        int checks = Math.Min(minerCount, MaxVisualPolicyChecksPerRefresh);
+        for (int i = 0; i < checks; i++)
+        {
+            if (_visualPolicyCursor >= minerCount) _visualPolicyCursor = 0;
+            MinerInstance miner = _miners[_visualPolicyCursor++];
             if (miner.Exhausted
                 && miner.StopReason is MinerStopReason.BlockedMaterial
                     or MinerStopReason.BlockedFeature
