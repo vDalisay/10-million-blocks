@@ -17,6 +17,7 @@ public partial class WorldView
     private float _lastVisibilityFov;
     private int _lastVisibilityChunkCount = -1;
     private double _visibilityRefreshTimer;
+    private VisibilityRefreshTicker? _visibilityRefreshTicker;
 
     public int PresentedChunkCount { get; private set; }
     public int CulledChunkCount { get; private set; }
@@ -40,6 +41,20 @@ public partial class WorldView
 
         _visibilityRefreshTimer = 0.0;
         RefreshViewDependentPresentation();
+    }
+
+    private void EnsureVisibilityRefreshTicker()
+    {
+        if (_visibilityRefreshTicker is not null && GodotObject.IsInstanceValid(_visibilityRefreshTicker))
+        {
+            return;
+        }
+
+        _visibilityRefreshTicker = new VisibilityRefreshTicker(this)
+        {
+            Name = "VisibilityRefreshTicker",
+        };
+        AddChild(_visibilityRefreshTicker);
     }
 
     /// <summary>
@@ -66,6 +81,8 @@ public partial class WorldView
             _lastVisibilityChunkCount = _chunkRoots.Count;
             return;
         }
+
+        EnsureVisibilityRefreshTicker();
 
         Camera3D camera = _camera.Camera;
         Vector3 cameraPosition = camera.GlobalPosition;
@@ -298,5 +315,20 @@ public partial class WorldView
 
         Vector3I outward = _world.Source.GetOutwardNormal(centerVoxel);
         return toCamera.Dot((Vector3)outward) > 0.0f;
+    }
+
+    private sealed partial class VisibilityRefreshTicker : Node
+    {
+        private readonly WorldView _owner;
+
+        public VisibilityRefreshTicker(WorldView owner)
+        {
+            _owner = owner;
+        }
+
+        public override void _Process(double delta)
+        {
+            _owner.TickViewDependentPresentation(delta);
+        }
     }
 }
