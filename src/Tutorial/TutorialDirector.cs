@@ -11,7 +11,8 @@ namespace TenMillionBlocks.Tutorial;
 /// Contextual tutorial presenter. It consumes semantic events instead of being embedded in mechanics,
 /// persists one-time milestones, and deliberately stays silent in main-game worlds except for the
 /// authored world-start intro. Tips are queued so two milestones reached in quick succession cannot
-/// overwrite each other before the player has had a chance to read them.
+/// overwrite each other before the player has had a chance to read them. F1 recalls the last relevant
+/// message without mutating tutorial progress, so an auto-dismissed instruction is never permanently lost.
 /// </summary>
 public partial class TutorialDirector : CanvasLayer
 {
@@ -27,6 +28,7 @@ public partial class TutorialDirector : CanvasLayer
     private Label _title = null!;
     private Label _body = null!;
     private readonly Queue<TutorialMessage> _pending = new();
+    private TutorialMessage? _lastMessage;
     private double _hideTimer;
 
     public event Action? StateChanged;
@@ -58,6 +60,27 @@ public partial class TutorialDirector : CanvasLayer
         {
             DismissCurrent(showNext: true);
         }
+    }
+
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo || key.Keycode != Key.F1)
+        {
+            return;
+        }
+
+        TutorialMessage message = _lastMessage ?? BuildWorldHelpMessage();
+        if (_panel.Visible)
+        {
+            // F1 while a tip is already visible acts as "give me more time" rather than replacing a
+            // queued semantic tutorial event with stale text.
+            _hideTimer = Math.Max(_hideTimer, message.VisibleSeconds);
+        }
+        else
+        {
+            ShowMessage(message);
+        }
+        GetViewport().SetInputAsHandled();
     }
 
     private void BuildUi()
@@ -104,7 +127,7 @@ public partial class TutorialDirector : CanvasLayer
             Text = "×",
             Flat = true,
             CustomMinimumSize = new Vector2(30, 30),
-            TooltipText = "Dismiss",
+            TooltipText = "Dismiss. Press F1 at any time to recall the last tip.",
         };
         close.Pressed += () => DismissCurrent(showNext: true);
         header.AddChild(close);
@@ -145,6 +168,7 @@ public partial class TutorialDirector : CanvasLayer
 
     private void ShowMessage(TutorialMessage message)
     {
+        _lastMessage = message;
         _title.Text = message.Title;
         _body.Text = message.Body;
         _panel.Visible = true;
@@ -176,6 +200,14 @@ public partial class TutorialDirector : CanvasLayer
         {
             if (IsInsideTree()) ShowMessage(next);
         }).CallDeferred();
+    }
+
+    private TutorialMessage BuildWorldHelpMessage()
+    {
+        string body = string.IsNullOrWhiteSpace(_profile.IntroText)
+            ? "Mine every block to clear this world."
+            : _profile.IntroText;
+        return new TutorialMessage(_profile.DisplayName.ToUpperInvariant(), body, WorldStartVisibleSeconds);
     }
 
     private bool TryMessage(GameplayEvent gameplayEvent, out string title, out string body)
