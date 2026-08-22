@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using TenMillionBlocks.Content;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Save;
 using TenMillionBlocks.UI;
@@ -17,6 +18,7 @@ public partial class MainMenuRoot : Node
     private Control _settingsPanel = null!;
     private Control _confirmPanel = null!;
     private Label _status = null!;
+    private Label _progressSummary = null!;
     private Button _playButton = null!;
     private GraphicsSettingsRuntime _graphics = null!;
 
@@ -44,9 +46,9 @@ public partial class MainMenuRoot : Node
             AnchorRight = 0.5f,
             AnchorBottom = 0.5f,
             OffsetLeft = -280,
-            OffsetTop = -220,
+            OffsetTop = -235,
             OffsetRight = 280,
-            OffsetBottom = -165,
+            OffsetBottom = -180,
         };
         title.AddThemeFontSizeOverride("font_size", 34);
         canvas.AddChild(title);
@@ -99,11 +101,21 @@ public partial class MainMenuRoot : Node
 
     private Control BuildMainPanel()
     {
-        PanelContainer panel = CenteredPanel(230, 155);
+        PanelContainer panel = CenteredPanel(230, 185);
         var margin = StandardMargin();
         panel.AddChild(margin);
         var column = StandardColumn();
         margin.AddChild(column);
+
+        _progressSummary = new Label
+        {
+            Text = "Preparing progression summary...",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            CustomMinimumSize = new Vector2(360, 48),
+            Modulate = new Color(0.74f, 0.82f, 0.92f),
+        };
+        column.AddChild(_progressSummary);
 
         _playButton = new Button
         {
@@ -358,6 +370,50 @@ public partial class MainMenuRoot : Node
         bool hasSave = Godot.FileAccess.FileExists(SaveService.DefaultPath)
             || Godot.FileAccess.FileExists(SaveService.LegacyV2Path);
         _playButton.Text = hasSave ? "CONTINUE" : "START GAME";
+        RefreshProgressSummary(hasSave);
+    }
+
+    private void RefreshProgressSummary(bool hasSave)
+    {
+        if (_progressSummary is null) return;
+        if (!hasSave)
+        {
+            _progressSummary.Text = "NEW GAME · begin with a single block";
+            _progressSummary.Modulate = new Color(0.74f, 0.82f, 0.92f);
+            return;
+        }
+
+        try
+        {
+            WorldCatalog worlds = WorldCatalog.Load();
+            GameSaveData save = new SaveService().LoadOrCreate(worlds);
+            const string finaleId = "reference_ridges";
+            if (save.CompletedWorldIds.Contains(finaleId))
+            {
+                _progressSummary.Text = $"STEAM DEMO COMPLETE · {save.CompletedWorldIds.Count:N0} worlds cleared";
+                _progressSummary.Modulate = new Color(0.72f, 1.0f, 0.78f);
+                return;
+            }
+
+            string currentName = save.CurrentWorldId;
+            if (!string.IsNullOrWhiteSpace(currentName)
+                && worlds.Worlds.TryGetValue(currentName, out WorldProfile? current))
+            {
+                currentName = current.DisplayName;
+            }
+            if (string.IsNullOrWhiteSpace(currentName)) currentName = "First Block";
+
+            _progressSummary.Text = $"CONTINUE · {currentName} · {save.CompletedWorldIds.Count:N0} worlds cleared";
+            _progressSummary.Modulate = new Color(0.74f, 0.82f, 0.92f);
+        }
+        catch (Exception exception)
+        {
+            // A corrupt/incompatible development save should not make the main menu unusable. Gameplay
+            // remains responsible for the detailed error surface; the menu simply avoids lying about it.
+            GD.PushWarning($"Could not read save summary: {exception.Message}");
+            _progressSummary.Text = "CONTINUE · save summary unavailable";
+            _progressSummary.Modulate = new Color(1.0f, 0.72f, 0.56f);
+        }
     }
 
     private void ShowMain()
