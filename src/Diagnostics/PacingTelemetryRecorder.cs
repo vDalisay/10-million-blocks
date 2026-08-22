@@ -18,8 +18,10 @@ namespace TenMillionBlocks.Diagnostics;
 /// Debug-only local telemetry for Phase Q pacing/balance playtests. It records the measurements called
 /// out by the pacing plan without sending anything off-device: active session time, manual/automation
 /// split, first automation timing, placements/stops/relocations, final resources and skill ranks.
-/// Reports are plain text under user://pacing_reports so they can be pasted into an issue or compared
-/// between builds. The recorder is a passive observer and never changes authoritative gameplay state.
+/// It also records the longest stretch without an observable player decision/action so a playtest can
+/// quickly flag the plan's "nothing meaningful to do for 1-2 minutes" failure mode. Reports are plain
+/// text under user://pacing_reports. This node is a passive observer and never changes authoritative
+/// gameplay state.
 /// </summary>
 public partial class PacingTelemetryRecorder : Node
 {
@@ -39,11 +41,15 @@ public partial class PacingTelemetryRecorder : Node
     private long _baselineAutomatedBlocks;
     private long _sessionManualBlocks;
     private long _sessionAutomatedBlocks;
+    private int _automationUnitsAtStart;
     private int _placements;
     private int _stops;
     private int _relocations;
     private int _maxAutomationUnits;
+    private int _decisionEvents;
     private double _activeSeconds;
+    private double _lastDecisionSeconds;
+    private double _longestDecisionGapSeconds;
     private double _firstAutomationPlacementSeconds = -1.0;
     private bool _completionWritten;
     private bool _subscribed;
@@ -69,7 +75,8 @@ public partial class PacingTelemetryRecorder : Node
 
         SnapshotOrigins();
         SnapshotRanks(recordChanges: false);
-        _maxAutomationUnits = _miners.Miners.Count;
+        _automationUnitsAtStart = _miners.Miners.Count;
+        _maxAutomationUnits = _automationUnitsAtStart;
     }
 
     public override void _Ready()
@@ -86,6 +93,7 @@ public partial class PacingTelemetryRecorder : Node
     public override void _Process(double delta)
     {
         _activeSeconds += Math.Max(0.0, delta);
+        _longestDecisionGapSeconds = Math.Max(_longestDecisionGapSeconds, _activeSeconds - _lastDecisionSeconds);
         _maxAutomationUnits = Math.Max(_maxAutomationUnits, _miners.Miners.Count);
     }
 
@@ -128,8 +136,15 @@ public partial class PacingTelemetryRecorder : Node
     private void OnBlockMined(MiningResult result)
     {
         if (!result.Success || !result.Removed) return;
-        if (result.Source is MiningSource.Automated or MiningSource.Offline) _sessionAutomatedBlocks++;
-        else if (result.Source == MiningSource.Manual) _sessionManualBlocks++;
+        if (result.Source is MiningSource.Automated or MiningSource.Offline)
+        {
+            _sessionAutomatedBlocks++;
+        }
+        else if (result.Source == MiningSource.Manual)
+        {
+            _sessionManualBlocks++;
+            MarkDecision();
+        }
     }
 
     private void OnBulkMined(BulkMiningResult result)
@@ -139,11 +154,16 @@ public partial class PacingTelemetryRecorder : Node
         {
             _sessionAutomatedBlocks = checked(_sessionAutomatedBlocks + result.BlocksMined);
         }
+        else if (result.Source == MiningSource.Manual)
+        {
+            MarkDecision();
+        }
     }
 
     private void OnSkillsChanged()
     {
         SnapshotRanks(recordChanges: true);
+        MarkDecision();
     }
 
     private void OnMinerPlaced(MinerInstance miner)
@@ -155,6 +175,7 @@ public partial class PacingTelemetryRecorder : Node
         {
             _firstAutomationPlacementSeconds = _activeSeconds;
         }
+        MarkDecision();
     }
 
     private void OnMinerStopped(MinerInstance _)
@@ -164,6 +185,7 @@ public partial class PacingTelemetryRecorder : Node
 
     private void OnMinersChanged()
     {
+        bool moved = false;
         // Origin is the route anchor and only changes when an existing physical unit is deliberately
         // relocated. Ordinary mining advances LastMinedVoxel/CandidateIndex, so this detects moves
         // without adding analytics hooks to the simulation itself.
@@ -177,7 +199,9 @@ public partial class PacingTelemetryRecorder : Node
             if (previous == miner.Origin) continue;
             _minerOrigins[miner.InstanceId] = miner.Origin;
             _relocations++;
+            moved = true;
         }
+        if (moved) MarkDecision();
         _maxAutomationUnits = Math.Max(_maxAutomationUnits, _miners.Miners.Count);
     }
 
@@ -186,11 +210,30 @@ public partial class PacingTelemetryRecorder : Node
         if (!string.Equals(gameplayEvent.WorldId, _profile.Id, StringComparison.Ordinal)) return;
         _semanticCounts[gameplayEvent.Kind] = _semanticCounts.GetValueOrDefault(gameplayEvent.Kind) + 1;
 
+        // These semantic events represent deliberate active-system interactions that are not necessarily
+        // visible through MiningService or SkillTreeService. Do not count passive spawn/stop events as a
+        // player decision; otherwise automation waiting would artificially look interactive.
+        if (gameplayEvent.Kind is GameplayEventKind.LightningCharged
+            or GameplayEventKind.LightningImpact
+            or GameplayEventKind.MeteorGrabbed
+            or GameplayEventKind.MeteorImpact)
+        {
+            MarkDecision();
+        }
+
         if (gameplayEvent.Kind == GameplayEventKind.WorldCompleted && !_completionWritten)
         {
             WriteReport("completed", completed: true);
             _completionWritten = true;
         }
+    }
+
+    private void MarkDecision()
+    {
+        double gap = Math.Max(0.0, _activeSeconds - _lastDecisionSeconds);
+        _longestDecisionGapSeconds = Math.Max(_longestDecisionGapSeconds, gap);
+        _lastDecisionSeconds = _activeSeconds;
+        _decisionEvents++;
     }
 
     private void SnapshotOrigins()
@@ -239,10 +282,12 @@ public partial class PacingTelemetryRecorder : Node
             long automatedRun = checked(_baselineAutomatedBlocks + _sessionAutomatedBlocks);
             long accounted = checked(manualRun + automatedRun);
             long otherMined = Math.Max(0L, _mining.TotalMined - accounted);
+            double currentGap = Math.Max(0.0, _activeSeconds - _lastDecisionSeconds);
+            double longestGap = Math.Max(_longestDecisionGapSeconds, currentGap);
 
             var report = new StringBuilder(4096);
             report.AppendLine("10 Million Blocks pacing report");
-            report.AppendLine("report_version=1");
+            report.AppendLine("report_version=2");
             report.AppendLine($"reason={reason}");
             report.AppendLine($"completed={completed.ToString().ToLowerInvariant()}");
             report.AppendLine($"world={_profile.Id}");
@@ -250,12 +295,14 @@ public partial class PacingTelemetryRecorder : Node
             report.AppendLine($"world_version={_profile.WorldVersion}");
             report.AppendLine($"generation_version={_profile.GenerationVersion}");
             report.AppendLine(FormattableString.Invariant($"active_session_seconds={_activeSeconds:0.00}"));
+            report.AppendLine(FormattableString.Invariant($"longest_observed_decision_gap_seconds={longestGap:0.00}"));
+            report.AppendLine($"decision_events_session={_decisionEvents}");
             report.AppendLine($"blocks_mined_total={_mining.TotalMined}");
             report.AppendLine($"blocks_manual_run={manualRun}");
             report.AppendLine($"blocks_automated_run={automatedRun}");
             report.AppendLine($"blocks_other_sources_run={otherMined}");
             report.AppendLine($"resources_end={_mining.Currency}");
-            report.AppendLine($"automation_units_start={_minerOrigins.Count - _placements}");
+            report.AppendLine($"automation_units_start={_automationUnitsAtStart}");
             report.AppendLine($"automation_units_end={_miners.Miners.Count}");
             report.AppendLine($"automation_units_max_session={_maxAutomationUnits}");
             report.AppendLine($"automation_placements_session={_placements}");
@@ -277,7 +324,8 @@ public partial class PacingTelemetryRecorder : Node
                 report.AppendLine($"{kind}={count}");
             }
             report.AppendLine();
-            report.AppendLine("note=active_session_seconds excludes time outside this loaded world session; combine multiple partial reports when a run is revisited before completion.");
+            report.AppendLine("note=decision gaps are an objective action-gap signal, not a claim that the player was bored; manual mining, skill changes, placements/relocations and active lightning/meteor interactions reset the gap.");
+            report.AppendLine("note=active_session_seconds excludes time outside this loaded world session; combine partial reports when a run is revisited before completion.");
             report.AppendLine("note=use these reports to tune costs and decision density; do not infer balance from world size alone.");
 
             File.WriteAllText(path, report.ToString());
@@ -291,8 +339,7 @@ public partial class PacingTelemetryRecorder : Node
 
     private string FirstAutomationTiming()
     {
-        int baselineUnits = Math.Max(0, _minerOrigins.Count - _placements);
-        if (baselineUnits > 0) return "already_present_at_session_start";
+        if (_automationUnitsAtStart > 0) return "already_present_at_session_start";
         return _firstAutomationPlacementSeconds < 0.0
             ? "none"
             : _firstAutomationPlacementSeconds.ToString("0.00", CultureInfo.InvariantCulture);
