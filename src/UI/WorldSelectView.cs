@@ -10,6 +10,7 @@ namespace TenMillionBlocks.UI;
 /// <summary>
 /// Lightweight playable world browser. Revisit resumes each world's persistent run; Replay requests
 /// the immutable recorded run and is exposed separately so the two concepts cannot be confused.
+/// The browser itself has no floating gameplay button: entry is owned by the Esc/pause menu.
 /// </summary>
 public partial class WorldSelectView : CanvasLayer
 {
@@ -19,7 +20,6 @@ public partial class WorldSelectView : CanvasLayer
 
     private Control _overlay = null!;
     private VBoxContainer _list = null!;
-    private Button _toggle = null!;
 
     public event Action<string>? RevisitRequested;
     public event Action<string>? ReplayRequested;
@@ -75,22 +75,6 @@ public partial class WorldSelectView : CanvasLayer
         var root = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
         root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(root);
-
-        _toggle = new Button
-        {
-            Text = "WORLDS",
-            AnchorLeft = 1.0f,
-            AnchorTop = 1.0f,
-            AnchorRight = 1.0f,
-            AnchorBottom = 1.0f,
-            OffsetLeft = -132.0f,
-            OffsetTop = -58.0f,
-            OffsetRight = -16.0f,
-            OffsetBottom = -16.0f,
-            MouseFilter = Control.MouseFilterEnum.Stop,
-        };
-        _toggle.Pressed += () => SetOpen(!IsOpen);
-        root.AddChild(_toggle);
 
         _overlay = new Control
         {
@@ -240,11 +224,7 @@ public partial class WorldSelectView : CanvasLayer
         revisit.Pressed += () =>
         {
             SetOpen(false);
-            if (isCurrent) return;
-            WorldLoadingScreen.RunTransition(
-                this,
-                $"LOADING {profile.DisplayName}",
-                () => RevisitRequested?.Invoke(worldId));
+            if (!isCurrent) RevisitRequested?.Invoke(worldId);
         };
         actions.AddChild(revisit);
 
@@ -259,10 +239,7 @@ public partial class WorldSelectView : CanvasLayer
         replay.Pressed += () =>
         {
             SetOpen(false);
-            WorldLoadingScreen.RunTransition(
-                this,
-                $"LOADING {profile.DisplayName} REPLAY",
-                () => ReplayRequested?.Invoke(worldId));
+            ReplayRequested?.Invoke(worldId);
         };
         actions.AddChild(replay);
 
@@ -313,7 +290,6 @@ public partial class WorldSelectView : CanvasLayer
     {
         if (_overlay.Visible == open) return;
         _overlay.Visible = open;
-        _toggle.Visible = !open;
         OpenChanged?.Invoke(open);
     }
 }
