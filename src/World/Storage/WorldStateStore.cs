@@ -62,9 +62,8 @@ public sealed class WorldStateStore
             return true;
         }
 
-        public List<int> ToIndexList()
+        public void CopyIndicesTo(List<int> destination)
         {
-            var result = new List<int>(Count);
             for (int wordIndex = 0; wordIndex < _words.Length; wordIndex++)
             {
                 ulong word = _words[wordIndex];
@@ -72,10 +71,16 @@ public sealed class WorldStateStore
                 {
                     int bit = BitOperations.TrailingZeroCount(word);
                     int index = (wordIndex << 6) + bit;
-                    if (index < _capacity) result.Add(index);
+                    if (index < _capacity) destination.Add(index);
                     word &= word - 1;
                 }
             }
+        }
+
+        public List<int> ToIndexList()
+        {
+            var result = new List<int>(Count);
+            CopyIndicesTo(result);
             return result;
         }
     }
@@ -106,14 +111,14 @@ public sealed class WorldStateStore
     public long MinedVoxelCount { get; private set; }
 
     public bool IsRegionExhausted(RegionCoord region) => _exhaustedRegions.ContainsKey(region);
+    public bool HasMinedVoxels(ChunkCoord chunk) => _minedByChunk.ContainsKey(chunk);
+    public int GetMinedVoxelCount(ChunkCoord chunk)
+        => _minedByChunk.TryGetValue(chunk, out ChunkBits? mined) ? mined.Count : 0;
 
     public bool IsMined(Vector3I voxel)
     {
         ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, _chunkSize);
 
-        // Exact demo/full-surface worlds normally have no aggregate exhausted regions at all. Avoid
-        // three additional signed floor divisions on every SampleVoxel call in that overwhelmingly
-        // common case. Region addressing is only needed once at least one aggregate region exists.
         if (_exhaustedRegions.Count > 0)
         {
             RegionCoord region = RegionCoord.FromChunk(chunk, _regionSizeInChunks);
@@ -132,9 +137,6 @@ public sealed class WorldStateStore
         ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, _chunkSize);
         RegionCoord region = default;
 
-        // Region quotas are a giant-world optimization. Exact demo worlds never ask for them, so do
-        // not pay three more floor divisions plus two region-dictionary writes for every ordinary mined
-        // block. The first aggregate-region query enables/reconstructs this bookkeeping lazily.
         if (_regionTrackingEnabled)
         {
             region = RegionCoord.FromChunk(chunk, _regionSizeInChunks);
@@ -206,6 +208,20 @@ public sealed class WorldStateStore
         => _minedByChunk.TryGetValue(chunk, out ChunkBits? mined)
             ? mined.ToIndexList()
             : Array.Empty<int>();
+
+    /// <summary>
+    /// Hot renderer path for one-time sparse-frontier bootstrap. The caller owns and reuses the list,
+    /// avoiding a new managed List allocation every time a modified chunk becomes presentation-relevant.
+    /// </summary>
+    public int CopyMinedLocalIndices(ChunkCoord chunk, List<int> destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        destination.Clear();
+        if (!_minedByChunk.TryGetValue(chunk, out ChunkBits? mined)) return 0;
+        if (destination.Capacity < mined.Count) destination.Capacity = mined.Count;
+        mined.CopyIndicesTo(destination);
+        return destination.Count;
+    }
 
     public long GetExhaustedRegionMinedCount(RegionCoord region)
         => _exhaustedRegions.GetValueOrDefault(region);
