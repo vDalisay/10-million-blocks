@@ -6,13 +6,12 @@ namespace TenMillionBlocks.World.Rendering;
 
 public partial class WorldView
 {
-    // Automation can mutate hundreds of blocks per second, but its visible terrain does not need to
-    // reconstruct a chunk for every rendered frame. Coalesce observed automation changes for 50 ms and
-    // let the normal dirty-chunk scheduler rebuild each affected chunk once. Authoritative mining and
-    // the incremental exposure frontier still update immediately; only the expensive base presentation
-    // commit is rate-limited. At 20 Hz this remains visually responsive while substantially reducing
-    // repeated chunk reconstruction when several machines work in the same area.
-    private const double VisibleAutomationFlushIntervalSeconds = 0.05;
+    // Automation can mutate hundreds of blocks per second, but the exterior surface does not need to
+    // reconstruct a whole chunk for every simulation frame. Cavity/tunnel walls have their own sparse
+    // renderer and remain responsive independently; coalescing the comparatively expensive outer-shell
+    // commit to ~13 Hz cuts repeated 16x16 surface-column reconstruction under large fleets without
+    // affecting authoritative mining, rewards or save state.
+    private const double VisibleAutomationFlushIntervalSeconds = 0.075;
     private const int VisibleAutomationFlushChunkBudget = 64;
 
     private readonly HashSet<ChunkCoord> _deferredAutomationChunks = new();
@@ -22,9 +21,11 @@ public partial class WorldView
     private AutomationPresentationWorker? _automationPresentationWorker;
     private bool _deferredRefreshStateInitialized;
     private Vector3 _lastDeferredRefreshCameraPosition;
+    private Vector3 _lastDeferredRefreshCameraForward;
     private int _lastDeferredRefreshCount = -1;
     private int _lastDeferredRefreshDesiredCount = -1;
     private int _lastDeferredRefreshResidentCount = -1;
+    private int _lastDeferredRefreshSparseRootCount = -1;
 
     public long AutomationPresentationUpdatesQueued { get; private set; }
     public long AutomationPresentationUpdatesSuppressed { get; private set; }
@@ -40,14 +41,20 @@ public partial class WorldView
         }
 
         ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, _world.Profile.ChunkSize);
-        if (!_desiredChunks.Contains(chunk) && !_chunkRoots.ContainsKey(chunk))
+        bool inWorkingSet = _desiredChunks.Contains(chunk)
+            || _chunkRoots.ContainsKey(chunk)
+            || _sparseOverlayRoots.ContainsKey(chunk);
+        if (!inWorkingSet)
         {
             return false;
         }
 
-        if (FullSurfaceRenderer && !IsChunkPresentationRelevant(chunk))
+        if (FullSurfaceRenderer)
         {
-            return false;
+            // Once a full-surface world has been excavated, the original cube outward normal is no
+            // longer a valid visibility test for a tunnel/cavity. A wall can face the camera while its
+            // original cube normal points away. Use only the conservative chunk/frustum policy here.
+            return IsChunkPresentationRelevant(chunk);
         }
 
         return IsAutomationFaceCameraFacing(voxel, outward);
@@ -55,11 +62,14 @@ public partial class WorldView
 
     /// <summary>
     /// World state is authoritative regardless of camera position. Visible automation records the same
-    /// six-neighbour incremental frontier as manual mining. Hidden, back-side and off-frustum automation
-    /// does even less: it invalidates only the affected chunk frontier and stores a chunk marker. Visible
-    /// base-chunk reconstruction is coalesced at 20 Hz rather than being re-requested every simulation
-    /// frame. If a hidden area later becomes presentation-relevant, its frontier is reconstructed once
-    /// from compact mined state.
+    /// six-neighbour incremental frontier as manual mining. Hidden and off-frustum automation invalidates
+    /// only the affected chunk frontier and stores a chunk marker. When that area becomes visible, the
+    /// frontier is reconstructed once from compact mined state.
+    ///
+    /// Important: full-surface cavity promotion must never use the original cube-face normal. That old
+    /// shortcut was able to leave a deferred cavity permanently stale after the camera moved to a view
+    /// where the tunnel itself was visible, which produced the persistent black see-through gaps seen in
+    /// the million-block stress world.
     /// </summary>
     public void MarkAutomationDirty(Vector3I voxel)
     {
@@ -100,12 +110,16 @@ public partial class WorldView
             return;
         }
 
-        Vector3 cameraPosition = _camera.Camera.GlobalPosition;
+        Camera3D camera = _camera.Camera;
+        Vector3 cameraPosition = camera.GlobalPosition;
+        Vector3 cameraForward = -camera.GlobalBasis.Z.Normalized();
         bool unchanged = _deferredRefreshStateInitialized
             && _lastDeferredRefreshCount == _deferredAutomationChunks.Count
             && _lastDeferredRefreshDesiredCount == _desiredChunks.Count
             && _lastDeferredRefreshResidentCount == _chunkRoots.Count
-            && cameraPosition.DistanceSquaredTo(_lastDeferredRefreshCameraPosition) < 0.0004f;
+            && _lastDeferredRefreshSparseRootCount == _sparseOverlayRoots.Count
+            && cameraPosition.DistanceSquaredTo(_lastDeferredRefreshCameraPosition) < 0.0004f
+            && cameraForward.Dot(_lastDeferredRefreshCameraForward) > 0.999995f;
         if (unchanged)
         {
             return;
@@ -113,8 +127,10 @@ public partial class WorldView
 
         _deferredRefreshStateInitialized = true;
         _lastDeferredRefreshCameraPosition = cameraPosition;
+        _lastDeferredRefreshCameraForward = cameraForward;
         _lastDeferredRefreshDesiredCount = _desiredChunks.Count;
         _lastDeferredRefreshResidentCount = _chunkRoots.Count;
+        _lastDeferredRefreshSparseRootCount = _sparseOverlayRoots.Count;
 
         _deferredPromotionScratch.Clear();
         foreach (ChunkCoord chunk in _deferredAutomationChunks)
@@ -132,13 +148,16 @@ public partial class WorldView
                 _world.Profile.ChunkSize / 2);
             Vector3I outward = _world.Source.GetOutwardNormal(center);
 
-            bool inWorkingSet = _desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk);
+            bool inWorkingSet = _desiredChunks.Contains(chunk)
+                || _chunkRoots.ContainsKey(chunk)
+                || _sparseOverlayRoots.ContainsKey(chunk);
             bool eligible = FullSurfaceRenderer || inWorkingSet;
             bool cameraRelevant = !FullSurfaceRenderer || IsChunkPresentationRelevant(chunk);
-            if (eligible && cameraRelevant && IsAutomationFaceCameraFacing(center, outward))
+            bool faceRelevant = FullSurfaceRenderer || IsAutomationFaceCameraFacing(center, outward);
+            if (eligible && cameraRelevant && faceRelevant)
             {
                 // Deferred state may represent a long period of hidden mining. Promote immediately when
-                // it becomes visible rather than waiting for the 50-ms live-automation coalescer.
+                // it becomes visible rather than waiting for the live-automation coalescer.
                 MarkInteractiveChunkDirty(chunk);
                 _deferredPromotionScratch.Add(chunk);
             }
@@ -149,6 +168,7 @@ public partial class WorldView
             _deferredAutomationChunks.Remove(chunk);
         }
         _lastDeferredRefreshCount = _deferredAutomationChunks.Count;
+        _lastDeferredRefreshSparseRootCount = _sparseOverlayRoots.Count;
     }
 
     public void FocusAutomationVoxel(Vector3I voxel)
@@ -211,7 +231,9 @@ public partial class WorldView
 
     private void QueueAutomationChunkIfObserved(ChunkCoord chunk)
     {
-        bool inWorkingSet = _desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk);
+        bool inWorkingSet = _desiredChunks.Contains(chunk)
+            || _chunkRoots.ContainsKey(chunk)
+            || _sparseOverlayRoots.ContainsKey(chunk);
         if (!inWorkingSet)
         {
             return;
@@ -261,8 +283,8 @@ public partial class WorldView
             _pendingVisibleAutomationChunks.Remove(chunk);
             if (!ChunkInWorldBounds(chunk)) continue;
 
-            // Camera motion during the 50-ms coalescing window can make a previously visible chunk
-            // irrelevant. Convert it to deferred work rather than paying for an off-screen rebuild.
+            // Camera motion during the coalescing window can make a previously visible chunk irrelevant.
+            // Convert it to deferred work rather than paying for an off-screen rebuild.
             if (FullSurfaceRenderer && !IsChunkPresentationRelevant(chunk))
             {
                 _deferredAutomationChunks.Add(chunk);
