@@ -18,12 +18,14 @@ public sealed class ReplayRecorder : IDisposable
 
     private readonly VirtualWorld _world;
     private readonly MiningService _mining;
-    private readonly List<ReplayRemovalEvent> _events = new();
+    private readonly List<ReplayRemovalEvent> _events;
     private readonly ulong _startedUsec;
     private readonly int _minCoordinate;
     private readonly int _axisSize;
     private readonly string _worldContentHash;
     private readonly uint _tickOffset;
+    private ulong _cachedProcessFrame = ulong.MaxValue;
+    private uint _cachedTick;
     private bool _disposed;
 
     public ReplayRecorder(VirtualWorld world, MiningService mining, string? existingAbsolutePath = null)
@@ -35,10 +37,17 @@ public sealed class ReplayRecorder : IDisposable
         _worldContentHash = WorldFreezeService.ComputeContentHash(world.Profile);
         _startedUsec = Time.GetTicksUsec();
 
+        // Million-block worlds can record hundreds of thousands of exact removals. Reserve a modest
+        // fraction up front so List<T> does not repeatedly allocate and copy an ever larger event buffer,
+        // while still keeping tiny tutorial worlds tiny.
+        int initialCapacity = (int)Math.Clamp(world.InitialMineableBlocks / 16L, 256L, 65_536L);
+        _events = new List<ReplayRemovalEvent>(initialCapacity);
+
         if (!string.IsNullOrWhiteSpace(existingAbsolutePath) && System.IO.File.Exists(existingAbsolutePath))
         {
             ReplayData existing = ReplayBinaryCodec.Read(existingAbsolutePath);
             ValidateExisting(existing.Header);
+            _events.EnsureCapacity(existing.Events.Count + 256);
             _events.AddRange(existing.Events);
             _tickOffset = existing.Events.Count == 0
                 ? 0u
@@ -86,11 +95,29 @@ public sealed class ReplayRecorder : IDisposable
     {
         if (!result.Success || !result.Removed || result.BlocksRemoved <= 0) return;
 
+        long linearIndex = ToLinearIndex(result.Voxel);
+        _events.Add(new ReplayRemovalEvent(CurrentReplayTick(), linearIndex, ReplaySourceMapper.FromMiningSource(result.Source)));
+    }
+
+    /// <summary>
+    /// Hundreds of automation removals can happen synchronously inside one rendered frame. They should
+    /// share a replay timestamp anyway, so query the wall clock once per process frame instead of once
+    /// per block. This removes a native timer call from the hottest persistent-world event path without
+    /// changing the 20 Hz replay timeline visible to the player.
+    /// </summary>
+    private uint CurrentReplayTick()
+    {
+        ulong processFrame = Engine.GetProcessFrames();
+        if (_cachedProcessFrame == processFrame)
+        {
+            return _cachedTick;
+        }
+
+        _cachedProcessFrame = processFrame;
         ulong elapsedUsec = Time.GetTicksUsec() - _startedUsec;
         ulong sessionTicks = elapsedUsec * DefaultTickRate / 1_000_000UL;
-        uint tick = checked((uint)Math.Min(uint.MaxValue, (ulong)_tickOffset + sessionTicks));
-        long linearIndex = ToLinearIndex(result.Voxel);
-        _events.Add(new ReplayRemovalEvent(tick, linearIndex, ReplaySourceMapper.FromMiningSource(result.Source)));
+        _cachedTick = checked((uint)Math.Min(uint.MaxValue, (ulong)_tickOffset + sessionTicks));
+        return _cachedTick;
     }
 
     private long ToLinearIndex(Vector3I voxel)
