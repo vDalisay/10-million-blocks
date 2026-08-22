@@ -8,10 +8,6 @@ namespace TenMillionBlocks.Diagnostics;
 
 public partial class AutomationRampStressSuite
 {
-    // The first relocation implementation was intentionally conservative, but the supplied benchmark
-    // showed that the diagnostic helper itself became the dominant stutter source: 1.65M candidate
-    // checks, 15.4s total search CPU and a 392ms worst pass. The optimized service now uses O(1)
-    // occupancy checks and failed-search cooldowns, and this scheduler gives it a smaller bounded budget.
     private const double DiagnosticRelocationIntervalSeconds = 0.25;
     private const int DiagnosticRelocationBudgetPerPass = 6;
     private const int DiagnosticRelocationLocalRadius = 6;
@@ -90,8 +86,6 @@ public partial class AutomationRampStressSuite
                 _relocationAccumulator += safeDelta;
                 _timelineAccumulator += safeDelta;
 
-                // Never catch up multiple relocation passes after a hitch. Diagnostic recovery must
-                // not manufacture another burst workload while trying to measure the real workload.
                 if (_relocationAccumulator >= DiagnosticRelocationIntervalSeconds)
                 {
                     _relocationAccumulator = 0.0;
@@ -194,13 +188,13 @@ public partial class AutomationRampStressSuite
                 var report = new StringBuilder(8192);
                 report.AppendLine();
                 report.AppendLine("[stress_relocation]");
-                report.AppendLine("relocation_extension_version=2");
+                report.AppendLine("relocation_extension_version=3");
                 report.AppendLine($"interval_s={DiagnosticRelocationIntervalSeconds:0.00}");
                 report.AppendLine($"budget_per_pass={DiagnosticRelocationBudgetPerPass}");
                 report.AppendLine($"local_nearest_manhattan_radius={DiagnosticRelocationLocalRadius}");
                 report.AppendLine($"active_mining_front_fallback_radius={DiagnosticRelocationLocalRadius + 2}");
                 report.AppendLine("policy=nearest compatible exposed block; shovel relocation requires dirt-backed surface-edge block; fallback around active center-screen mining front");
-                report.AppendLine("search_optimization=O(1) occupied-anchor lookup + single voxel/exposure validation + failed-search cooldown");
+                report.AppendLine("search_optimization=O(1) occupied-anchor lookup + material-first rejection before six-neighbour exposure + failed-search cooldown");
                 report.AppendLine($"passes_with_attention={_passes}");
                 report.AppendLine($"relocation_attempts={_attempted}");
                 report.AppendLine($"relocation_successes={_relocated}");
@@ -243,9 +237,9 @@ public partial class AutomationRampStressSuite
     }
 
     /// <summary>
-    /// Visible test-state indicator. The benchmark previously ran almost entirely through console output,
-    /// which made it unclear whether F11 had actually started or finished. Keep this overlay independent
-    /// from the gameplay HUD so it exists only for the diagnostic suite and costs just one panel/label.
+    /// Visible test-state indicator for loading, running and completion. The benchmark timer is not
+    /// allowed to start until WorldView reports its initial shell fully resolved, so the waiting state is
+    /// shown explicitly instead of silently contaminating the measured run with initial chunk loading.
     /// </summary>
     private sealed partial class DiagnosticStatusOverlay : CanvasLayer
     {
@@ -304,6 +298,17 @@ public partial class AutomationRampStressSuite
         public override void _Process(double delta)
         {
             if (_panel is null || _label is null) return;
+
+            if (_owner._pendingStart)
+            {
+                _completedRemaining = 0.0;
+                _panel.Visible = true;
+                float progress = (_owner._view?.InitialPresentationProgress ?? 0.0f) * 100.0f;
+                int pending = _owner._view?.PendingChunkLoads ?? 0;
+                _label.Text =
+                    $"F11 WAITING FOR FULL WORLD BASELINE   {progress:0.0}%   |   {pending} chunks pending";
+                return;
+            }
 
             if (_owner._running)
             {
