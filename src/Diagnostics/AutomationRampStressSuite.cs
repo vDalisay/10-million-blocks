@@ -38,6 +38,7 @@ public partial class AutomationRampStressSuite : Node
     private Rid _viewportRid;
 
     private bool _running;
+    private bool _pendingStart;
     private ulong _startedUsec;
     private ulong _lastFrameUsec;
     private double _elapsed;
@@ -151,6 +152,11 @@ public partial class AutomationRampStressSuite : Node
         {
             Finish("cancelled");
         }
+        else if (_pendingStart)
+        {
+            GD.Print("F11 automation ramp stress start cancelled while waiting for the world baseline to finish loading.");
+            ClearReferences();
+        }
         else
         {
             TryStart();
@@ -161,6 +167,29 @@ public partial class AutomationRampStressSuite : Node
     public override void _Process(double delta)
     {
         _ = delta;
+
+        // A benchmark that begins while hundreds of initial shell chunks are still being built mostly
+        // measures loading, not automation. The supplied trace had 353 pending loads and 345 stream-load
+        // completions inside the measured 70 seconds. F11 now arms immediately but starts its timer only
+        // after WorldView reports a fully resolved initial presentation.
+        if (_pendingStart)
+        {
+            if (_view is null || _miners is null || _manual is null || _camera is null)
+            {
+                ClearReferences();
+                return;
+            }
+
+            if (!_view.InitialPresentationReady)
+            {
+                return;
+            }
+
+            _pendingStart = false;
+            StartResolvedSuite();
+            return;
+        }
+
         if (!_running || _view is null || _miners is null || _manual is null || _camera is null)
         {
             return;
@@ -218,6 +247,7 @@ public partial class AutomationRampStressSuite : Node
     public override void _ExitTree()
     {
         if (_running) Finish("aborted");
+        else if (_pendingStart) ClearReferences();
     }
 
     private void TryStart()
@@ -232,13 +262,34 @@ public partial class AutomationRampStressSuite : Node
 
         if (_view is null || _miners is null || _manual is null || _camera is null || _view.DiagnosticWorldId != "stress_1000")
         {
-            GD.Print("Automation ramp stress suite requires stress_1000. Press F8 first, wait for the world to load, then press F11.");
+            GD.Print("Automation ramp stress suite requires stress_1000. Press F8 first, then press F11.");
             ClearReferences();
             return;
         }
         if (_standardBenchmark?.IsRunning == true)
         {
             GD.Print("F7 benchmark is already running. Cancel/finish F7 before starting the independent F11 automation ramp suite.");
+            ClearReferences();
+            return;
+        }
+
+        if (!_view.InitialPresentationReady)
+        {
+            _pendingStart = true;
+            GD.Print(
+                $"F11 automation ramp stress armed; waiting for initial world presentation to finish " +
+                $"({_view.InitialPresentationProgress * 100.0f:0.0}% ready, {_view.PendingChunkLoads} chunk loads pending). " +
+                "Timing and mining will start automatically when the baseline is fully loaded. Press F11 again to cancel.");
+            return;
+        }
+
+        StartResolvedSuite();
+    }
+
+    private void StartResolvedSuite()
+    {
+        if (_view is null || _miners is null || _manual is null || _camera is null)
+        {
             ClearReferences();
             return;
         }
@@ -252,6 +303,7 @@ public partial class AutomationRampStressSuite : Node
         _manual.InputEnabled = true;
         _manual.PlacementMode = false;
 
+        _pendingStart = false;
         _running = true;
         _startedUsec = Time.GetTicksUsec();
         _lastFrameUsec = _startedUsec;
@@ -270,7 +322,7 @@ public partial class AutomationRampStressSuite : Node
         RenderingServer.ViewportSetMeasureRenderTime(_viewportRid, true);
 
         GD.Print(
-            "F11 automation ramp stress started (70s): max skills forced for this non-persistent stress session; " +
+            "F11 automation ramp stress started from a fully loaded baseline (70s): max skills forced for this non-persistent stress session; " +
             "center-screen 10x10/manual max-footprint mining at 5 clicks/s; camera orbit; " +
             "t=10 +20 shovels, then t=20/30/40/50/60 +10 shovels +10 drills. Final 120-unit fleet runs for 10s. " +
             "F11 cancels and still writes user://automation_stress_benchmark_latest.txt.");
@@ -575,10 +627,11 @@ public partial class AutomationRampStressSuite : Node
 
         var report = new StringBuilder(20_000);
         report.AppendLine($"Automation ramp stress {reason}");
-        report.AppendLine("report_version=1");
+        report.AppendLine("report_version=2");
         report.AppendLine($"timestamp_local={DateTimeOffset.Now:O}");
         report.AppendLine($"world={_view.DiagnosticWorldId}");
         report.AppendLine($"duration_s={_elapsed:0.00}");
+        report.AppendLine("initial_load_gate=initial_presentation_ready_before_timer");
         report.AppendLine("schedule=t10 +20 shovel; t20/t30/t40/t50/t60 +10 shovel +10 drill; hold final fleet to t70");
         report.AppendLine("skills=diagnostic_max_all_authored_skills");
         report.AppendLine($"auto_manual_interval_s={AutoMineIntervalSeconds:0.00}");
@@ -645,6 +698,9 @@ public partial class AutomationRampStressSuite : Node
         report.AppendLine($"frustum_culled_chunks_avg={Average(_frustumCulledTotal, samples):0.0}");
         report.AppendLine($"lod_tree_batches_hidden_avg={Average(_lodTreeHiddenTotal, samples):0.0}");
         report.AppendLine($"lod_shadow_batches_disabled_avg={Average(_lodShadowsDisabledTotal, samples):0.0}");
+        report.AppendLine($"sparse_overlay_roots_end={_view.SparseExposureOverlayRootCount}");
+        report.AppendLine($"sparse_overlay_presented_end={_view.PresentedSparseOverlayCount}");
+        report.AppendLine($"sparse_overlay_frustum_culled_end={_view.FrustumCulledSparseOverlayCount}");
         report.AppendLine();
 
         report.AppendLine("[world_and_mining]");
@@ -722,6 +778,7 @@ public partial class AutomationRampStressSuite : Node
 
     private void ClearReferences()
     {
+        _pendingStart = false;
         _view = null;
         _miners = null;
         _manual = null;
