@@ -160,7 +160,7 @@ def print_report_summary(reports: list[Report]) -> None:
     long_gaps = [
         report
         for report in reports
-        if (report.number("longest_observed_decision_gap_seconds") is not None
+        if report.number("longest_observed_decision_gap_seconds") is not None
         and (report.number("longest_observed_decision_gap_seconds") or 0.0) >= 60.0
     ]
     print()
