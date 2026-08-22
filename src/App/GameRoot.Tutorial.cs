@@ -1,4 +1,5 @@
 using Godot;
+using TenMillionBlocks.Diagnostics;
 using TenMillionBlocks.Tutorial;
 
 namespace TenMillionBlocks.App;
@@ -8,6 +9,7 @@ public partial class GameRoot
     private GameplayEventHub? _gameplayEvents;
     private GameplayEventBridge? _gameplayEventBridge;
     private TutorialDirector? _tutorialDirector;
+    private PacingTelemetryRecorder? _pacingTelemetry;
 
     private void EnsureTutorialLayer()
     {
@@ -38,11 +40,30 @@ public partial class GameRoot
 
         _gameplayEvents = new GameplayEventHub();
 
-        // Add the director first so it is subscribed before the bridge emits WorldStarted from _Ready.
+        // Add observers before the bridge so its _Ready-time WorldStarted event reaches every consumer.
         _tutorialDirector = new TutorialDirector { Name = "TutorialDirector" };
         _tutorialDirector.Initialize(_world.Profile, _save, _gameplayEvents);
         _tutorialDirector.StateChanged += MarkAutosaveDirty;
         _sessionRoot.AddChild(_tutorialDirector);
+
+        if (OS.IsDebugBuild())
+        {
+            _pacingTelemetry = new PacingTelemetryRecorder { Name = "PacingTelemetryRecorder" };
+            _pacingTelemetry.Initialize(
+                _world.Profile,
+                _mining,
+                _skills,
+                _miners,
+                _specialResources,
+                _gameplayEvents,
+                _manualBlocksThisWorld,
+                _automatedBlocksThisWorld);
+            _sessionRoot.AddChild(_pacingTelemetry);
+        }
+        else
+        {
+            _pacingTelemetry = null;
+        }
 
         _gameplayEventBridge = new GameplayEventBridge { Name = "GameplayEventBridge" };
         _gameplayEventBridge.Initialize(_world.Profile, _mining, _skills, _miners, _gameplayEvents);
