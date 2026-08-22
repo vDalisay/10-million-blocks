@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.World.Generation;
@@ -12,6 +13,7 @@ public partial class MinerSimulationService
     private int _lastDrillMaterialTier;
     private double _visualVisibilityRefreshTimer;
     private int _visualPolicyCursor;
+    private readonly HashSet<long> _attentionMinerIds = new();
 
     public event Action<MinerInstance>? MinerStopped;
 
@@ -20,9 +22,9 @@ public partial class MinerSimulationService
         get
         {
             int count = 0;
-            foreach (MinerInstance miner in _miners)
+            foreach (long id in _attentionMinerIds)
             {
-                if (NeedsAttention(miner)) count++;
+                if (_minersById.TryGetValue(id, out MinerInstance? miner) && NeedsAttention(miner)) count++;
             }
             return count;
         }
@@ -48,9 +50,9 @@ public partial class MinerSimulationService
 
         int wanted = ((index % count) + count) % count;
         int current = 0;
-        foreach (MinerInstance miner in _miners)
+        foreach (long id in _attentionMinerIds)
         {
-            if (!NeedsAttention(miner)) continue;
+            if (!_minersById.TryGetValue(id, out MinerInstance? miner) || !NeedsAttention(miner)) continue;
             if (current++ == wanted) return miner;
         }
         return null;
@@ -144,6 +146,12 @@ public partial class MinerSimulationService
             MinerStopReason.NoReachableTarget or
             MinerStopReason.NoTreeTarget;
 
+    private void TrackAttentionState(MinerInstance miner)
+    {
+        if (NeedsAttention(miner)) _attentionMinerIds.Add(miner.InstanceId);
+        else _attentionMinerIds.Remove(miner.InstanceId);
+    }
+
     private void StopMiner(
         MinerInstance miner,
         MinerStopReason reason,
@@ -173,6 +181,7 @@ public partial class MinerSimulationService
         miner.StopReason = reason;
         miner.BlockedVoxel = blockedVoxel;
         miner.BlockedBlockId = blockedBlockId;
+        TrackAttentionState(miner);
         UpdateVisual(miner);
 
         if (stateChanged && NeedsAttention(miner) && !wasAttention)
@@ -263,6 +272,7 @@ public partial class MinerSimulationService
         miner.StopReason = MinerStopReason.None;
         miner.BlockedVoxel = Vector3I.Zero;
         miner.BlockedBlockId = string.Empty;
+        _attentionMinerIds.Remove(miner.InstanceId);
         if (grantImmediateWork)
         {
             miner.WorkAccumulator = Math.Max(miner.WorkAccumulator, 1.0);
@@ -314,12 +324,6 @@ public partial class MinerSimulationService
         return !sample.Present || CanPrimaryDrillMine(sample);
     }
 
-    /// <summary>
-    /// Visibility/resume policy is presentation-adjacent and need not scan an arbitrarily large fleet
-    /// eight times per second. Small fleets retain the old immediate behavior; large fleets are walked
-    /// round-robin in bounded slices. MinerStopped itself remains immediate, so the player still gets
-    /// instant feedback when a machine encounters a blocker.
-    /// </summary>
     private void RefreshAutomationVisualVisibility(double delta)
     {
         _visualVisibilityRefreshTimer += delta;
@@ -365,6 +369,7 @@ public partial class MinerSimulationService
 
     private void RefreshVisualVisibility(MinerInstance miner)
     {
+        TrackAttentionState(miner);
         if (!_visuals.TryGetValue(miner.InstanceId, out Node3D? root)) return;
         MinerDefinition definition = _catalog.Get(miner.DefinitionId);
         Vector3I outward = -miner.Direction;
