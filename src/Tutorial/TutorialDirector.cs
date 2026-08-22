@@ -10,9 +10,9 @@ namespace TenMillionBlocks.Tutorial;
 /// <summary>
 /// Contextual tutorial presenter. It consumes semantic events instead of being embedded in mechanics,
 /// persists one-time milestones, and deliberately stays silent in main-game worlds except for the
-/// authored world-start intro. Tips are queued so two milestones reached in quick succession cannot
-/// overwrite each other before the player has had a chance to read them. F1 recalls the last relevant
-/// message without mutating tutorial progress, so an auto-dismissed instruction is never permanently lost.
+/// authored world-start/event guidance. Tips are queued so two milestones reached in quick succession
+/// cannot overwrite each other before the player has had a chance to read them. F1 recalls the last
+/// relevant message without mutating tutorial progress, so an auto-dismissed instruction is never lost.
 /// </summary>
 public partial class TutorialDirector : CanvasLayer
 {
@@ -72,8 +72,6 @@ public partial class TutorialDirector : CanvasLayer
         TutorialMessage message = _lastMessage ?? BuildWorldHelpMessage();
         if (_panel.Visible)
         {
-            // F1 while a tip is already visible acts as "give me more time" rather than replacing a
-            // queued semantic tutorial event with stale text.
             _hideTimer = Math.Max(_hideTimer, message.VisibleSeconds);
         }
         else
@@ -222,6 +220,26 @@ public partial class TutorialDirector : CanvasLayer
                 ? "Mine every block to clear this world."
                 : _profile.IntroText;
             return true;
+        }
+
+        bool activeWorldEvents = _profile.Id is "reference_lakes" or "reference_ridges";
+        if (activeWorldEvents)
+        {
+            switch (gameplayEvent.Kind)
+            {
+                case GameplayEventKind.LightningCharged:
+                    title = "CLOUD CHARGED";
+                    body = "Five manual cloud charges call a lightning strike into the cube. Later, Cloud Charger can add one charge every three seconds while your clicks still accelerate the same cloud.";
+                    return true;
+                case GameplayEventKind.MeteorSpawned:
+                    title = "METEOR INCOMING";
+                    body = "Catch the meteor while it is in range, drag or flick it toward the cube, then release. Assisted targeting turns a good throw into a mining crater.";
+                    return true;
+                case GameplayEventKind.MeteorGrabbed:
+                    title = "THROW THE METEOR";
+                    body = "Flick toward the cube and release. Your recent pointer motion sets the throw, with targeting assistance near the surface.";
+                    return true;
+            }
         }
 
         bool tutorial = _profile.Id is
