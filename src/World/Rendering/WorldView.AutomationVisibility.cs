@@ -34,9 +34,10 @@ public partial class WorldView
     }
 
     /// <summary>
-    /// World state is authoritative regardless of camera position. Hidden automation collapses to a
-    /// deferred chunk marker; visible automation uses the same sparse full-surface presentation path as
-    /// manual mining so a busy machine cannot trigger repeated 16^3 exact scans.
+    /// World state is authoritative regardless of camera position. Visible automation records the same
+    /// six-neighbour incremental frontier as manual mining. Hidden/back-side automation does even less:
+    /// it invalidates only the affected chunk frontier and stores a chunk marker. If that area later
+    /// becomes visible, the renderer reconstructs its frontier once from compact mined state.
     /// </summary>
     public void MarkAutomationDirty(Vector3I voxel)
     {
@@ -56,12 +57,14 @@ public partial class WorldView
 
         if (!ShouldPresentAutomation(voxel, outward))
         {
+            InvalidateSparseExposureFrontierForMutation(voxel);
             DeferAutomationChunk(changedChunk);
             DeferBoundaryAutomationChunks(changedChunk, localX, localY, localZ, chunkSize);
             AutomationPresentationUpdatesSuppressed++;
             return;
         }
 
+        RecordSparseExposureMutation(voxel);
         MarkAutomationChunkIfObserved(changedChunk);
         MarkBoundaryAutomationChunksIfObserved(changedChunk, localX, localY, localZ, chunkSize);
         AutomationPresentationUpdatesQueued++;
