@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Automation;
+using TenMillionBlocks.Presentation;
 
 namespace TenMillionBlocks.World.Rendering;
 
@@ -36,9 +37,16 @@ public partial class WorldView
     /// Short-lived copy of the mined block used for manual/replay feedback. Nodes are pooled and the
     /// animation is advanced centrally, avoiding a Tween + QueueFree allocation for every mined block
     /// during high-rate hover mining/replay. Off-screen events are culled before acquiring a pooled node.
+    /// Reduced-motion mode suppresses this cosmetic animation entirely; authoritative mining and HUD
+    /// counters are unaffected.
     /// </summary>
     public void SpawnManualMinePop(Vector3I voxel, string blockId, float peakScale = 1.12f)
     {
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            return;
+        }
+
         Vector3 worldPosition = VoxelToWorld(voxel);
         if (_activeMinePops.Count >= MaxActiveMinePops || !ShouldSpawnMiningFx(worldPosition, 72.0f))
         {
@@ -69,6 +77,7 @@ public partial class WorldView
     /// Shared mining-only debris used by live mining, automation and replay. Bursts are pooled and each
     /// burst uses one MultiMesh for all fragments, so dense mining does not create/free effect containers,
     /// MeshInstance3D nodes, meshes or materials per action. Off-screen events stay simulation-only.
+    /// Reduced-motion mode omits the burst rather than changing any mining result.
     /// </summary>
     public void SpawnMiningDebris(Vector3I voxel, string blockId, int seed, string name = "MiningDebris")
     {
@@ -88,6 +97,11 @@ public partial class WorldView
         Vector3 outward,
         string name = "MiningDebris")
     {
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            return;
+        }
+
         if (outward.LengthSquared() < 0.0001f)
         {
             outward = (Vector3)_world.Source.GetOutwardNormal(voxel);
