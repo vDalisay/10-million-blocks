@@ -313,6 +313,13 @@ public partial class WorldView
 
         if (shell) return false;
 
+        // Interior sparse chunks contain tunnel/cavity walls whose visible faces are no longer tied to
+        // the original cube's outward normal. Applying the old center-normal backface test to those roots
+        // could hide a perfectly visible tunnel wall and make the player see through to the far side of
+        // the cube. Excavated interior chunks therefore bypass only this coarse backface stage; the
+        // conservative frustum test and normal GPU depth/backface rejection still apply.
+        if (HasSparseExposurePotential(chunk)) return true;
+
         Vector3I outward = _world.Source.GetOutwardNormal(centerVoxel);
         return toCamera.Dot((Vector3)outward) > 0.0f;
     }
