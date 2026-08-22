@@ -30,14 +30,20 @@ public partial class WorldView
             return false;
         }
 
+        if (FullSurfaceRenderer && !IsChunkPresentationRelevant(chunk))
+        {
+            return false;
+        }
+
         return IsAutomationFaceCameraFacing(voxel, outward);
     }
 
     /// <summary>
     /// World state is authoritative regardless of camera position. Visible automation records the same
-    /// six-neighbour incremental frontier as manual mining. Hidden/back-side automation does even less:
-    /// it invalidates only the affected chunk frontier and stores a chunk marker. If that area later
-    /// becomes visible, the renderer reconstructs its frontier once from compact mined state.
+    /// six-neighbour incremental frontier as manual mining. Hidden, back-side and now off-frustum
+    /// automation does even less: it invalidates only the affected chunk frontier and stores a chunk
+    /// marker. If that area later becomes presentation-relevant, the renderer reconstructs its frontier
+    /// once from compact mined state.
     /// </summary>
     public void MarkAutomationDirty(Vector3I voxel)
     {
@@ -112,7 +118,8 @@ public partial class WorldView
 
             bool inWorkingSet = _desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk);
             bool eligible = FullSurfaceRenderer || inWorkingSet;
-            if (eligible && IsAutomationFaceCameraFacing(center, outward))
+            bool cameraRelevant = !FullSurfaceRenderer || IsChunkPresentationRelevant(chunk);
+            if (eligible && cameraRelevant && IsAutomationFaceCameraFacing(center, outward))
             {
                 MarkInteractiveChunkDirty(chunk);
                 _deferredPromotionScratch.Add(chunk);
@@ -187,10 +194,19 @@ public partial class WorldView
 
     private void MarkAutomationChunkIfObserved(ChunkCoord chunk)
     {
-        if (_desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk))
+        bool inWorkingSet = _desiredChunks.Contains(chunk) || _chunkRoots.ContainsKey(chunk);
+        if (!inWorkingSet)
         {
-            MarkInteractiveChunkDirty(chunk);
-            _deferredAutomationChunks.Remove(chunk);
+            return;
         }
+
+        if (FullSurfaceRenderer && !IsChunkPresentationRelevant(chunk))
+        {
+            DeferAutomationChunk(chunk);
+            return;
+        }
+
+        MarkInteractiveChunkDirty(chunk);
+        _deferredAutomationChunks.Remove(chunk);
     }
 }
