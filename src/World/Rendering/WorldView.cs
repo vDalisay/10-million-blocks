@@ -635,8 +635,7 @@ public partial class WorldView : Node3D
         // The column locator intentionally samples the raw deterministic source because it can find an
         // outer face without scanning the volume. The visible block, however, must come from VirtualWorld
         // so generation-v3 structural rules (inset water, sand support/shoreline, cube-rim rules) and mined
-        // state are honored. The previous full-surface fast path returned the raw water cap directly,
-        // which is why the 100^3 debug world visibly used non-inset water despite the structural pass.
+        // state are honored.
         BlockSample resolved = _world.SampleVoxel(voxel);
         if (resolved.Present)
         {
@@ -644,11 +643,19 @@ public partial class WorldView : Node3D
             return true;
         }
 
+        int detailedShellDepth = _world.Profile.ChunkSize
+            * Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
         int maxInward = FullSurfaceRenderer
-            ? _world.MaxCoordinate * 2 + 2
-            : Math.Max(8,
-                _world.Profile.ChunkSize * Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks));
+            ? Math.Max(8, detailedShellDepth + 2)
+            : Math.Max(8, detailedShellDepth);
 
+        // The old 100^3 full-surface path searched as far as 202 cells inward for every missing surface
+        // column. Once drills had opened deep tunnels this made a nominal 16x16 shell rebuild walk across
+        // most of the entire cube, which is why the last F11 trace still averaged ~4.3 ms per chunk build.
+        // Deep excavation is already owned by SparseExposureOverlay; the outer-shell renderer only needs
+        // to resolve the authored detailed shell. Giving up beyond that boundary is both faster and makes
+        // ownership unambiguous: deep walls stay in the cavity renderer instead of being half-claimed by
+        // an outward column that later rejects them because they belong to a different chunk/face.
         for (int inward = 1; inward <= maxInward; inward++)
         {
             Vector3I candidate = voxel - normal * inward;
