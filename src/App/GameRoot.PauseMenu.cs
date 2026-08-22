@@ -17,16 +17,14 @@ public partial class GameRoot
         _pauseMenu.ReturnToMainMenuRequested += OnPauseReturnToMainMenuRequested;
         AddChild(_pauseMenu);
 
-        // The completion overlay is created during GameRoot._Ready. Hook it one frame later so the
-        // terminal demo button can move directly into the already-existing world browser after the
-        // normal completion handler has committed the final save.
-        Callable.From(AttachDemoBrowseAction).CallDeferred();
+        Callable.From(AttachDemoCompletionActions).CallDeferred();
     }
 
-    private void AttachDemoBrowseAction()
+    private void AttachDemoCompletionActions()
     {
         if (_completionView is null || !GodotObject.IsInstanceValid(_completionView)) return;
         _completionView.ContinueRequested += OnCompletionContinueBrowse;
+        _completionView.ReturnToMainMenuRequested += OnDemoCompletionReturnToMainMenu;
     }
 
     private bool CanOpenPauseMenu()
@@ -48,48 +46,74 @@ public partial class GameRoot
 
     private void OnPauseReturnToMainMenuRequested()
     {
-        if (_sessionPersists && _world is not null)
+        if (!TrySaveBeforeLeaving(out string error))
         {
-            try
-            {
-                // "Save & Return" must not silently leave the scene after an autosave failure. Capture
-                // and persist directly here so the navigation decision can depend on the write result.
-                CaptureCurrentSession();
-                _saveService.Save(_save);
-                _autosaveDirty = false;
-                _autosaveTimer = 0.0;
-            }
-            catch (Exception exception)
-            {
-                GD.PushError($"Could not save before returning to the main menu: {exception}");
-                _pauseMenu?.ReportReturnFailure("SAVE FAILED — gameplay was kept open. Check the Godot log and try again.");
-                return;
-            }
+            _pauseMenu?.ReportReturnFailure(error);
+            return;
         }
 
         _pauseMenu?.Close();
         GetTree().Paused = false;
-        Error result = GetTree().ChangeSceneToFile("res://scenes/Main.tscn");
-        if (result != Error.Ok)
+        ChangeToMainMenu();
+    }
+
+    private void OnDemoCompletionReturnToMainMenu()
+    {
+        // Completion normally already committed the final save, but write once more before leaving so
+        // the explicit end-of-demo action has the same transactional guarantee as pause -> Save & Return.
+        if (!TrySaveBeforeLeaving(out string error))
         {
-            GD.PushError($"Could not return to main menu ({result}).");
-            _pauseMenu?.ReportReturnFailure($"Could not open the main menu ({result}).");
+            GD.PushError(error);
+            return;
         }
+
+        _completionView?.HideCompletion();
+        _completionShown = false;
+        GetTree().Paused = false;
+        ChangeToMainMenu();
+    }
+
+    private bool TrySaveBeforeLeaving(out string error)
+    {
+        error = string.Empty;
+        if (!_sessionPersists || _world is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            CaptureCurrentSession();
+            _saveService.Save(_save);
+            _autosaveDirty = false;
+            _autosaveTimer = 0.0;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"Could not save before returning to the main menu: {exception}");
+            error = "SAVE FAILED — gameplay was kept open. Check the Godot log and try again.";
+            return false;
+        }
+    }
+
+    private void ChangeToMainMenu()
+    {
+        Error result = GetTree().ChangeSceneToFile("res://scenes/Main.tscn");
+        if (result == Error.Ok) return;
+
+        GD.PushError($"Could not return to main menu ({result}).");
+        _pauseMenu?.ReportReturnFailure($"Could not open the main menu ({result}).");
     }
 
     private void OnCompletionContinueBrowse()
     {
-        // For ordinary worlds the first completion listener has already advanced into the next world,
-        // so the active profile no longer matches. A debug preview also never marks the finale complete.
         if (_world?.Profile.Id != "reference_ridges"
             || !_save.CompletedWorldIds.Contains("reference_ridges"))
         {
             return;
         }
 
-        // The normal terminal handler hides the completion overlay but intentionally has no next world
-        // to build. Restore the non-modal input state so closing the browser still leaves a usable
-        // post-demo screen (including Esc -> pause/main menu) rather than a permanently disabled world.
         _completionShown = false;
         if (_manualMining is not null) _manualMining.InputEnabled = true;
         if (_placement is not null)
