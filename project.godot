@@ -4,7 +4,7 @@
 ;
 ; Format:
 ;   [section] ; section goes between []
-;   param=value ; assign values to parameters
+;   param=value ; assign values to them
 
 config_version=5
 
@@ -14,6 +14,10 @@ config/name="10-million-blocks"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "C#", "GL Compatibility")
 config/icon="res://icon.svg"
+
+[autoload]
+
+AutomationRampStressSuite="*res://src/Diagnostics/AutomationRampStressSuite.cs"
 
 [display]
 

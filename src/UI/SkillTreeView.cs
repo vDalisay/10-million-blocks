@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using TenMillionBlocks.Automation;
+using TenMillionBlocks.Content;
 using TenMillionBlocks.Mining;
 using TenMillionBlocks.Skills;
 
@@ -13,6 +13,7 @@ public partial class SkillTreeView : CanvasLayer
     private SkillTreeService _skills = null!;
     private MiningService _mining = null!;
     private ManualMiningController _manual = null!;
+    private WorldProfile _profile = null!;
     private Control _root = null!;
     private Label _resources = null!;
     private Label _feedback = null!;
@@ -21,6 +22,7 @@ public partial class SkillTreeView : CanvasLayer
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
     private Tween? _transition;
     private double _feedbackTimer;
+    private bool _refreshPending;
 
     public bool IsOpen => _root is not null && _root.Visible;
 
@@ -29,8 +31,15 @@ public partial class SkillTreeView : CanvasLayer
         _skills = skills;
         _mining = mining;
         _manual = manual;
-        skills.Changed += Refresh;
-        mining.CurrencyChanged += _ => Refresh();
+        _profile = manual.WorldProfile;
+
+        // Currency can change dozens of times per rendered frame under automation. The skill tree is
+        // normally hidden, so rebuilding every button label/prerequisite state on every mining event was
+        // pure background work. Events now only dirty the view; an open tree refreshes at most once per
+        // frame and a closed tree refreshes once when it is next opened.
+        skills.Changed += RequestRefresh;
+        skills.SpecialResources.Changed += RequestRefresh;
+        mining.CurrencyChanged += OnCurrencyChanged;
     }
 
     public override void _Ready()
@@ -75,9 +84,6 @@ public partial class SkillTreeView : CanvasLayer
         close.Pressed += Close;
         _root.AddChild(close);
 
-        // The authored tree is no longer constrained to the first few grid rows. Keep the graph data
-        // coordinates exactly as authored and put the runtime canvas in a scroll container instead of
-        // silently clipping late-game branches off-screen.
         _scroll = new ScrollContainer
         {
             AnchorRight = 1.0f,
@@ -92,10 +98,10 @@ public partial class SkillTreeView : CanvasLayer
 
         _graph = new SkillGraphCanvas
         {
-            CustomMinimumSize = SkillGraphCanvas.RequiredSize(_skills.Catalog),
+            CustomMinimumSize = SkillGraphCanvas.RequiredSize(_skills.Catalog, _profile),
             MouseFilter = Control.MouseFilterEnum.Pass,
         };
-        _graph.Initialize(_skills);
+        _graph.Initialize(_skills, _profile);
         _scroll.AddChild(_graph);
 
         BuildButtons();
@@ -104,6 +110,11 @@ public partial class SkillTreeView : CanvasLayer
 
     public override void _Process(double delta)
     {
+        if (_refreshPending && IsOpen)
+        {
+            Refresh();
+        }
+
         if (_feedbackTimer <= 0.0 || _feedback is null || string.IsNullOrEmpty(_feedback.Text)) return;
         _feedbackTimer -= delta;
         if (_feedbackTimer <= 0.0)
@@ -167,6 +178,8 @@ public partial class SkillTreeView : CanvasLayer
     {
         foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
+            if (!_profile.IsSkillVisible(node.Id, node.Category)) continue;
+
             var button = new Button
             {
                 Position = SkillGraphCanvas.NodePosition(node),
@@ -183,29 +196,30 @@ public partial class SkillTreeView : CanvasLayer
     private string BuildTooltip(SkillNodeDefinition node)
     {
         string description = node.Description;
-        if (TryGetMinerUnlock(node, out _))
+        if (node.SpecialCosts.Count > 0)
         {
-            description += "\nPlacement is previewed before payment; green commits, red is invalid, RMB/Esc cancels.";
+            description += "\nSpecial cost: " + string.Join(", ", node.SpecialCosts.Select(FormatSpecialCost));
         }
 
-        if (node.Prerequisites.Count == 0) return description;
         var requirements = new List<string>();
         foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
         {
-            requirements.Add($"{_skills.Catalog.Get(prerequisite.NodeId).DisplayName} rank {prerequisite.RequiredRank}");
+            SkillNodeDefinition source = _skills.Catalog.Get(prerequisite.NodeId);
+            if (!_profile.IsSkillVisible(source.Id, source.Category)) continue;
+            requirements.Add($"{source.DisplayName} rank {prerequisite.RequiredRank}");
         }
-        return description + "\nRequires: " + string.Join(", ", requirements);
+        return requirements.Count == 0
+            ? description
+            : description + "\nRequires: " + string.Join(", ", requirements);
     }
 
     private void Purchase(string skillId)
     {
         SkillNodeDefinition node = _skills.Catalog.Get(skillId);
-        if (TryGetMinerUnlock(node, out string minerId) && _skills.GetRank(skillId) < node.MaxRank)
-        {
-            BeginAutomationPurchasePlacement(node, minerId);
-            return;
-        }
+        if (!_profile.IsSkillVisible(node.Id, node.Category) || !_skills.IsRevealed(node)) return;
 
+        // Automation skills now buy permanent class capability only. Physical units are a separate,
+        // fixed-price world-local purchase in the Automation drawer.
         SkillPurchaseResult result = _skills.Purchase(skillId);
         if (result.Success)
         {
@@ -224,7 +238,8 @@ public partial class SkillTreeView : CanvasLayer
         {
             _feedback.Text = result.Failure switch
             {
-                SkillPurchaseFailure.InsufficientResources => "Not enough resources.",
+                SkillPurchaseFailure.InsufficientResources => "Not enough ordinary resources.",
+                SkillPurchaseFailure.InsufficientSpecialResources => MissingSpecialResources(node),
                 SkillPurchaseFailure.MissingPrerequisite => "Required prerequisite rank has not been reached.",
                 SkillPurchaseFailure.MaxRank => "Skill is already maxed.",
                 _ => "Skill could not be purchased.",
@@ -236,63 +251,43 @@ public partial class SkillTreeView : CanvasLayer
         Refresh();
     }
 
-    private void BeginAutomationPurchasePlacement(SkillNodeDefinition node, string minerId)
+    private void RequestRefresh()
     {
-        int rank = _skills.GetRank(node.Id);
-        long cost = checked(node.Cost * (rank + 1L));
-        if (!_skills.PrerequisitesMet(node))
-        {
-            _feedback.Text = "Required prerequisite rank has not been reached.";
-            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
-            _feedbackTimer = 2.0;
-            return;
-        }
-        if (_mining.Currency < cost)
-        {
-            _feedback.Text = $"Not enough resources. Need {cost:N0}.";
-            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
-            _feedbackTimer = 2.0;
-            return;
-        }
-
-        MinerPlacementController? placement = GetParent()?.GetNodeOrNull<MinerPlacementController>("MinerPlacement");
-        if (placement is null || !placement.BeginPurchasePlacement(minerId, node.Id))
-        {
-            _feedback.Text = "Automation placement could not be started.";
-            _feedback.Modulate = new Color(1.0f, 0.62f, 0.55f);
-            _feedbackTimer = 2.0;
-            return;
-        }
-
-        // Nothing has been spent yet. Closing restores world input; the placement controller owns the
-        // shared green/red ghost and commits the unlock+cost only after a valid LMB placement.
-        Close();
+        _refreshPending = true;
     }
 
-    private static bool TryGetMinerUnlock(SkillNodeDefinition node, out string minerId)
+    private void OnCurrencyChanged(long _)
     {
-        SkillEffectDefinition? effect = node.Effects.FirstOrDefault(candidate => candidate.Type == "unlock_miner");
-        minerId = effect?.StringValue ?? string.Empty;
-        return !string.IsNullOrWhiteSpace(minerId);
+        _refreshPending = true;
     }
 
     private void Refresh()
     {
+        _refreshPending = false;
         if (_resources is null) return;
+        string specials = _skills.SpecialResources.Balances.Count == 0
+            ? "none"
+            : string.Join(", ", _skills.SpecialResources.Balances
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{DisplayResourceName(pair.Key)} {pair.Value:N0}"));
         _resources.Text =
-            $"Resources: {_mining.Currency:N0}   |   Manual: {_skills.Derived.ManualBlocksPerClick}/click" +
-            $"   |   Drill speed: x{_skills.Derived.MinerRateMultiplier:0.##}" +
-            $"   |   Shovel speed: x{_skills.Derived.ShovelRateMultiplier:0.##}";
+            $"Resources: {_mining.Currency:N0}   |   Special: {specials}   |   Manual footprint: {_skills.Derived.ManualFootprint}" +
+            $"   |   Hover: {(_skills.Derived.HoverMiningUnlocked ? "unlocked" : "locked")}" +
+            $"   |   Drill speed: x{_skills.Derived.MinerRateMultiplier:0.##}";
 
         foreach ((string id, Button button) in _buttons)
         {
             SkillNodeDefinition node = _skills.Catalog.Get(id);
+            bool revealed = _skills.IsRevealed(node);
+            button.Visible = revealed;
+            if (!revealed) continue;
+
             int rank = _skills.GetRank(id);
             bool maxed = rank >= node.MaxRank;
             bool prerequisites = _skills.PrerequisitesMet(node);
             long cost = checked(node.Cost * (rank + 1L));
-            bool affordable = _mining.Currency >= cost;
-            bool automationUnlock = TryGetMinerUnlock(node, out _);
+            bool affordable = _mining.Currency >= cost && _skills.SpecialCostsAffordable(node);
+            string costText = FormatCost(node, cost);
 
             if (maxed)
             {
@@ -301,23 +296,16 @@ public partial class SkillTreeView : CanvasLayer
                     : $"{node.DisplayName}\nOWNED";
                 button.Modulate = new Color(0.70f, 1.0f, 0.78f);
             }
-            else if (automationUnlock)
-            {
-                button.Text = $"{node.DisplayName}\nBUY & PLACE  |  {cost:N0}";
-                button.Modulate = prerequisites
-                    ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
-                    : new Color(0.52f, 0.55f, 0.62f);
-            }
             else if (node.PurchaseMode == "repeatable")
             {
-                button.Text = $"{node.DisplayName}\nRank {rank}/{node.MaxRank}  |  {cost:N0}";
+                button.Text = $"{node.DisplayName}\nRank {rank}/{node.MaxRank}  |  {costText}";
                 button.Modulate = prerequisites
                     ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
                     : new Color(0.52f, 0.55f, 0.62f);
             }
             else
             {
-                button.Text = $"{node.DisplayName}\n{cost:N0} resources";
+                button.Text = $"{node.DisplayName}\n{costText}";
                 button.Modulate = prerequisites
                     ? (affordable ? Colors.White : new Color(0.78f, 0.82f, 0.88f))
                     : new Color(0.52f, 0.55f, 0.62f);
@@ -328,13 +316,56 @@ public partial class SkillTreeView : CanvasLayer
 
         _graph.QueueRedraw();
     }
+
+    private static string FormatCost(SkillNodeDefinition node, long ordinaryCost)
+    {
+        string text = $"{ordinaryCost:N0} resources";
+        foreach (SkillSpecialCostDefinition special in node.SpecialCosts)
+        {
+            text += $" + {FormatSpecialCost(special)}";
+        }
+        return text;
+    }
+
+    private static string FormatSpecialCost(SkillSpecialCostDefinition cost)
+        => $"{cost.Amount:N0} {DisplayResourceName(cost.ResourceId)}";
+
+    private string MissingSpecialResources(SkillNodeDefinition node)
+    {
+        var missing = new List<string>();
+        foreach (SkillSpecialCostDefinition cost in node.SpecialCosts)
+        {
+            long have = _skills.SpecialResources.Get(cost.ResourceId);
+            if (have < cost.Amount)
+            {
+                missing.Add($"{DisplayResourceName(cost.ResourceId)} {have:N0}/{cost.Amount:N0}");
+            }
+        }
+        return missing.Count == 0
+            ? "Not enough special resources."
+            : "Missing special resource: " + string.Join(", ", missing) + ".";
+    }
+
+    private static string DisplayResourceName(string resourceId)
+        => resourceId switch
+        {
+            "gem_red" => "Core Gem",
+            "gem_blue" => "Azure Gem",
+            "gem_green" => "Verdant Gem",
+            _ => resourceId.Replace('_', ' '),
+        };
 }
 
 public partial class SkillGraphCanvas : Control
 {
     private SkillTreeService _skills = null!;
+    private WorldProfile _profile = null!;
 
-    public void Initialize(SkillTreeService skills) => _skills = skills;
+    public void Initialize(SkillTreeService skills, WorldProfile profile)
+    {
+        _skills = skills;
+        _profile = profile;
+    }
 
     public override void _Draw()
     {
@@ -352,10 +383,13 @@ public partial class SkillGraphCanvas : Control
 
         foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
+            if (!_profile.IsSkillVisible(node.Id, node.Category) || !_skills.IsRevealed(node)) continue;
             Vector2 target = NodeCenter(node);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             {
                 SkillNodeDefinition sourceNode = _skills.Catalog.Get(prerequisite.NodeId);
+                if (!_profile.IsSkillVisible(sourceNode.Id, sourceNode.Category) || !_skills.IsRevealed(sourceNode)) continue;
+
                 Vector2 previous = NodeCenter(sourceNode);
                 bool requirementMet = _skills.GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank;
                 Color color = requirementMet
@@ -374,15 +408,18 @@ public partial class SkillGraphCanvas : Control
         }
     }
 
-    public static Vector2 NodePosition(SkillNodeDefinition node)
-        => new(24 + node.GridX * 200, 40 + node.GridY * 112);
+    private const float GridOriginX = 424.0f;
 
-    public static Vector2 RequiredSize(SkillTreeCatalog catalog)
+    public static Vector2 NodePosition(SkillNodeDefinition node)
+        => new(GridOriginX + node.GridX * 200, 40 + node.GridY * 112);
+
+    public static Vector2 RequiredSize(SkillTreeCatalog catalog, WorldProfile profile)
     {
         int maxX = 0;
         int maxY = 0;
         foreach (SkillNodeDefinition node in catalog.Nodes.Values)
         {
+            if (!profile.IsSkillVisible(node.Id, node.Category)) continue;
             maxX = Math.Max(maxX, node.GridX);
             maxY = Math.Max(maxY, node.GridY);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
@@ -394,7 +431,7 @@ public partial class SkillGraphCanvas : Control
         }
 
         return new Vector2(
-            24 + (maxX + 1) * 200 + 190,
+            GridOriginX + (maxX + 1) * 200 + 190,
             40 + (maxY + 1) * 112 + 110);
     }
 
@@ -402,5 +439,5 @@ public partial class SkillGraphCanvas : Control
         => NodePosition(node) + new Vector2(87, 41);
 
     private static Vector2 RoutePointPosition(SkillRoutePoint point)
-        => new(24 + point.GridX * 200 + 87, 40 + point.GridY * 112 + 41);
+        => new(GridOriginX + point.GridX * 200 + 87, 40 + point.GridY * 112 + 41);
 }

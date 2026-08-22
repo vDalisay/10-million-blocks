@@ -10,6 +10,7 @@ public sealed class MinerDefinition
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string ToolClass { get; set; } = "drill";
+    public long UnitPrice { get; set; }
     public double BaseRate { get; set; } = 1.0;
     public string PatternId { get; set; } = "line";
     public int Range { get; set; } = 32;
@@ -81,6 +82,7 @@ public sealed class MinerCatalog
             if (string.IsNullOrWhiteSpace(miner.Id)) errors.Add("Miner has an empty id.");
             if (string.IsNullOrWhiteSpace(miner.DisplayName)) errors.Add($"Miner '{miner.Id}' has no display name.");
             if (string.IsNullOrWhiteSpace(miner.ToolClass)) errors.Add($"Miner '{miner.Id}' has no tool_class.");
+            if (miner.UnitPrice <= 0) errors.Add($"Miner '{miner.Id}' must have a fixed unit_price > 0.");
             if (string.IsNullOrWhiteSpace(miner.PatternId)) errors.Add($"Miner '{miner.Id}' has no pattern id.");
             if (miner.BaseRate <= 0.0) errors.Add($"Miner '{miner.Id}' must have base_rate > 0.");
             if (miner.Range <= 0) errors.Add($"Miner '{miner.Id}' must have range > 0.");

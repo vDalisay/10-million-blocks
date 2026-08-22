@@ -1,13 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using TenMillionBlocks.Economy;
 using TenMillionBlocks.Mining;
 
 namespace TenMillionBlocks.Skills;
 
 public sealed class SkillDerivedStats
 {
+    // Legacy count remains for compatibility with existing saves/data while the future progression
+    // moves manual area mining onto explicit footprint strategies.
     public int ManualBlocksPerClick { get; internal set; } = 1;
+    public ManualMiningFootprintKind ManualFootprint { get; internal set; } = ManualMiningFootprintKind.Single;
+    public bool HoverMiningUnlocked { get; internal set; }
+    public double ManualMiningRateMultiplier { get; internal set; } = 1.0;
+
     public double MinerRateMultiplier { get; internal set; } = 1.0;
     public int MinerPatternWidth { get; internal set; } = 1;
     public string DrillPatternId { get; internal set; } = "line";
@@ -22,6 +29,10 @@ public sealed class SkillDerivedStats
     public int ShovelHeightTolerance { get; internal set; } = 0;
     public int ShovelSearchRadius { get; internal set; } = 1;
 
+    // World-event automation deliberately starts as partial automation: the player can still click
+    // clouds to accelerate them, while the late-game charger periodically contributes charge itself.
+    public bool AutoCloudChargerUnlocked { get; internal set; }
+
     public HashSet<string> UnlockedMiners { get; } = new(StringComparer.Ordinal);
     public HashSet<string> UnlockedPatterns { get; } = new(StringComparer.Ordinal) { "line" };
     public HashSet<string> ResourceFilters { get; } = new(StringComparer.Ordinal);
@@ -34,6 +45,7 @@ public enum SkillPurchaseFailure
     MaxRank,
     MissingPrerequisite,
     InsufficientResources,
+    InsufficientSpecialResources,
     CommitRejected,
 }
 
@@ -47,12 +59,22 @@ public sealed class SkillTreeService
 {
     private readonly SkillTreeCatalog _catalog;
     private readonly MiningService _mining;
+    private readonly SpecialResourceInventory _specialResources;
     private readonly Dictionary<string, int> _ranks = new(StringComparer.Ordinal);
 
     public SkillTreeService(SkillTreeCatalog catalog, MiningService mining)
+        : this(catalog, mining, mining.SpecialResources)
     {
-        _catalog = catalog;
-        _mining = mining;
+    }
+
+    public SkillTreeService(
+        SkillTreeCatalog catalog,
+        MiningService mining,
+        SpecialResourceInventory specialResources)
+    {
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _mining = mining ?? throw new ArgumentNullException(nameof(mining));
+        _specialResources = specialResources ?? throw new ArgumentNullException(nameof(specialResources));
         Derived = new SkillDerivedStats();
         RebuildDerivedStats();
     }
@@ -62,11 +84,21 @@ public sealed class SkillTreeService
     public SkillTreeCatalog Catalog => _catalog;
     public SkillDerivedStats Derived { get; private set; }
     public IReadOnlyDictionary<string, int> Ranks => _ranks;
+    public SpecialResourceInventory SpecialResources => _specialResources;
 
     public int GetRank(string skillId) => _ranks.GetValueOrDefault(skillId);
 
     public bool PrerequisitesMet(SkillNodeDefinition node)
         => node.Prerequisites.All(prerequisite => GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank);
+
+    public bool IsRevealed(SkillNodeDefinition node)
+        => !node.HideUntilPrerequisitesMet
+            || node.Prerequisites.Count == 0
+            || GetRank(node.Id) > 0
+            || PrerequisitesMet(node);
+
+    public bool SpecialCostsAffordable(SkillNodeDefinition node)
+        => node.SpecialCosts.All(cost => _specialResources.CanAfford(cost.ResourceId, cost.Amount));
 
     public SkillPurchaseResult Purchase(string skillId)
     {
@@ -76,7 +108,7 @@ public sealed class SkillTreeService
             return validation;
         }
 
-        if (!_mining.TrySpend(cost))
+        if (!TryCommitCosts(node, cost))
         {
             return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientResources);
         }
@@ -89,7 +121,7 @@ public sealed class SkillTreeService
 
     /// <summary>
     /// Transaction used by buy-and-place automation UI. The prospective rank is applied temporarily so
-    /// the placement callback sees the miner as unlocked, but no resources are deducted until that
+    /// the placement callback sees the miner as unlocked, but no currency is deducted until that
     /// callback has successfully created the accepted placement. Cancelled/red previews therefore cost
     /// nothing and a failed commit rolls the temporary unlock back.
     /// </summary>
@@ -122,12 +154,11 @@ public sealed class SkillTreeService
             return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.CommitRejected);
         }
 
-        // ValidatePurchase checked the same currency value immediately before the synchronous callback;
-        // placement itself never spends currency, so this is an invariant rather than an expected fail.
-        if (!_mining.TrySpend(cost))
+        if (!TryCommitCosts(node, cost))
         {
             RestorePurchaseRank(skillId, currentRank);
-            throw new InvalidOperationException($"Deferred purchase '{skillId}' lost its reserved affordability during placement commit.");
+            throw new InvalidOperationException(
+                $"Deferred purchase '{skillId}' lost its validated affordability during placement commit.");
         }
 
         Changed?.Invoke();
@@ -182,7 +213,39 @@ public sealed class SkillTreeService
             return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientResources);
         }
 
+        if (!SpecialCostsAffordable(node))
+        {
+            return new SkillPurchaseResult(false, skillId, currentRank, SkillPurchaseFailure.InsufficientSpecialResources);
+        }
+
         return new SkillPurchaseResult(true, skillId, currentRank + 1, SkillPurchaseFailure.None);
+    }
+
+    private bool TryCommitCosts(SkillNodeDefinition node, long ordinaryCost)
+    {
+        // Validation happens immediately before this synchronous commit. Still keep the operation
+        // rollback-safe so future UI/event hooks cannot turn a transformation into a partial purchase.
+        if (_mining.Currency < ordinaryCost || !SpecialCostsAffordable(node)) return false;
+        if (!_mining.TrySpend(ordinaryCost)) return false;
+
+        var spentSpecial = new List<SkillSpecialCostDefinition>();
+        foreach (SkillSpecialCostDefinition specialCost in node.SpecialCosts)
+        {
+            if (_specialResources.TrySpend(specialCost.ResourceId, specialCost.Amount))
+            {
+                spentSpecial.Add(specialCost);
+                continue;
+            }
+
+            _mining.GrantCurrency(ordinaryCost);
+            foreach (SkillSpecialCostDefinition spent in spentSpecial)
+            {
+                _specialResources.Grant(spent.ResourceId, spent.Amount);
+            }
+            return false;
+        }
+
+        return true;
     }
 
     private void RestorePurchaseRank(string skillId, int previousRank)
@@ -219,6 +282,15 @@ public sealed class SkillTreeService
             case "add_manual_blocks_per_click":
                 stats.ManualBlocksPerClick = checked(stats.ManualBlocksPerClick + Math.Max(0, (int)Math.Round(effect.Value)));
                 break;
+            case "multiply_manual_mining_rate":
+                stats.ManualMiningRateMultiplier *= Math.Max(0.01, effect.Value);
+                break;
+            case "set_manual_footprint":
+                stats.ManualFootprint = ManualMiningFootprint.Parse(effect.StringValue);
+                break;
+            case "unlock_hover_mining":
+                stats.HoverMiningUnlocked = true;
+                break;
             case "multiply_miner_rate":
                 stats.MinerRateMultiplier *= Math.Max(0.01, effect.Value);
                 break;
@@ -248,6 +320,9 @@ public sealed class SkillTreeService
                 break;
             case "unlock_resource_filter":
                 if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.ResourceFilters.Add(effect.StringValue);
+                break;
+            case "unlock_auto_cloud_charger":
+                stats.AutoCloudChargerUnlocked = true;
                 break;
         }
     }

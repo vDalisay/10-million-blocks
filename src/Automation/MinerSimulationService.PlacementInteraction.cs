@@ -22,7 +22,7 @@ public partial class MinerSimulationService
         get
         {
             if (_attentionHighlightedMinerId is not long id) return null;
-            return _miners.Find(candidate => candidate.InstanceId == id);
+            return _minersById.TryGetValue(id, out MinerInstance? miner) ? miner : null;
         }
     }
 
@@ -43,7 +43,7 @@ public partial class MinerSimulationService
         if (requireUnlocked && !_skills.IsMinerUnlocked(definitionId)) return false;
 
         BlockSample placementSample = _world.SampleVoxel(surfaceVoxel);
-        if (!placementSample.Present || !_world.IsExposed(surfaceVoxel)) return false;
+        if (!placementSample.Present || !_world.IsExposed(surfaceVoxel, placementSample)) return false;
 
         string patternId = EffectivePatternId(definition);
         if (!_patterns.Contains(patternId)) return false;
@@ -74,7 +74,12 @@ public partial class MinerSimulationService
     /// </summary>
     public bool TryMoveStoppedMiner(MinerInstance miner, Vector3I surfaceVoxel)
     {
-        if (!_miners.Contains(miner) || !miner.Exhausted) return false;
+        if (!_minersById.TryGetValue(miner.InstanceId, out MinerInstance? tracked)
+            || !ReferenceEquals(tracked, miner)
+            || !miner.Exhausted)
+        {
+            return false;
+        }
         if (!CanPlaceMiner(miner.DefinitionId, surfaceVoxel, requireUnlocked: false, ignoreInstanceId: miner.InstanceId))
         {
             return false;
@@ -200,7 +205,13 @@ public partial class MinerSimulationService
         _attentionHighlightedMinerId = null;
         _attentionHighlightHovered = false;
 
-        if (miner is null || !_miners.Contains(miner) || !miner.Exhausted) return;
+        if (miner is null
+            || !_minersById.TryGetValue(miner.InstanceId, out MinerInstance? tracked)
+            || !ReferenceEquals(tracked, miner)
+            || !miner.Exhausted)
+        {
+            return;
+        }
         if (!_visuals.TryGetValue(miner.InstanceId, out Node3D? source)) return;
 
         _attentionHighlightedMinerId = miner.InstanceId;

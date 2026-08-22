@@ -6,19 +6,23 @@ namespace TenMillionBlocks.UI;
 
 public partial class AutomationAttentionView : CanvasLayer
 {
+    private const double RefreshIntervalSeconds = 0.12;
+
     private MinerSimulationService _miners = null!;
     private WorldView _view = null!;
     private PanelContainer _panel = null!;
     private Button _button = null!;
     private int _cycleIndex;
     private double _pulseTime;
+    private double _refreshCooldown;
+    private bool _refreshPending;
 
     public void Initialize(MinerSimulationService miners, WorldView view)
     {
         _miners = miners;
         _view = view;
         miners.MinerStopped += OnMinerStopped;
-        miners.Changed += Refresh;
+        miners.Changed += RequestRefresh;
     }
 
     public override void _Ready()
@@ -56,6 +60,14 @@ public partial class AutomationAttentionView : CanvasLayer
 
     public override void _Process(double delta)
     {
+        _refreshCooldown -= delta;
+        if (_refreshPending && _refreshCooldown <= 0.0)
+        {
+            _refreshPending = false;
+            _refreshCooldown = RefreshIntervalSeconds;
+            Refresh();
+        }
+
         if (_pulseTime <= 0.0 || _panel is null) return;
         _pulseTime -= delta;
         float t = Mathf.Clamp((float)(_pulseTime / 0.55), 0.0f, 1.0f);
@@ -68,15 +80,22 @@ public partial class AutomationAttentionView : CanvasLayer
         if (_miners is not null)
         {
             _miners.MinerStopped -= OnMinerStopped;
-            _miners.Changed -= Refresh;
+            _miners.Changed -= RequestRefresh;
             _miners.SetAttentionHighlight(null);
         }
+    }
+
+    private void RequestRefresh()
+    {
+        _refreshPending = true;
     }
 
     private void OnMinerStopped(MinerInstance miner)
     {
         _cycleIndex = 0;
         _pulseTime = 0.55;
+        _refreshPending = false;
+        _refreshCooldown = RefreshIntervalSeconds;
         Refresh(miner);
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Godot;
 
@@ -10,6 +11,15 @@ public sealed class WorldProfile
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string IntroText { get; set; } = string.Empty;
+    public int WorldVersion { get; set; } = 1;
+    public int GenerationVersion { get; set; } = 1;
+    public string GenerationMode { get; set; } = "procedural";
+    public string OverrideFile { get; set; } = string.Empty;
+    public string CurrencyScope { get; set; } = "persistent_main";
+    public bool SkillTreeAvailable { get; set; } = true;
+    public bool AutomationAvailable { get; set; } = true;
+    public List<string> VisibleSkillCategories { get; set; } = new();
+    public List<string> VisibleSkillIds { get; set; } = new();
     public int Seed { get; set; }
     public int LogicalWidth { get; set; }
     public int LogicalHeight { get; set; }
@@ -37,9 +47,6 @@ public sealed class WorldProfile
     public int RegionSizeInChunks { get; set; } = 8;
     public float BlockSpacing { get; set; } = 2.0f;
 
-    // auto: small worlds eager, large worlds macro+camera-detail.
-    // full_surface: large world renders every currently visible surface voxel with the real supplied
-    // block meshes. Interior voxels remain deterministic/on-demand until mining exposes them.
     public string RendererMode { get; set; } = "auto";
     public int StreamingThresholdMaxCoordinate { get; set; } = 96;
     public int StreamingChunkRadius { get; set; } = 1;
@@ -59,14 +66,39 @@ public sealed class WorldProfile
     public string SilverBlock { get; set; } = "silver";
     public string GoldBlock { get; set; } = "gold";
 
-    public int MaxCoordinate => (int)MathF.Ceiling(
-        BaseRadius + TerrainAmplitude + DetailAmplitude + MathF.Max(0.0f, SeaLevelOffset) + 3.0f);
+    public int MaxCoordinate => UsesSolidCubeGenerator
+        ? Math.Max(Math.Max(LogicalWidth, LogicalHeight), LogicalDepth) / 2 + 1
+        : (int)MathF.Ceiling(
+            BaseRadius + TerrainAmplitude + DetailAmplitude + MathF.Max(0.0f, SeaLevelOffset) + 3.0f);
 
     public bool UsesFullSurfaceRenderer
         => RendererMode.Equals("full_surface", StringComparison.OrdinalIgnoreCase);
 
+    public bool UsesSingleBlockGenerator
+        => string.Equals(GenerationMode, "single_block", StringComparison.OrdinalIgnoreCase);
+
+    public bool UsesSolidCubeGenerator
+        => string.Equals(GenerationMode, "solid_cube", StringComparison.OrdinalIgnoreCase);
+
     public bool UsesStreamingRenderer
         => UsesFullSurfaceRenderer || MaxCoordinate > StreamingThresholdMaxCoordinate;
+
+    // CurrencyScope remains deserializable for save/content compatibility, but progression now has a
+    // single persistent wallet so resources earned in tutorial and main worlds follow the player.
+    public bool UsesTutorialLocalWallet => false;
+
+    public bool IsSkillCategoryVisible(string category)
+        => VisibleSkillCategories.Count == 0 || VisibleSkillCategories.Contains(category, StringComparer.Ordinal);
+
+    public bool IsSkillVisible(string skillId, string category)
+    {
+        // Empty filters mean the normal unrestricted authored world. Once either filter is populated,
+        // a node is visible when its whole category is staged OR that exact node is deliberately
+        // introduced. This lets tutorials teach Forest Cutter without exposing every future tool.
+        if (VisibleSkillCategories.Count == 0 && VisibleSkillIds.Count == 0) return true;
+        return VisibleSkillCategories.Contains(category, StringComparer.Ordinal)
+            || VisibleSkillIds.Contains(skillId, StringComparer.Ordinal);
+    }
 }
 
 public sealed class WorldCatalog
@@ -117,6 +149,8 @@ public sealed class WorldCatalog
 
         foreach (WorldProfile world in document.Worlds)
         {
+            world.VisibleSkillCategories ??= new List<string>();
+            world.VisibleSkillIds ??= new List<string>();
             Validate(world, errors);
             if (!string.IsNullOrWhiteSpace(world.Id) && !worlds.TryAdd(world.Id, world))
             {
@@ -160,6 +194,41 @@ public sealed class WorldCatalog
             errors.Add($"World '{profile.Id}' has an empty display name.");
         }
 
+        if (profile.WorldVersion <= 0)
+        {
+            errors.Add($"World '{profile.Id}' must have a positive world version.");
+        }
+
+        if (profile.GenerationVersion <= 0)
+        {
+            errors.Add($"World '{profile.Id}' must have a positive generation version.");
+        }
+
+        if (!string.Equals(profile.GenerationMode, "procedural", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(profile.GenerationMode, "single_block", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(profile.GenerationMode, "solid_cube", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"World '{profile.Id}' has unknown generation mode '{profile.GenerationMode}'.");
+        }
+
+        if (!profile.CurrencyScope.Equals("tutorial_local", StringComparison.OrdinalIgnoreCase)
+            && !profile.CurrencyScope.Equals("persistent_main", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"World '{profile.Id}' has unknown currency scope '{profile.CurrencyScope}'.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(profile.OverrideFile))
+        {
+            if (!profile.OverrideFile.StartsWith("res://", StringComparison.Ordinal))
+            {
+                errors.Add($"World '{profile.Id}' override file must use a res:// path.");
+            }
+            else if (!Godot.FileAccess.FileExists(profile.OverrideFile))
+            {
+                errors.Add($"World '{profile.Id}' override file does not exist: {profile.OverrideFile}");
+            }
+        }
+
         if (profile.LogicalWidth <= 0 || profile.LogicalHeight <= 0 || profile.LogicalDepth <= 0)
         {
             errors.Add($"World '{profile.Id}' must have positive logical dimensions.");
@@ -195,6 +264,24 @@ public sealed class WorldCatalog
             && !profile.RendererMode.Equals("full_surface", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add($"World '{profile.Id}' has unknown renderer_mode '{profile.RendererMode}'.");
+        }
+
+        var categories = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string category in profile.VisibleSkillCategories)
+        {
+            if (string.IsNullOrWhiteSpace(category) || !categories.Add(category))
+            {
+                errors.Add($"World '{profile.Id}' has an empty or duplicate visible skill category.");
+            }
+        }
+
+        var skillIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string skillId in profile.VisibleSkillIds)
+        {
+            if (string.IsNullOrWhiteSpace(skillId) || !skillIds.Add(skillId))
+            {
+                errors.Add($"World '{profile.Id}' has an empty or duplicate visible skill id.");
+            }
         }
     }
 }

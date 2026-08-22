@@ -13,6 +13,8 @@ public partial class OrbitCameraController : Node3D
 
     private const float ReferenceWorldRadius = 24.0f;
     private const float LargeWorldFocusThreshold = ReferenceWorldRadius * 4.0f;
+    private const double IdleOrbitDelaySeconds = 30.0;
+    private const float IdleOrbitDegreesPerSecond = 1.6f;
 
     [Export] public float OrbitSensitivity { get; set; } = 0.22f;
     [Export] public float PanSensitivity { get; set; } = 0.025f;
@@ -41,6 +43,8 @@ public partial class OrbitCameraController : Node3D
     private bool _surfaceFocusEnabled;
     private float _surfaceFocusBlend;
     private float _surfaceClearance;
+    private bool _forceFarOnNextPreset;
+    private double _mouseIdleSeconds;
 
     public string ActivePresetName { get; private set; } = MediumPreset.Name;
     public Camera3D Camera => _camera;
@@ -48,10 +52,6 @@ public partial class OrbitCameraController : Node3D
     public float PresetScale => _presetScale;
     public bool IsManipulating => _orbitHeld || _panHeld;
 
-    /// <summary>
-    /// 0 means the camera is orbiting the world centre. 1 means the orbit pivot has moved onto the
-    /// currently viewed surface, allowing a giant world to be inspected from only a few blocks away.
-    /// </summary>
     public float SurfaceFocusBlend => _surfaceFocusBlend;
     public bool SurfaceFocusEnabled => _surfaceFocusEnabled;
     public float WorldRadius => _worldRadius;
@@ -72,9 +72,43 @@ public partial class OrbitCameraController : Node3D
         ApplyPreset(MediumPreset, immediate: true);
     }
 
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventMouseMotion motion)
+        {
+            if (motion.Relative.LengthSquared() > 0.0001f) ResetIdleOrbit();
+            return;
+        }
+
+        if (@event is InputEventMouseButton)
+        {
+            ResetIdleOrbit();
+        }
+    }
+
     public override void _Process(double delta)
     {
-        float blend = 1.0f - MathF.Exp(-Smoothing * (float)delta);
+        double safeDelta = Math.Max(0.0, delta);
+        GraphicsSettingsRuntime? settings = GraphicsSettingsRuntime.Current;
+        bool allowIdleOrbit = settings?.IdleCameraOrbitEnabled != false
+            && settings?.ReducedMotionEnabled != true;
+
+        if (allowIdleOrbit && !_orbitHeld && !_panHeld)
+        {
+            _mouseIdleSeconds += safeDelta;
+            if (_mouseIdleSeconds >= IdleOrbitDelaySeconds)
+            {
+                _targetYaw -= Mathf.DegToRad(IdleOrbitDegreesPerSecond) * (float)safeDelta;
+            }
+        }
+        else if (!allowIdleOrbit)
+        {
+            // Turning the setting off should take effect immediately and must not preserve a nearly
+            // elapsed idle timer that causes an instant orbit when the option is turned back on later.
+            _mouseIdleSeconds = 0.0;
+        }
+
+        float blend = 1.0f - MathF.Exp(-Smoothing * (float)safeDelta);
         _yaw = Mathf.LerpAngle(_yaw, _targetYaw, blend);
         _pitch = Mathf.Lerp(_pitch, _targetPitch, blend);
         _distance = Mathf.Lerp(_distance, _targetDistance, blend);
@@ -82,11 +116,6 @@ public partial class OrbitCameraController : Node3D
 
         Rotation = new Vector3(_pitch, _yaw, 0.0f);
 
-        // A centre-orbit camera cannot safely use the cube half-extent as though it were a sphere:
-        // along a diagonal the actual cube surface is much farther from the centre. Compute the exact
-        // support distance for the current view, then enforce an expanded cube as a hard final-position
-        // barrier. The final-position check matters after panning because the pivot itself may already
-        // be outside one face while the requested camera point has rotated back through the cube.
         _surfaceFocusBlend = CalculateSurfaceFocusBlend(_distance);
         Vector3 radial = Transform.Basis.Z.Normalized();
         float supportRadius = SurfaceRadiusAlong(radial);
@@ -122,21 +151,16 @@ public partial class OrbitCameraController : Node3D
         }
     }
 
-    /// <summary>
-    /// Keeps the same framing language for tiny authored cubes while switching giant diagnostic/world
-    /// profiles to a centre-orbit -> surface-inspection zoom. The threshold intentionally mirrors the
-    /// rendering architecture: ordinary authored cubes never need this mode.
-    /// </summary>
-    public void ConfigureWorldExtent(float worldRadius)
+    public void ConfigureWorldExtent(float worldRadius, bool requireSurfaceFocus = false)
     {
         _worldRadius = MathF.Max(1.0f, worldRadius);
         _presetScale = MathF.Max(1.0f, _worldRadius / ReferenceWorldRadius);
-        _surfaceFocusEnabled = _worldRadius >= LargeWorldFocusThreshold;
+        _surfaceFocusEnabled = requireSurfaceFocus || _worldRadius >= LargeWorldFocusThreshold;
+        _forceFarOnNextPreset = true;
+        ResetIdleOrbit();
 
         if (_surfaceFocusEnabled)
         {
-            // Full surface focus interprets this as stand-off from the inspected face. Keep it low
-            // enough for individual 1-unit blocks to be readable, but never allow zero/negative range.
             MinDistance = MathF.Max(1.5f, MathF.Min(4.0f, _worldRadius * 0.004f));
         }
         else
@@ -156,14 +180,19 @@ public partial class OrbitCameraController : Node3D
 
     public void ApplyPreset(CameraPreset preset, bool immediate = false)
     {
+        if (_forceFarOnNextPreset)
+        {
+            preset = FarPreset;
+            _forceFarOnNextPreset = false;
+        }
+
+        ResetIdleOrbit();
         ActivePresetName = preset.Name;
         _targetYaw = Mathf.DegToRad(preset.YawDegrees);
         _targetPitch = Mathf.DegToRad(preset.PitchDegrees);
 
         if (_surfaceFocusEnabled && preset.Name == NearPreset.Name)
         {
-            // Near on a huge world is an actual close inspection stand-off. The cube barrier in
-            // _Process guarantees this can never put the camera inside the world, including diagonals.
             _targetDistance = MathF.Max(MinDistance * 2.0f, 5.0f);
         }
         else
@@ -188,6 +217,7 @@ public partial class OrbitCameraController : Node3D
     public void Recenter()
     {
         _targetPan = Vector3.Zero;
+        ResetIdleOrbit();
     }
 
     public void AddOrbitDegrees(float yawDegrees, float pitchDegrees = 0.0f)
@@ -198,6 +228,7 @@ public partial class OrbitCameraController : Node3D
             Mathf.DegToRad(-78.0f),
             Mathf.DegToRad(78.0f));
         ActivePresetName = "Benchmark";
+        ResetIdleOrbit();
     }
 
     private void HandleMouseButton(InputEventMouseButton button)
@@ -218,7 +249,6 @@ public partial class OrbitCameraController : Node3D
             return;
         }
 
-        // LMB is intentionally not handled here. It belongs exclusively to mining and UI.
         if (button.ButtonIndex == MouseButton.Right)
         {
             _orbitHeld = button.Pressed;
@@ -307,9 +337,6 @@ public partial class OrbitCameraController : Node3D
             return;
         }
 
-        // Large worlds use additive, distance-adaptive wheel motion. Multiplying a 500-1000 unit
-        // distance by 0.94 makes one notch jump tens of blocks; near the surface each notch now shrinks
-        // naturally to fractions of a block instead. This is deliberately monotonic and symmetric.
         float delta = LargeWorldZoomDelta(_targetDistance);
         _targetDistance = Mathf.Clamp(
             _targetDistance + (zoomIn ? -delta : delta),
@@ -391,5 +418,10 @@ public partial class OrbitCameraController : Node3D
     {
         float outside = MathF.Max(MathF.Abs(worldPosition.X), MathF.Max(MathF.Abs(worldPosition.Y), MathF.Abs(worldPosition.Z)));
         return MathF.Max(0.0f, outside - _worldRadius);
+    }
+
+    private void ResetIdleOrbit()
+    {
+        _mouseIdleSeconds = 0.0;
     }
 }

@@ -9,6 +9,16 @@ public partial class CloudField : Node3D
     private const int StarCount = 180;
     private const int CloudCount = 16;
 
+    // Screen-space cloud visibility zones, expressed as distance from screen centre divided by half
+    // the viewport width. These correspond to the user's red / orange / green guide bands.
+    private const float RedZoneHalfWidth = 0.30f;
+    private const float OrangeZoneCentre = 0.46f;
+    private const float GreenZoneStart = 0.58f;
+    private const float RedZoneOpacity = 0.40f;
+    private const float OrangeZoneOpacity = 0.80f;
+    private const float GreenZoneOpacity = 1.00f;
+    private const float OpacityResponse = 10.0f;
+
     private readonly List<CloudOrbiter> _orbiters = new();
     private float _minStandoff = 30.0f;
     private MultiMeshInstance3D? _stars;
@@ -30,9 +40,11 @@ public partial class CloudField : Node3D
     {
         public Node3D Pivot { get; init; } = null!;
         public Node3D Carrier { get; init; } = null!;
+        public StandardMaterial3D Material { get; init; } = null!;
         public Vector3 LocalOffset { get; init; }
         public float AngularSpeed { get; init; }
         public float StandoffOffset { get; init; }
+        public float Opacity { get; set; } = 1.0f;
     }
 
     public override void _Ready()
@@ -41,6 +53,7 @@ public partial class CloudField : Node3D
         _stars = BuildStars(StarMinimumRadius(MathF.Max(0.0f, _minStandoff - 4.0f)));
         AddChild(_stars);
         OrientCloudsTowardWorld();
+        UpdateCloudOpacity(0.0f);
     }
 
     public override void _Process(double delta)
@@ -54,6 +67,7 @@ public partial class CloudField : Node3D
         }
 
         OrientCloudsTowardWorld();
+        UpdateCloudOpacity(dt);
     }
 
     private void BuildOrbitingClouds()
@@ -85,7 +99,8 @@ public partial class CloudField : Node3D
             pivot.AddChild(carrier);
 
             int pieces = random.Next(5, 10);
-            carrier.AddChild(BuildClump(random, pieces));
+            MultiMeshInstance3D clump = BuildClump(random, pieces, out StandardMaterial3D material);
+            carrier.AddChild(clump);
 
             float direction = cloudIndex % 5 == 0 ? -1.0f : 1.0f;
             float angularSpeed = direction * (0.026f + (34.0f - radius) * 0.0009f);
@@ -93,6 +108,7 @@ public partial class CloudField : Node3D
             {
                 Pivot = pivot,
                 Carrier = carrier,
+                Material = material,
                 LocalOffset = localOffset,
                 AngularSpeed = angularSpeed,
                 // Preserve multiple orbital layers instead of clamping every cloud to exactly the
@@ -130,12 +146,103 @@ public partial class CloudField : Node3D
         }
     }
 
-    private static MultiMeshInstance3D BuildClump(Random random, int pieces)
+    /// <summary>
+    /// Clouds are decorative foreground objects, so they should not obscure the thing the player is
+    /// actively looking at. Opacity is evaluated in camera/screen space rather than world space:
+    /// centre/red is ~40%, the surrounding orange band tends toward ~80%, and the outer green area
+    /// returns to 100%. Smooth interpolation and a short response time avoid visible alpha steps.
+    /// </summary>
+    private void UpdateCloudOpacity(float delta)
     {
-        var material = new StandardMaterial3D
+        Camera3D? camera = GetViewport().GetCamera3D();
+        Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
+        if (camera is null || viewportSize.X <= 1.0f)
+        {
+            SetAllCloudOpacity(1.0f);
+            return;
+        }
+
+        Transform3D inverseCamera = camera.GlobalTransform.AffineInverse();
+        float blend = delta <= 0.0f
+            ? 1.0f
+            : 1.0f - MathF.Exp(-OpacityResponse * delta);
+
+        foreach (CloudOrbiter orbiter in _orbiters)
+        {
+            Vector3 localToCamera = inverseCamera * orbiter.Carrier.GlobalPosition;
+            float targetOpacity = 1.0f;
+
+            // Godot cameras look down local -Z. Clouds behind the camera should stay fully opaque so
+            // they do not pre-fade before entering the visible screen on the next part of their orbit.
+            if (localToCamera.Z < -0.01f)
+            {
+                Vector2 screen = camera.UnprojectPosition(orbiter.Carrier.GlobalPosition);
+                targetOpacity = OpacityForScreenX(screen.X, viewportSize.X);
+            }
+
+            orbiter.Opacity = Mathf.Lerp(orbiter.Opacity, targetOpacity, blend);
+            SetMaterialOpacity(orbiter.Material, orbiter.Opacity);
+        }
+    }
+
+    private void SetAllCloudOpacity(float opacity)
+    {
+        foreach (CloudOrbiter orbiter in _orbiters)
+        {
+            orbiter.Opacity = opacity;
+            SetMaterialOpacity(orbiter.Material, opacity);
+        }
+    }
+
+    private static float OpacityForScreenX(float screenX, float viewportWidth)
+    {
+        float halfWidth = MathF.Max(1.0f, viewportWidth * 0.5f);
+        float normalizedFromCentre = MathF.Abs(screenX - halfWidth) / halfWidth;
+
+        if (normalizedFromCentre <= RedZoneHalfWidth)
+        {
+            return RedZoneOpacity;
+        }
+
+        if (normalizedFromCentre < OrangeZoneCentre)
+        {
+            float t = Smooth01((normalizedFromCentre - RedZoneHalfWidth)
+                / (OrangeZoneCentre - RedZoneHalfWidth));
+            return Mathf.Lerp(RedZoneOpacity, OrangeZoneOpacity, t);
+        }
+
+        if (normalizedFromCentre < GreenZoneStart)
+        {
+            float t = Smooth01((normalizedFromCentre - OrangeZoneCentre)
+                / (GreenZoneStart - OrangeZoneCentre));
+            return Mathf.Lerp(OrangeZoneOpacity, GreenZoneOpacity, t);
+        }
+
+        return GreenZoneOpacity;
+    }
+
+    private static void SetMaterialOpacity(StandardMaterial3D material, float opacity)
+    {
+        Color color = material.AlbedoColor;
+        material.AlbedoColor = new Color(color.R, color.G, color.B, Mathf.Clamp(opacity, 0.0f, 1.0f));
+    }
+
+    private static float Smooth01(float value)
+    {
+        float t = Mathf.Clamp(value, 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+    private static MultiMeshInstance3D BuildClump(
+        Random random,
+        int pieces,
+        out StandardMaterial3D material)
+    {
+        material = new StandardMaterial3D
         {
             AlbedoColor = new Color(0.93f, 0.965f, 1.0f, 1.0f),
             Roughness = 0.92f,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
         };
 
         var mesh = new BoxMesh

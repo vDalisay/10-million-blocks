@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Presentation;
 
 namespace TenMillionBlocks.UI;
 
@@ -11,10 +12,15 @@ public partial class WorldCompleteView : CanvasLayer
     private Label _title = null!;
     private Label _stats = null!;
     private Label _next = null!;
+    private Button _replay = null!;
     private Button _continue = null!;
+    private Button _mainMenu = null!;
     private Tween? _transition;
+    private bool _hasNextWorld;
 
     public event Action? ContinueRequested;
+    public event Action? ReplayRequested;
+    public event Action? ReturnToMainMenuRequested;
     public bool IsOpen => _root is not null && _root.Visible;
 
     public override void _Ready()
@@ -44,10 +50,10 @@ public partial class WorldCompleteView : CanvasLayer
             AnchorRight = 0.5f,
             AnchorBottom = 0.5f,
             OffsetLeft = -270,
-            OffsetTop = -190,
+            OffsetTop = -240,
             OffsetRight = 270,
-            OffsetBottom = 190,
-            PivotOffset = new Vector2(270, 190),
+            OffsetBottom = 240,
+            PivotOffset = new Vector2(270, 240),
         };
         _root.AddChild(_panel);
 
@@ -59,7 +65,7 @@ public partial class WorldCompleteView : CanvasLayer
         _panel.AddChild(margin);
 
         var column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 16);
+        column.AddThemeConstantOverride("separation", 12);
         margin.AddChild(column);
 
         _title = new Label { Text = "WORLD CLEARED", HorizontalAlignment = HorizontalAlignment.Center };
@@ -80,6 +86,15 @@ public partial class WorldCompleteView : CanvasLayer
         };
         column.AddChild(_next);
 
+        _replay = new Button
+        {
+            Text = "Watch Replay",
+            CustomMinimumSize = new Vector2(0, 44),
+            Visible = false,
+        };
+        _replay.Pressed += OnReplayPressed;
+        column.AddChild(_replay);
+
         _continue = new Button
         {
             Text = "Continue",
@@ -87,6 +102,15 @@ public partial class WorldCompleteView : CanvasLayer
         };
         _continue.Pressed += OnContinuePressed;
         column.AddChild(_continue);
+
+        _mainMenu = new Button
+        {
+            Text = "Return to Main Menu",
+            CustomMinimumSize = new Vector2(0, 44),
+            Visible = false,
+        };
+        _mainMenu.Pressed += () => ReturnToMainMenuRequested?.Invoke();
+        column.AddChild(_mainMenu);
     }
 
     public void ShowCompletion(
@@ -95,9 +119,14 @@ public partial class WorldCompleteView : CanvasLayer
         long blocksMined,
         long resources,
         long manualBlocks,
-        long automatedBlocks)
+        long automatedBlocks,
+        bool replayAvailable)
     {
-        _title.Text = $"{completed.DisplayName.ToUpperInvariant()} CLEARED";
+        _hasNextWorld = next is not null;
+        bool demoFinale = next is null && completed.Id == "reference_ridges";
+        _title.Text = demoFinale
+            ? "STEAM DEMO COMPLETE"
+            : $"{completed.DisplayName.ToUpperInvariant()} CLEARED";
         _stats.Text =
             $"Blocks mined: {blocksMined:N0}\n" +
             $"Manual: {manualBlocks:N0}   Automation: {automatedBlocks:N0}\n" +
@@ -105,8 +134,10 @@ public partial class WorldCompleteView : CanvasLayer
 
         if (next is null)
         {
-            _next.Text = "Current test progression complete.";
-            _continue.Text = "Close";
+            _next.Text = demoFinale
+                ? "You cleared every mineable block in the 50-cube finale. The 100-cube world is reserved for the full release. Revisit completed worlds, watch your replays, or return to the main menu."
+                : "Current authored progression complete.";
+            _continue.Text = demoFinale ? "Browse Completed Worlds" : "Close";
         }
         else
         {
@@ -117,12 +148,24 @@ public partial class WorldCompleteView : CanvasLayer
             _continue.Text = "Continue";
         }
 
+        _mainMenu.Visible = demoFinale;
+        _mainMenu.Disabled = false;
+        _replay.Visible = replayAvailable;
+        _replay.Disabled = false;
         _continue.Disabled = false;
         _transition?.Kill();
+        _transition = null;
         _root.Visible = true;
+
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            _root.Modulate = Colors.White;
+            _panel.Scale = Vector2.One;
+            return;
+        }
+
         _root.Modulate = new Color(1, 1, 1, 0);
         _panel.Scale = Vector2.One * 0.93f;
-
         _transition = CreateTween();
         _transition.SetParallel(true);
         _transition.SetEase(Tween.EaseType.Out);
@@ -146,18 +189,19 @@ public partial class WorldCompleteView : CanvasLayer
         }
     }
 
+    private void OnReplayPressed()
+    {
+        WorldLoadingScreen.RunTransition(this, "LOADING REPLAY", () => ReplayRequested?.Invoke());
+    }
+
     private void OnContinuePressed()
     {
-        if (_continue.Disabled) return;
-        _continue.Disabled = true;
+        if (_hasNextWorld)
+        {
+            WorldLoadingScreen.RunTransition(this, "LOADING NEXT WORLD", () => ContinueRequested?.Invoke());
+            return;
+        }
 
-        _transition?.Kill();
-        _transition = CreateTween();
-        _transition.SetParallel(true);
-        _transition.SetEase(Tween.EaseType.In);
-        _transition.SetTrans(Tween.TransitionType.Quad);
-        _transition.TweenProperty(_root, "modulate:a", 0.0f, 0.16f);
-        _transition.TweenProperty(_panel, "scale", Vector2.One * 0.97f, 0.16f);
-        _transition.Chain().TweenCallback(Callable.From(() => ContinueRequested?.Invoke()));
+        ContinueRequested?.Invoke();
     }
 }

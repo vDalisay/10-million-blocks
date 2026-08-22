@@ -10,10 +10,11 @@ public sealed class VirtualWorld
 {
     // Exact modified-chunk rebuilds repeatedly ask for the same voxel and its six neighbours. Terrain
     // generation is deterministic, so cache the generated/reclassified value in a fixed direct-mapped
-    // table. Mined state is checked before this cache, which means no invalidation is needed when a
-    // block is removed. The table is bounded (~tens of thousands of entries), so a million-block world
-    // never grows a million-entry dictionary merely because the player has looked around.
-    private const int GeneratedSampleCacheSize = 1 << 15;
+    // table. The latest million-block stress trace dropped to an 88.2% hit rate after generation-v3
+    // structural sampling was enabled; a 131k-entry table still stays bounded to only a few MB while
+    // retaining the hot surface/tunnel working set much more reliably across neighboring chunk rebuilds.
+    // Mined state is checked before this cache, so no invalidation is needed when a block is removed.
+    private const int GeneratedSampleCacheSize = 1 << 17;
 
     private struct GeneratedSampleCacheEntry
     {
@@ -48,6 +49,13 @@ public sealed class VirtualWorld
     public long RegionAxisCount => (long)MaxRegionCoordinate - MinRegionCoordinate + 1L;
     public long TotalLogicalRegionCount => checked(checked(RegionAxisCount * RegionAxisCount) * RegionAxisCount);
 
+    // Region quotas are only an aggregate optimization for truly large streamed worlds. Applying the
+    // same evenly-divided quota to a small exact cube is incorrect because the cube's physical voxels
+    // are not evenly distributed across signed chunk/region coordinates. That was able to exhaust a
+    // region early, visually hide still-unmined blocks, and leave a 5^3 tutorial stuck at 105/125.
+    private bool UsesAggregateRegionAccounting
+        => Profile.TargetMineableBlocks > 0 && Profile.UsesStreamingRenderer;
+
     public BlockSample SampleVoxel(Vector3I coordinate)
     {
         if (State.IsMined(coordinate))
@@ -61,38 +69,46 @@ public sealed class VirtualWorld
     public bool IsPresent(Vector3I coordinate) => SampleVoxel(coordinate).Present;
 
     public bool IsExposed(Vector3I coordinate)
-    {
-        BlockSample sample = SampleVoxel(coordinate);
-        if (!sample.Present)
-        {
-            return false;
-        }
+        => IsExposed(coordinate, SampleVoxel(coordinate));
 
-        foreach (Vector3I direction in VoxelMath.Neighbors)
-        {
-            if (!SampleVoxel(coordinate + direction).Present)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    /// <summary>
+    /// Exposure check for callers that already sampled the center voxel. This is common in placement,
+    /// shovel/tree targeting and unstable-block handling; avoiding a second center lookup keeps those
+    /// policies at one center sample plus the six required neighbour samples.
+    /// </summary>
+    public bool IsExposed(Vector3I coordinate, BlockSample knownSample)
+        => knownSample.Present && HasExposedFace(coordinate);
 
     public bool TryMine(Vector3I coordinate, out BlockSample mined)
         => TryMine(coordinate, requireExposed: true, out mined);
 
     public bool TryMine(Vector3I coordinate, bool requireExposed, out BlockSample mined)
     {
-        mined = SampleVoxel(coordinate);
-        if (!mined.Present || !mined.Mineable || (requireExposed && !IsExposed(coordinate)))
+        BlockSample sample = SampleVoxel(coordinate);
+        return TryMine(coordinate, sample, requireExposed, out mined);
+    }
+
+    /// <summary>
+    /// MiningService already samples a block to inspect special behavior such as unstable blocks. Feed
+    /// that sample into the mutation path rather than sampling the same coordinate again. Exposure still
+    /// checks the six neighbours, but no longer re-reads the known-present center voxel. This removes a
+    /// hot duplicate state/cache lookup from every ordinary manual and automated mining operation.
+    /// </summary>
+    public bool TryMine(
+        Vector3I coordinate,
+        BlockSample knownSample,
+        bool requireExposed,
+        out BlockSample mined)
+    {
+        mined = knownSample;
+        if (!mined.Present || !mined.Mineable || (requireExposed && !HasExposedFace(coordinate)))
         {
             mined = BlockSample.Empty;
             return false;
         }
 
         RegionCoord region = RegionForVoxel(coordinate);
-        long regionQuota = Profile.TargetMineableBlocks > 0 ? GetRegionQuota(region) : 0L;
+        long regionQuota = UsesAggregateRegionAccounting ? GetRegionQuota(region) : 0L;
         long beforeInRegion = 0L;
         if (regionQuota > 0)
         {
@@ -121,13 +137,21 @@ public sealed class VirtualWorld
 
     public long InitializeMineableBlockCount()
     {
-        if (Profile.TargetMineableBlocks > 0)
+        if (UsesAggregateRegionAccounting)
         {
             InitialMineableBlocks = Profile.TargetMineableBlocks;
             return InitialMineableBlocks;
         }
 
-        return CountMineableBlocksExact();
+        long exact = CountMineableBlocksExact();
+        if (Profile.TargetMineableBlocks > 0 && exact != Profile.TargetMineableBlocks)
+        {
+            throw new InvalidOperationException(
+                $"Exact world '{Profile.Id}' authored target says {Profile.TargetMineableBlocks:N0} mineable blocks, " +
+                $"but deterministic generation contains {exact:N0}. Fix the content instead of allowing a stuck completion counter.");
+        }
+
+        return exact;
     }
 
     public long CountMineableBlocksExact()
@@ -146,7 +170,7 @@ public sealed class VirtualWorld
         for (int x = -max; x <= max; x++)
         {
             Vector3I coordinate = new(x, y, z);
-            BlockSample sample = ReclassifyDeepSpecialBlock(coordinate, Source.SampleVoxel(coordinate));
+            BlockSample sample = SampleGeneratedStructural(coordinate);
             if (sample.Present && sample.Mineable)
             {
                 count++;
@@ -167,7 +191,7 @@ public sealed class VirtualWorld
 
     public long GetRegionQuota(RegionCoord region)
     {
-        if (!IsRegionInBounds(region) || InitialMineableBlocks <= 0)
+        if (!UsesAggregateRegionAccounting || !IsRegionInBounds(region) || InitialMineableBlocks <= 0)
         {
             return 0L;
         }
@@ -214,6 +238,18 @@ public sealed class VirtualWorld
         return new Aabb(new Vector3(min, min, min), new Vector3(size, size, size));
     }
 
+    private bool HasExposedFace(Vector3I coordinate)
+    {
+        foreach (Vector3I direction in VoxelMath.Neighbors)
+        {
+            if (!SampleVoxel(coordinate + direction).Present)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private BlockSample SampleGeneratedCached(Vector3I coordinate)
     {
         int index = GeneratedSampleCacheIndex(coordinate);
@@ -225,11 +261,18 @@ public sealed class VirtualWorld
         }
 
         GeneratedSampleCacheMisses++;
-        BlockSample sample = ReclassifyDeepSpecialBlock(coordinate, Source.SampleVoxel(coordinate));
+        BlockSample sample = SampleGeneratedStructural(coordinate);
         entry.Coordinate = coordinate;
         entry.Sample = sample;
         entry.Valid = true;
         return sample;
+    }
+
+    private BlockSample SampleGeneratedStructural(Vector3I coordinate)
+    {
+        BlockSample generated = Source.SampleVoxel(coordinate);
+        BlockSample structural = WorldStructuralRules.Apply(Profile, Source, coordinate, generated);
+        return ReclassifyDeepSpecialBlock(coordinate, structural);
     }
 
     private static int GeneratedSampleCacheIndex(Vector3I coordinate)

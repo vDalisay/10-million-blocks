@@ -1,161 +1,263 @@
 # Implementation Status
 
-Source plan: `docs/IMPLEMENTATION_PLAN.md`
+Source architecture plan: `docs/IMPLEMENTATION_PLAN.md`
 
-Future tutorial/demo progression: `docs/FUTURE_WORLD_PROGRESSION.md`
+Active tutorial/demo progression: `docs/FUTURE_WORLD_PROGRESSION.md`
+
+Detailed progression implementation plan: `docs/FUTURE_WORLD_PROGRESSION_IMPLEMENTATION_PLAN.md`
 
 ## Current checkpoint
 
-- Phase 0 — Plan/baseline: **complete**
-- Phase 1 — Project foundation + asset catalog: **complete**
-- Phase 2 — Reference visual slice: **superseded by procedural worlds; reference remains the art target**
-- Phase 3 — Virtual world + deterministic generator: **complete**
-- Phase 4 — Rendering + picking: **complete architecture; final art tuning remains iterative**
-- Phase 5 — Manual mining: **complete**
-- Phase 6 — Automation framework: **complete**
-- Phase 7 — Skill-tree runtime: **complete**
-- Phase 8 — Skill-tree editor: **complete**
-- Phase 9 — Completion/progression foundation: **complete; current provisional authored sequence remains until the future tutorial-world pass begins**
-- Phase 10 — Save/load/offline foundation: **complete for current gameplay state**
-- Phase 11 — stress/optimization architecture: **complete enough for current scope; one-million manual-mining tuning is deliberately deferred**
-- Phase 12 — game-feel/reference polish: **current implementation scope complete**
-- Phase 13 — final-scale architecture/target: **current implementation scope complete; exact 1,000,000 target retained as the planned 100³ full-release destination**
-- Phase 14 — specialized automation/world events foundation: **current implementation scope complete**
+The non-local implementation pass is substantially complete. The active Steam-demo sequence is:
 
-Phase 12-14 are now treated as closed for this implementation branch. Further additions described in `docs/FUTURE_WORLD_PROGRESSION.md` are new future progression/content work, not unfinished Phase 12-14 blockers.
+1. `tutorial_single_block` — 1 x 1 x 1.
+2. `tutorial_dirt_5` — 5 x 5 x 5.
+3. `tutorial_lake_core_10` — 10 x 10 x 10.
+4. `tutorial_trees_gem_15` — 15 x 15 x 15.
+5. `reference_natural` — 20 x 20 x 20 first main-economy world.
+6. `reference_lakes` — 40 x 40 x 40 active lightning/meteor world.
+7. `reference_ridges` — 50 x 50 x 50 Steam-demo finale.
 
-No merge to `main` should happen before the final local gameplay/visual regression pass.
+The 100 x 100 x 100 one-million world remains a full-release/debug destination and is intentionally outside Steam-demo progression.
+
+The latest non-local CI checkpoint passes content/progression validation, Release compilation, deterministic generation contracts and replay-codec contracts. The remaining gate is deliberately local: gameplay feel, presentation and end-to-end Godot regression.
+
+Do **not** merge this branch to `main` until the final local gameplay/visual regression pass is complete.
 
 ---
 
-## Latest Phase 12 UX/game-feel fixes
+## Progression/save/economy
 
-### Manual mining pop
+Implemented:
 
-A successful manual block removal now spawns a short-lived copy of that block which scales from roughly 0.985 -> 1.12 -> 0.92 before disappearing. This is presentation-only: authoritative mining and chunk rebuilding still happen normally and no persistent per-block node is introduced.
+- stable world IDs and deterministic generation versions;
+- one persistent ordinary-resource wallet across tutorial and main worlds, per the later progression decision that resources should follow the player between worlds;
+- migration/normalization folds any obsolete tutorial-local balances into the persistent wallet exactly once;
+- player-bound skill/special-resource progression;
+- world-bound mined state and physical automation instances;
+- revisit-safe per-world save slots;
+- completed-world state;
+- save schema 3 with normalization/migration support for the development lineage;
+- exact initial physical block totals persisted per visited world so the world browser reports real procedural-world progress rather than relying on optional authored target metadata;
+- compact authoritative replay recording;
+- read-only completed-run replay viewer with accelerated playback;
+- world browser separating **Revisit** from **Replay**;
+- replay exit restores the world that was active before the replay was opened;
+- persistent player-level special-resource event subscriptions are detached when old skill-tree views leave the scene;
+- distinct `STEAM DEMO COMPLETE` flow after the 50³ finale.
 
-Only the first few blocks of a multi-block manual burst receive the effect so upgraded manual mining cannot create unbounded presentation spam.
+The startup main menu now distinguishes **START GAME** from **CONTINUE** and provides presentation settings plus a confirmation-gated **CLEAR SAVE DATA** action. Clearing progression removes current/legacy development saves, temp files and replay history while keeping presentation preferences.
 
-### Camera-friendly placement/move cancellation
+An in-game Esc pause menu freezes the simulation and provides Resume, presentation settings and **Save & Return to Main Menu**. Explicit navigation now requires the current world save to reach disk successfully; a failed save keeps gameplay open instead of pretending the transition succeeded.
 
-RMB no longer cancels automation placement or relocation. While a ghost is active:
-
-- LMB commits a valid green placement;
-- RMB remains available for normal camera orbit;
-- Esc cancels;
-- a bottom-right **Cancel** / **Cancel Move** button is shown for mouse-driven cancellation.
-
-If relocation is cancelled, the original stopped automation reappears at its original position/state.
-
-First-time automation purchases remain transactional: resources are charged only after a valid placement successfully commits.
-
----
-
-## Stopped-automation interaction
-
-There are now two discovery paths.
-
-### Explicit attention flow
-
-The existing automation-stopped alert can cycle/focus actionable stopped machines. The focused machine uses the stencil-backed x-ray silhouette locator so a buried Drill can still be found through terrain. The previous solid orange fill remains rejected; only the border should be visible.
-
-### Ambient world hover
-
-When the player is simply looking around the world, a **visible** actionable stopped automation can be discovered directly:
-
-- moving the mouse over the visible machine gives it the orange outline;
-- the outline exists only while it is hovered in this ambient mode;
-- LMB selects that stopped automation and enters the same relocation ghost flow;
-- ambient detection is visibility/occlusion gated so it is not intended to reveal buried machines — the explicit attention flow still handles those.
+The world browser resumes the actual saved run; Replay never silently creates a fresh playable world.
 
 ---
 
-## Powered Shovel surface rules
+## Tutorial progression and completion accounting
 
-Shovelable soft terrain now includes:
+Implemented:
 
-- sand;
-- vegetated grass surface;
-- `dirt_grass` / grass-edged dirt;
-- ordinary brown `dirt`.
+- 1³ single-block introduction;
+- 5³ manual/hover-mining tutorial;
+- 10³ authored lake + stone-core Shovel tutorial;
+- 15³ authored tree blockers + exact central red gem + Drill/Wide Bore lesson;
+- Forest Cutter remains hidden in 15³ and first becomes visible in the 20³ main world;
+- per-world category staging plus exact per-skill staging for late nodes such as Cloud Charger;
+- semantic gameplay event hub/bridge;
+- contextual `TutorialDirector` driven by semantic events rather than mechanics containing popup text;
+- one-time tutorial milestones persisted in save state;
+- tutorial messages queue instead of overwriting one another when several semantic events fire close together;
+- semantic events for world start/manual/area mining, automation unlock/place/stop, Shovel blockers, special resources, transformations, lightning and meteors.
 
-The three dirt/grass variants share the shovelable content tag so placement and route-following use the same data rule.
+A completion deadlock discovered in the 5³ tutorial has been fixed at the accounting layer. Exact small worlds no longer use large-world aggregate region quotas. CI now exhaustively clears every tutorial world and proves a real zero-block state at **1/1, 125/125, 1,000/1,000 and 3,375/3,375**. This specifically prevents the previous 105/125 state where the renderer had nothing left to mine while completion still expected 125 blocks.
 
-Vegetated `grass` now renders with the dirt-backed grass mesh. This keeps the outward face grassy while exposed side/interior faces read as brown soil instead of producing isolated solid-green blocks after nearby mining.
-
-The Shovel still cannot remove a soft-terrain tile while its outward surface is occupied:
-
-- deterministic tree feature => blocked;
-- a real outward voxel/physical obstruction => blocked;
-- once that obstruction is cleared manually or by the appropriate automation, the tile becomes eligible again.
-
-Future deterministic decorative rocks/props should join this same surface-feature ownership policy rather than becoming one-off Shovel exceptions.
+Mechanics remain functional when tutorial presentation is absent.
 
 ---
 
-## Primary Drill / automation foundation retained
+## Incremental-game feedback layer
 
-The starter Drill:
+Implemented:
 
-- advances one depth layer/sec;
-- initially cuts ordinary stone only;
-- stops on unsupported material rather than skipping it;
+- prominent current-world **Blocks Mined** counter;
+- separate ordinary **Resources** counter;
+- separate dynamic special-resource counters;
+- abbreviated large-number formatting;
+- immediate authoritative counter updates followed by presentation-only pulses;
+- flying pickups from visible mined locations to the appropriate HUD destination;
+- cached miniature renders of the actual block meshes;
+- deterministic tree-miniature feedback when a tree-bearing support tile is harvested;
+- stronger special-resource/gem feedback;
+- short aggregation buckets for rapid repeated gains;
+- hard caps on active/spawned-per-frame pickup presentation;
+- pooled/reused pickup controls;
+- off-screen/offline mining avoids fake world-position pickup flights;
+- replay sessions do not instantiate the incremental pickup layer;
+- F9 exposes active/pool/spawned/aggregated/dropped feedback metrics.
+
+Authoritative mining, currency, special-resource credit, save state and replay never depend on an animation finishing.
+
+---
+
+## Manual mining and automation
+
+Implemented and retained:
+
+- click mining and controlled Hover Mining;
+- camera-space multi-raycast footprint resolution so area-hover highlighting is centered on the block actually under the cursor from the player's view;
+- `single`, `plus_3` and `square_3` manual footprints with highest-layer resolution;
+- hover-mined blocks use the stronger 124% pop while ordinary click mining keeps its smaller pop;
+- Powered Shovel with soft-surface material rules, tree/obstruction blocking, speed upgrades, Slope Sensor and Terrain Scout;
+- starter Drill fixed to one depth layer/second;
+- starter Drill initially cuts ordinary stone only;
 - Hardened Bit adds dark stone;
-- Ore-Cutting Bit adds normal copper/silver/gold ore;
-- gems/unstable blocks retain specialist/manual interactions;
-- reaches a real end-of-world condition instead of travelling forever;
-- Wide Bore preflights its complete 3x3 cutter face and stops if an occupied cutter cell is unsupported.
-
-Hidden/back-side automation remains computational where possible; expensive presentation is deferred until relevant to the camera. Further giant-world tuning is postponed while the opening progression is redesigned.
-
----
-
-## Specialized systems already implemented
-
-- Rock Breaker / pickaxe-class automation;
-- Forest Cutter / axe-class automation;
-- Powered Shovel with speed/slope/search upgrades;
-- deterministic gem pockets;
-- deterministic multi-hit unstable blocks / bounded blasts;
-- stopped-automation attention/cycling/relocation;
-- transactional buy-and-place ghosts;
-- clumped orbiting clouds;
-- adaptive orbit/zoom camera;
-- compact HUD + H details;
-- scrollable runtime skill tree;
-- standalone grid-based skill-tree editor with routed prerequisite lines and rank gates;
-- completion overview / Continue flow;
-- sparse save/load and offline automation foundation;
-- one-million/full-surface architecture retained for the eventual 100 x 100 x 100 destination.
+- Ore-Cutting Bit adds ordinary ore;
+- unsupported Drill material stops the machine rather than being skipped;
+- actionable stopped-automation alert/focus/relocation flow;
+- Wide Bore transforms current/future Drills into a 3 x 3 cutter and preflights the whole face for blockers;
+- real end-of-world termination for Drill traversal;
+- Rock Breaker material-specialized automation;
+- Forest Cutter tree-seeking automation;
+- per-world physical unit purchasing separated from permanent class unlocks;
+- transactional buy-and-place cancellation;
+- hidden/back-side large-world automation remains computational where possible, with deferred visual catch-up.
 
 ---
 
-## Future progression direction
+## Active world events and incremental transition to automation
 
-The current Verdant -> Lakebound -> Copper Ridge -> million-block sequence remains a temporary runtime sequence only. The planned replacement is documented in `docs/FUTURE_WORLD_PROGRESSION.md` and begins with tiny tutorial worlds before the first fully generated cube:
+Implemented:
 
-1. 1 x 1 x 1 single-block introduction.
-2. 5 x 5 x 5 dirt tutorial for manual-mining upgrades.
-3. 10 x 10 x 10 lake + stone-core tutorial for tool/material restrictions.
-4. 15 x 15 x 15 water/stone/trees + first special upgrade resource.
-5. 20 x 20 x 20 first full Verdant-style generated world.
-6. 40 x 40 x 40 larger world with rare upgrades and planned active lightning/meteor gameplay.
-7. 50 x 50 x 50 Steam demo finale.
-8. 100 x 100 x 100 current full-release end target, with optional intermediate worlds still undecided.
-
-All shipped worlds are intended to use deterministic authored profiles/seeds that are generated/reviewed ahead of time and committed as predetermined worlds. A player-facing infinite/random cube generator is explicitly far-future scope.
+- deterministic clumped/orbiting cloud presentation;
+- clouds fade gradually relative to camera/screen position so clouds crossing the central play area become less obstructive and regain full opacity toward the sides;
+- five-click charged lightning strike;
+- authoritative bounded lightning crater through `MiningService`;
+- deterministic catchable meteor windows;
+- drag/flick meteor interaction with assisted impact targeting;
+- authoritative bounded meteor crater;
+- save/restore of cloud charge, orbit phases and meteor opportunity state;
+- semantic lightning/meteor events;
+- late-game **Cloud Charger** skill staged only in the 40³/50³ worlds;
+- Cloud Charger contributes one automatic cloud charge every three seconds while manual clicks still accelerate the same cloud.
 
 ---
 
-## Final local regression gate for this branch
+## Deterministic generation and authoring
 
-The next local check can stay focused and does not need another one-million performance benchmark:
+Implemented:
 
-1. Place the Powered Shovel on green grass, grass-edged dirt and plain brown dirt. All three should be valid when unobstructed.
-2. Confirm a tree-bearing/outward-obstructed soft tile remains invalid for the Shovel until cleared.
-3. Move a stopped automation: RMB must orbit instead of cancelling; Esc and the bottom-right Cancel Move button must restore the original unit.
-4. Buy/place a normal automation: the bottom-right Cancel button and Esc should cancel without spending resources; RMB must remain camera orbit.
-5. Without clicking the attention alert, hover a visible stopped automation. It should receive the orange outline only while hovered and LMB should let it be moved.
-6. Cycle to a buried stopped automation through the attention alert and verify the existing x-ray outline remains outline-only through terrain.
-7. Manually mine a few blocks and verify the new small block-pop effect reads as a quick scale-up rather than a lingering duplicate.
-8. Confirm the grass/dirt presentation no longer creates the isolated fully-green interior blocks shown in the previous screenshots.
+- runtime deterministic profile/seed generator;
+- coherent terrain columns, plateaus/cliffs, forest fields, ore and depth rules;
+- sparse world override files for tutorial/main-world authoring;
+- runtime-backed world-authoring candidate browser/preview;
+- exact authoring metrics and draft export;
+- shipping freeze backend that refuses accidental overwrite of an existing frozen version;
+- standalone deterministic-generation tooling can load the same `res://` authored override data through an explicit managed resource root without booting Godot native runtime APIs.
+
+The procedural surface has an explicit structural post-pass shared by runtime and CI. It enforces visual/voxel invariants rather than hoping a seed produces them:
+
+- water is a **single inset surface layer**, never a stack/tower sitting above another block;
+- every accepted water voxel has solid sand directly inward/behind it;
+- any outward cap in a water column is carved away;
+- water remains inside a stable face band and leaves a dry shoreline ring before cube seams/corners;
+- the first cardinal dry ring beside accepted water is sand;
+- boundary water is shallow; dark/deep water is allowed only when all four final neighboring water columns survive;
+- narrow one/two-cell post-filter water fragments are rejected;
+- procedural material choice remains authoritative at cube seams: sand and stone stay sand/stone, interior grass keeps its dirt-backed/fringed appearance, and only the specifically authored dirt/grass edge case on the true perimeter resolves to the clean green edge appearance.
+
+`reference_natural` remains content `worldVersion` 3, while all three reviewed procedural Steam-demo worlds use structural `generationVersion` 3. The Verdant v3 sparse override was refreshed to generation v3 and still guarantees one red, one blue and one green special gem without adding blocks.
+
+The structural correction intentionally changed the deterministic physical geometry. The reviewed generation-v3 baselines are:
+
+- `reference_natural`: **6,824** mineable blocks;
+- `reference_lakes`: **61,225** mineable blocks;
+- `reference_ridges`: **123,412** mineable blocks.
+
+CI confirms those worlds still retain trees and special resources. The current authoring scan reports 3, 811 and 4,595 special gems respectively.
+
+---
+
+## Loading/rendering/performance architecture
+
+- world changes, revisits and replay transitions use a persistent space-background loading screen with a pulsing block;
+- exact demo-world chunk creation is staged across process frames instead of rebuilding the complete initial view synchronously;
+- loading progress remains visible until the replacement `WorldView` has resolved its initial presentation set;
+- transition requests are serialized so double-clicks cannot start competing world loads;
+- abandoned/failed transitions release the loading overlay instead of leaving it stuck over a still-valid scene;
+- small/demo worlds use normal authored-scale exact rendering rather than inheriting unnecessary million-world complexity;
+- one-million destination uses real-block full-surface rendering;
+- camera-dependent surface culling;
+- deterministic generated-sample cache;
+- deferred off-screen automation presentation;
+- sparse authoritative state;
+- F9 render/state/automation/feedback diagnostics;
+- F7 stress benchmark for large profiles.
+
+The known expensive path for any future one-million visible high-rate automation tuning remains exact modified-chunk rebuild. That is intentionally not a Steam-demo blocker unless local regression shows it affects the reviewed 20/40/50 worlds.
+
+---
+
+## Replay quality/integrity
+
+- replay playback is read-only and visually recreates mining block pop/debris without granting replay rewards;
+- replay timing is sequential rather than preserving idle gaps, with 1x equal to one recorded removal per second;
+- playback speed is continuously selectable from 1x to 64x, with 1/2/4/8/16/32/64x presets;
+- codec schema/version/world identity/checksum validation is enforced;
+- corrupt replay payload lengths are validated before allocation/read;
+- decompression is bounded to the declared payload length to prevent malformed local replay files from expanding without limit;
+- CI includes a malformed oversized-header fixture in addition to checksum/future-schema rejection and the 125,000-removal compression round-trip.
+
+---
+
+## Quality-review pass
+
+The latest static/code-quality review specifically hardened failure paths that normal happy-path gameplay does not exercise often:
+
+- loading transitions no longer rethrow exceptions from an unobserved fire-and-forget task;
+- the loading overlay survives destruction of the UI control that initiated a scene transition;
+- stale World Browser requests cancel cleanly and reopen the browser rather than covering the scene with a loader;
+- Revisit/Replay require a successful save before leaving the active world;
+- a failed Revisit/Replay attempts to restore the previously active world;
+- completion-screen transition controls remain usable if a replay/next-world transition fails;
+- **Save & Return to Main Menu** no longer leaves gameplay when its save write fails;
+- replay decoder allocations/decompression are bounded and contract-tested.
+
+---
+
+## Automated checkpoint
+
+The final non-local checkpoint currently passes:
+
+- repository content validation;
+- cross-world progression contracts;
+- Release .NET build with 0 warnings / 0 errors in the main game project;
+- deterministic generation contracts across candidate seeds and all three procedural Steam-demo worlds;
+- water inset/support/shoreline/deep-water/topology contracts;
+- current cube-edge material contract;
+- exact tutorial clear-through completion contracts;
+- exact reviewed physical-count contracts for 20³/40³/50³;
+- authored special-resource/tree presence checks;
+- replay schema/encode/decode/compression contract at 125,000 recorded removals;
+- malformed replay header/checksum/future-schema rejection.
+
+The standalone contract projects still emit the existing Godot source-generator warning about `GodotProjectDir` not being set when compiled outside a Godot project context. The contract executables themselves complete successfully; this warning is not a runtime or main-project build failure.
+
+---
+
+## Remaining work before merge
+
+Automated/static work is now at the point where further confidence primarily requires the actual Godot runtime and visual interaction:
+
+1. From the startup menu, use **Settings -> Clear Save Data**, confirm, then verify Start Game truly begins from the 1³ world with no stale replay/progression state.
+2. Clear 1³ and then the entire 5³ world by ordinary clicking/hover mining. Confirm it reaches 125/125, shows the completion/congratulations flow and exposes Replay/next-world behavior rather than becoming empty at 105/125.
+3. Verify the 1³ -> 5³ -> 10³ -> 15³ -> 20³ -> 40³ -> 50³ progression can be played/revisited without state leakage and that ordinary resources carry between worlds.
+4. Inspect 20³/40³/50³ from multiple camera angles: water must read as recessed lakes/basins with sand shoreline/support, no blocks may visibly sit on top of water, and the locally corrected perimeter/interior grass rules must remain intact.
+5. Verify World Browser progress percentages use the real saved physical total and replaying an older world returns to the previously active world afterward.
+6. Exercise the loading screen on 20³/40³/50³ transitions and confirm the pulsing block remains animated while initial chunks are staged.
+7. Verify incremental pickups read clearly and F9 feedback counts remain bounded under rapid mining.
+8. Verify Cloud Charger, lightning and meteor interaction locally.
+9. Verify staged tutorial/skill visibility, especially Forest Cutter at 20³ and Cloud Charger at 40³/50³.
+10. Verify Revisit resumes actual state, Replay remains read-only, Esc pause/save-return behaves correctly, and the 50³ final clear exposes the dedicated demo-complete/browse flow.
+
+No additional one-million performance benchmark is required for this progression checkpoint unless a regression is observed there.

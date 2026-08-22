@@ -1,9 +1,12 @@
 {
   "schema_version": 1,
   "world_ids": [
+    "tutorial_single_block",
+    "tutorial_dirt_5",
+    "tutorial_lake_core_10",
+    "tutorial_trees_gem_15",
     "reference_natural",
     "reference_lakes",
-    "reference_ridges",
-    "final_target_1m"
+    "reference_ridges"
   ]
 }

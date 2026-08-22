@@ -60,4 +60,17 @@ public static class VoxelMath
         int z = PositiveMod(voxel.Z, chunkSize);
         return x + chunkSize * (y + chunkSize * z);
     }
+
+    /// <summary>
+    /// Faster local-index path when the caller already paid for ChunkCoord.FromVoxel. Subtracting the
+    /// chunk origin replaces three additional signed modulo/division operations while preserving the
+    /// exact 0..chunkSize-1 local coordinates for negative chunks as well.
+    /// </summary>
+    public static int LocalIndex(Vector3I voxel, ChunkCoord chunk, int chunkSize)
+    {
+        int x = voxel.X - chunk.X * chunkSize;
+        int y = voxel.Y - chunk.Y * chunkSize;
+        int z = voxel.Z - chunk.Z * chunkSize;
+        return x + chunkSize * (y + chunkSize * z);
+    }
 }

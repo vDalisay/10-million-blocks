@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
+using TenMillionBlocks.Mining;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.World.Generation;
+using TenMillionBlocks.World.Rendering;
 using TenMillionBlocks.World.Storage;
 
 namespace TenMillionBlocks.World;
@@ -21,13 +25,66 @@ public static class WorldSelfTest
         BlockSample first = source.SampleVoxel(probe);
         BlockSample second = source.SampleVoxel(probe);
         Assert(first.Equals(second), "procedural generator determinism");
+        Assert(WorldView.ResolveTerrainVisualBlockId("grass", "grass", "dirt_grass", "dirt", false) == "dirt_grass",
+            "ordinary surface grass keeps a brown core");
+        Assert(WorldView.ResolveTerrainVisualBlockId("dirt", "grass", "dirt_grass", "dirt", true) == "grass_outer",
+            "perimeter dirt uses stable solid green");
+        Assert(WorldView.ResolveTerrainVisualBlockId("dirt", "grass", "dirt_grass", "dirt", false) == "dirt",
+            "non-perimeter dirt remains brown");
 
+        using var camera = new OrbitCameraController();
+        camera.ConfigureWorldExtent(84.45f, requireSurfaceFocus: true);
+        Assert(camera.SurfaceFocusEnabled, "full-surface worlds keep the camera outside their shell");
+        var frontChunk = new ChunkCoord(3, 0, 0);
+        Assert(WorldView.IsStructuralChunkCameraFacing(
+            frontChunk, 2, -4, 3, Vector3.Right, Vector3I.Right),
+            "front-side automation chunks remain presentable");
+        Assert(!WorldView.IsStructuralChunkCameraFacing(
+            frontChunk, 2, -4, 3, Vector3.Left, Vector3I.Right),
+            "back-side automation chunks remain data-only");
+        Assert(!WorldView.ShouldShowTreeBatch(8.0f, 0.0f, true, 1), "distant tree batches use data-only LOD");
+        Assert(!WorldView.ShouldShowTreeBatch(13.0f, 0.0f, false, 1)
+            && WorldView.ShouldShowTreeBatch(15.0f, 0.0f, false, 1), "tree LOD hysteresis prevents threshold chatter");
+        Assert(WorldView.ShouldShowTreeBatch(8.0f, 0.0f, true, 2)
+            && WorldView.ShouldShowTreeBatch(1.0f, 0.42f, false, 0), "detail distance and close focus preserve trees");
+
+        ValidateSingleBlockTutorial(catalog.Get("tutorial_single_block"));
+        ValidateManualMiningFootprint(catalog.Get("tutorial_dirt_5"));
         ValidateReferenceEcology(reference, source);
         ValidateSparseState(reference);
         ValidateStressScale(catalog.Get("stress_1000"));
         ValidateMillionTarget(catalog.Get("final_target_1m"));
 
-        GD.Print("World self-tests passed: ecology, sparse state, 1000 address-space streaming counters, region aggregates, and the one-million-block final target.");
+        GD.Print("World self-tests passed: single-block tutorial, ecology, sparse state, 1000 address-space streaming counters, region aggregates, and the one-million-block final target.");
+    }
+
+    private static void ValidateSingleBlockTutorial(WorldProfile profile)
+    {
+        var world = new VirtualWorld(profile);
+        long physicalBlocks = world.CountMineableBlocksExact();
+        Assert(physicalBlocks == 1L, "tutorial world contains exactly one physical mineable block");
+        Assert(physicalBlocks == profile.TargetMineableBlocks, "tutorial physical count matches authored target");
+        Assert(world.IsExposed(Vector3I.Zero), "tutorial block is exposed");
+        Assert(world.TryMine(Vector3I.Zero, out _), "tutorial block can be mined");
+        Assert(world.RemainingMineableBlocks == 0L, "tutorial block completes the world");
+        Assert(!profile.SkillTreeAvailable && !profile.AutomationAvailable,
+            "tutorial progression systems remain unavailable");
+    }
+
+    private static void ValidateManualMiningFootprint(WorldProfile profile)
+    {
+        var world = new VirtualWorld(profile);
+        Vector3I center = new(0, 2, 0);
+        IReadOnlyList<Vector3I> footprint = ManualMiningFootprint.ResolveFromCenter(
+            world,
+            center,
+            ManualMiningFootprintKind.Square3,
+            Vector3I.Up);
+        Assert(footprint.Count == 9 && footprint[0] == center, "3x3 footprint stays centred on raycast hit");
+        foreach (Vector3I voxel in footprint)
+        {
+            Assert(voxel.Y == center.Y, "3x3 footprint stays on raycast face plane");
+        }
     }
 
     private static void ValidateSparseState(WorldProfile reference)

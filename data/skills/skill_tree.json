@@ -1,11 +1,11 @@
 {
   "schema_version": 2,
-  "content_version": 9,
+  "content_version": 13,
   "nodes": [
     {
       "id": "manual_2x",
-      "display_name": "Two-Handed Mining",
-      "description": "Mine one additional nearby block per click.",
+      "display_name": "Broad Swing",
+      "description": "Expand manual mining into a 3x3 plus-shaped footprint. Only the highest outward layer in the footprint receives damage each tick.",
       "grid_x": 0,
       "grid_y": 0,
       "category": "manual",
@@ -13,12 +13,12 @@
       "prerequisites": [],
       "cost": 20,
       "max_rank": 1,
-      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
+      "effects": [{ "type": "set_manual_footprint", "string_value": "plus_3" }]
     },
     {
       "id": "manual_3x",
-      "display_name": "Rapid Chipping",
-      "description": "Mine one more nearby block per click.",
+      "display_name": "Full Sweep",
+      "description": "Upgrade the manual footprint from the plus shape to the complete 3x3 surface square.",
       "grid_x": 0,
       "grid_y": 2,
       "category": "manual",
@@ -28,12 +28,40 @@
       ],
       "cost": 60,
       "max_rank": 1,
-      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
+      "effects": [{ "type": "set_manual_footprint", "string_value": "square_3" }]
+    },
+    {
+      "id": "hover_mining_unlock",
+      "display_name": "Hover Mining",
+      "description": "Unlock a UI toggle that repeatedly applies manual mining while the cursor rests on a valid block. It pauses during camera movement and placement.",
+      "grid_x": -2,
+      "grid_y": 0,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [],
+      "cost": 15,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_hover_mining" }]
+    },
+    {
+      "id": "manual_hover_speed",
+      "display_name": "Steady Hands",
+      "description": "Repeatable manual cadence upgrade. Each rank makes Hover Mining apply its next mining tick 25% faster.",
+      "grid_x": -2,
+      "grid_y": 2,
+      "category": "manual",
+      "purchase_mode": "repeatable",
+      "prerequisites": [
+        { "node_id": "hover_mining_unlock", "required_rank": 1, "route": [{ "grid_x": -2, "grid_y": 1 }] }
+      ],
+      "cost": 30,
+      "max_rank": 4,
+      "effects": [{ "type": "multiply_manual_mining_rate", "value": 1.25 }]
     },
     {
       "id": "automation_unlock",
       "display_name": "Automation",
-      "description": "Unlock the starter drill. It advances exactly one block of depth per second and initially only cuts ordinary stone.",
+      "description": "Unlock the starter Drill class. Physical Drill units are then bought separately at a fixed per-unit price in each world.",
       "grid_x": 2,
       "grid_y": 0,
       "category": "automation",
@@ -91,7 +119,7 @@
     {
       "id": "wide_bore_unlock",
       "display_name": "Wide Bore",
-      "description": "Upgrade the placed drill to a slower 3x3 bore.",
+      "description": "Consume the central red gem to permanently transform every current and future Drill into a slower 3x3 Wide Bore.",
       "grid_x": 4,
       "grid_y": 2,
       "category": "patterns",
@@ -100,6 +128,7 @@
         { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 1 }, { "grid_x": 4, "grid_y": 1 }] }
       ],
       "cost": 140,
+      "special_costs": [{ "resource_id": "gem_red", "amount": 1 }],
       "max_rank": 1,
       "effects": [
         { "type": "unlock_pattern", "string_value": "wide_line" },
@@ -138,16 +167,29 @@
       "effects": [{ "type": "unlock_miner", "string_value": "pickaxe_miner" }]
     },
     {
-      "id": "axe_unlock",
-      "display_name": "Forest Cutter",
-      "description": "Unlock an axe-class surface machine that seeks deterministic tree-bearing tiles and clears the tree with its support block.",
-      "grid_x": 6,
-      "grid_y": 5,
-      "category": "tools",
+      "id": "cloud_charger_unlock",
+      "display_name": "Cloud Charger",
+      "description": "Partially automate thunder: eligible clouds gain one charge every 3 seconds. Manual clicks still add charge, so active play can accelerate each strike.",
+      "grid_x": 8,
+      "grid_y": 3,
+      "category": "events",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "resource_sensors", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 3 }, { "grid_x": 5, "grid_y": 5 }] }
+        { "node_id": "pickaxe_unlock", "required_rank": 1, "route": [{ "grid_x": 7, "grid_y": 3 }] }
       ],
+      "cost": 650,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_auto_cloud_charger" }]
+    },
+    {
+      "id": "axe_unlock",
+      "display_name": "Forest Cutter",
+      "description": "Unlock the Forest Cutter class so tree-bearing surface tiles can be cleared without manual detours. Physical units use a fixed world-local price.",
+      "grid_x": 6,
+      "grid_y": 5,
+      "category": "forest",
+      "purchase_mode": "once",
+      "prerequisites": [],
       "cost": 230,
       "max_rank": 1,
       "effects": [{ "type": "unlock_miner", "string_value": "axe_miner" }]
@@ -155,7 +197,7 @@
     {
       "id": "shovel_unlock",
       "display_name": "Powered Shovel",
-      "description": "Unlock a deliberately simple sand crawler. It mines about one sand block per second and initially only understands same-height cardinal neighbors.",
+      "description": "Unlock the Powered Shovel class. Physical Shovel units are bought separately at a fixed per-unit price in each world.",
       "grid_x": 2,
       "grid_y": 4,
       "category": "shovel",

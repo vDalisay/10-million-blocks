@@ -77,8 +77,20 @@ public sealed class WorldProgressionService
         return true;
     }
 
-    public void RestoreIndex(int index)
+    public void RestoreWorld(string? worldId)
     {
-        CurrentIndex = Math.Clamp(index, 0, _definition.WorldIds.Count - 1);
+        if (string.IsNullOrWhiteSpace(worldId))
+        {
+            CurrentIndex = 0;
+            return;
+        }
+
+        int index = _definition.WorldIds.FindIndex(id => id.Equals(worldId, StringComparison.Ordinal));
+        if (index < 0)
+        {
+            throw new InvalidOperationException($"Save references unavailable world '{worldId}'.");
+        }
+
+        CurrentIndex = index;
     }
 }
