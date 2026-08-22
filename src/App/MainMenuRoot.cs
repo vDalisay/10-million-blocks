@@ -131,7 +131,7 @@ public partial class MainMenuRoot : Node
 
     private Control BuildSettingsPanel()
     {
-        PanelContainer panel = CenteredPanel(285, 320);
+        PanelContainer panel = CenteredPanel(285, 340);
         var margin = StandardMargin();
         panel.AddChild(margin);
         var column = StandardColumn();
@@ -219,6 +219,16 @@ public partial class MainMenuRoot : Node
         idleOrbit.Toggled += _graphics.SetIdleCameraOrbitEnabled;
         column.AddChild(idleOrbit);
 
+        var reducedMotion = new CheckButton
+        {
+            Text = "Reduced motion",
+            ButtonPressed = _graphics.ReducedMotionEnabled,
+            TooltipText = "Reduce non-gameplay pulsing, rotation and transition motion while keeping gameplay controls responsive.",
+            CustomMinimumSize = new Vector2(0, 38),
+        };
+        reducedMotion.Toggled += _graphics.SetReducedMotionEnabled;
+        column.AddChild(reducedMotion);
+
         var defaults = new Button
         {
             Text = "RESET PRESENTATION DEFAULTS",
@@ -232,6 +242,7 @@ public partial class MainMenuRoot : Node
             ao.SetPressedNoSignal(true);
             glow.SetPressedNoSignal(false);
             idleOrbit.SetPressedNoSignal(true);
+            reducedMotion.SetPressedNoSignal(false);
         };
         column.AddChild(defaults);
 
