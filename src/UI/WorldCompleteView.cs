@@ -14,11 +14,13 @@ public partial class WorldCompleteView : CanvasLayer
     private Label _next = null!;
     private Button _replay = null!;
     private Button _continue = null!;
+    private Button _mainMenu = null!;
     private Tween? _transition;
     private bool _hasNextWorld;
 
     public event Action? ContinueRequested;
     public event Action? ReplayRequested;
+    public event Action? ReturnToMainMenuRequested;
     public bool IsOpen => _root is not null && _root.Visible;
 
     public override void _Ready()
@@ -48,10 +50,10 @@ public partial class WorldCompleteView : CanvasLayer
             AnchorRight = 0.5f,
             AnchorBottom = 0.5f,
             OffsetLeft = -270,
-            OffsetTop = -215,
+            OffsetTop = -240,
             OffsetRight = 270,
-            OffsetBottom = 215,
-            PivotOffset = new Vector2(270, 215),
+            OffsetBottom = 240,
+            PivotOffset = new Vector2(270, 240),
         };
         _root.AddChild(_panel);
 
@@ -63,7 +65,7 @@ public partial class WorldCompleteView : CanvasLayer
         _panel.AddChild(margin);
 
         var column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 14);
+        column.AddThemeConstantOverride("separation", 12);
         margin.AddChild(column);
 
         _title = new Label { Text = "WORLD CLEARED", HorizontalAlignment = HorizontalAlignment.Center };
@@ -100,6 +102,15 @@ public partial class WorldCompleteView : CanvasLayer
         };
         _continue.Pressed += OnContinuePressed;
         column.AddChild(_continue);
+
+        _mainMenu = new Button
+        {
+            Text = "Return to Main Menu",
+            CustomMinimumSize = new Vector2(0, 44),
+            Visible = false,
+        };
+        _mainMenu.Pressed += () => ReturnToMainMenuRequested?.Invoke();
+        column.AddChild(_mainMenu);
     }
 
     public void ShowCompletion(
@@ -124,7 +135,7 @@ public partial class WorldCompleteView : CanvasLayer
         if (next is null)
         {
             _next.Text = demoFinale
-                ? "You cleared every mineable block in the 50-cube finale. The 100-cube world is reserved for the full release. You can still revisit completed worlds and watch their replays."
+                ? "You cleared every mineable block in the 50-cube finale. The 100-cube world is reserved for the full release. Revisit completed worlds, watch your replays, or return to the main menu."
                 : "Current authored progression complete.";
             _continue.Text = demoFinale ? "Browse Completed Worlds" : "Close";
         }
@@ -137,6 +148,8 @@ public partial class WorldCompleteView : CanvasLayer
             _continue.Text = "Continue";
         }
 
+        _mainMenu.Visible = demoFinale;
+        _mainMenu.Disabled = false;
         _replay.Visible = replayAvailable;
         _replay.Disabled = false;
         _continue.Disabled = false;
