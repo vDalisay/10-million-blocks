@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using TenMillionBlocks.Mining;
@@ -23,6 +24,7 @@ public partial class MinerPlacementController : Node
     private bool _attentionClickHeld;
     private CanvasLayer? _cancelLayer;
     private Button? _cancelButton;
+    private readonly List<Vector3I> _placementFootprint = new(9);
 
     public bool InputEnabled { get; set; } = true;
     public string? PendingMinerId { get; private set; }
@@ -54,6 +56,7 @@ public partial class MinerPlacementController : Node
         if (!InputEnabled)
         {
             _manual.PlacementMode = false;
+            _manual.HidePlacementHighlight();
             _miners.HidePlacementGhost(_ghost);
             ClearAmbientHoverHighlight();
             return;
@@ -71,10 +74,16 @@ public partial class MinerPlacementController : Node
                     requireUnlocked: _pendingPurchaseSkillId is null,
                     ignoreInstanceId: _movingMiner?.InstanceId);
                 _miners.UpdatePlacementGhost(_ghost!, minerId, voxel, valid);
+
+                // Placement owns the selection visual while active. Reuse the existing batched highlight,
+                // but shape it like the physical automation instead of the player's mining upgrade.
+                _miners.FillPlacementFootprint(minerId, voxel, _placementFootprint);
+                _manual.ShowPlacementHighlight(_placementFootprint);
             }
             else
             {
                 _miners.HidePlacementGhost(_ghost);
+                _manual.HidePlacementHighlight();
             }
             return;
         }
@@ -99,6 +108,7 @@ public partial class MinerPlacementController : Node
             else
             {
                 _manual.PlacementMode = true;
+                _manual.HidePlacementHighlight();
             }
             return;
         }
@@ -106,6 +116,7 @@ public partial class MinerPlacementController : Node
         if (_miners.HighlightedAttentionMiner is not null)
         {
             _manual.PlacementMode = _miners.UpdateAttentionHover(mouse, _camera.Camera);
+            if (_manual.PlacementMode) _manual.HidePlacementHighlight();
             return;
         }
 
@@ -115,6 +126,7 @@ public partial class MinerPlacementController : Node
             _ambientHoveredMiner = ambient;
             _miners.SetAttentionHighlight(ambient);
             _manual.PlacementMode = _miners.UpdateAttentionHover(mouse, _camera.Camera);
+            if (_manual.PlacementMode) _manual.HidePlacementHighlight();
         }
         else
         {
@@ -361,6 +373,7 @@ public partial class MinerPlacementController : Node
         _pendingUnitPurchase = unitPurchase;
         _movingMiner = movingMiner;
         _manual.PlacementMode = true;
+        _manual.HidePlacementHighlight();
         EnsureGhost(minerId);
         RefreshCancelUi();
         Changed?.Invoke();
@@ -381,12 +394,14 @@ public partial class MinerPlacementController : Node
         _movingMiner = null;
         _movingFromAmbientHover = false;
         _attentionClickHeld = false;
+        _placementFootprint.Clear();
         _manual.PlacementMode = false;
         if (_ghost is not null)
         {
             _miners.DestroyPlacementGhost(_ghost);
             _ghost = null;
         }
+        _manual.RestoreMiningHighlight();
         RefreshCancelUi();
     }
 
