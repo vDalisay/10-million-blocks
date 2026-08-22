@@ -16,6 +16,7 @@ public partial class WorldView
     private Vector2 _lastVisibilityViewportSize;
     private float _lastVisibilityFov;
     private int _lastVisibilityChunkCount = -1;
+    private int _lastVisibilitySparseOverlayCount = -1;
     private double _visibilityRefreshTimer;
     private VisibilityRefreshTicker? _visibilityRefreshTicker;
 
@@ -23,6 +24,8 @@ public partial class WorldView
     public int CulledChunkCount { get; private set; }
     public int BackfaceCulledChunkCount { get; private set; }
     public int FrustumCulledChunkCount { get; private set; }
+    public int PresentedSparseOverlayCount { get; private set; }
+    public int FrustumCulledSparseOverlayCount { get; private set; }
     public int LodHiddenTreeBatchCount { get; private set; }
     public int LodShadowDisabledBatchCount { get; private set; }
 
@@ -59,13 +62,15 @@ public partial class WorldView
 
     /// <summary>
     /// Million-block worlds keep deterministic shell chunks resident so orbiting never causes a large
-    /// regeneration spike, but resident does not mean drawable. Visibility is rejected in increasingly
-    /// expensive stages: cube-face/back-side test first, then a conservative chunk-sphere frustum test,
-    /// then screen-space LOD for decorative tree batches and shadows.
+    /// regeneration spike, but resident does not mean drawable. Base shell roots are rejected in
+    /// increasingly expensive stages: cube-face/back-side test first, then a conservative chunk-sphere
+    /// frustum test, then screen-space LOD for decorative tree batches and shadows.
     ///
-    /// Godot already performs GPU triangle backface/depth rejection, but doing the coarse tests here
-    /// prevents entire MultiMesh batches from reaching the renderer at all. This is especially valuable
-    /// during close surface inspection, where most of the resident cube shell is outside the camera.
+    /// Excavated cavity overlays are intentionally a separate visibility class. Once a tunnel exists its
+    /// faces are no longer tied to the original cube normal, so applying shell backface culling to those
+    /// walls can create see-through holes. Sparse overlays therefore use conservative frustum culling and
+    /// normal GPU depth/backface rejection, while the untouched/base shell retains the cheaper CPU-side
+    /// cube-face rejection.
     /// </summary>
     public void RefreshViewDependentPresentation()
     {
@@ -75,10 +80,13 @@ public partial class WorldView
             CulledChunkCount = 0;
             BackfaceCulledChunkCount = 0;
             FrustumCulledChunkCount = 0;
+            PresentedSparseOverlayCount = _sparseOverlayRoots.Count;
+            FrustumCulledSparseOverlayCount = 0;
             LodHiddenTreeBatchCount = 0;
             LodShadowDisabledBatchCount = 0;
             _visibilityPoseInitialized = false;
             _lastVisibilityChunkCount = _chunkRoots.Count;
+            _lastVisibilitySparseOverlayCount = _sparseOverlayRoots.Count;
             return;
         }
 
@@ -90,6 +98,7 @@ public partial class WorldView
         Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
         bool samePose = _visibilityPoseInitialized
             && _lastVisibilityChunkCount == _chunkRoots.Count
+            && _lastVisibilitySparseOverlayCount == _sparseOverlayRoots.Count
             && cameraPosition.DistanceSquaredTo(_lastVisibilityCameraPosition) < 0.0004f
             && cameraForward.Dot(_lastVisibilityCameraForward) > 0.999995f
             && viewportSize.DistanceSquaredTo(_lastVisibilityViewportSize) < 0.25f
@@ -105,13 +114,17 @@ public partial class WorldView
         _lastVisibilityViewportSize = viewportSize;
         _lastVisibilityFov = camera.Fov;
         _lastVisibilityChunkCount = _chunkRoots.Count;
+        _lastVisibilitySparseOverlayCount = _sparseOverlayRoots.Count;
 
         int presented = 0;
         int backfaceCulled = 0;
         int frustumCulled = 0;
+        int presentedSparse = 0;
+        int frustumCulledSparse = 0;
         int hiddenTreeBatches = 0;
         int shadowDisabledBatches = 0;
         int chunkSize = _world.Profile.ChunkSize;
+        float chunkRadius = ChunkPresentationRadiusWorld(chunkSize);
 
         foreach ((ChunkCoord chunk, Node3D root) in _chunkRoots)
         {
@@ -127,7 +140,7 @@ public partial class WorldView
                 continue;
             }
 
-            if (!IsSphereWithinCameraFrustum(centerWorld, ChunkPresentationRadiusWorld(chunkSize)))
+            if (!IsSphereWithinCameraFrustum(centerWorld, chunkRadius))
             {
                 root.Visible = false;
                 frustumCulled++;
@@ -140,18 +153,39 @@ public partial class WorldView
             ApplyScreenSpaceLod(root, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
         }
 
+        foreach ((ChunkCoord chunk, Node3D root) in _sparseOverlayRoots)
+        {
+            Vector3I minVoxel = chunk.MinVoxel(chunkSize);
+            Vector3I centerVoxel = minVoxel + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
+            Vector3 centerWorld = VoxelToWorld(centerVoxel);
+            if (!IsSphereWithinCameraFrustum(centerWorld, chunkRadius))
+            {
+                root.Visible = false;
+                frustumCulledSparse++;
+                continue;
+            }
+
+            root.Visible = true;
+            presentedSparse++;
+            float projectedBlockPixels = EstimateProjectedBlockPixels(centerWorld);
+            ApplyScreenSpaceLod(root, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
+        }
+
         PresentedChunkCount = presented;
         BackfaceCulledChunkCount = backfaceCulled;
         FrustumCulledChunkCount = frustumCulled;
+        PresentedSparseOverlayCount = presentedSparse;
+        FrustumCulledSparseOverlayCount = frustumCulledSparse;
         CulledChunkCount = backfaceCulled + frustumCulled;
         LodHiddenTreeBatchCount = hiddenTreeBatches;
         LodShadowDisabledBatchCount = shadowDisabledBatches;
     }
 
     /// <summary>
-    /// Shared high-level visibility gate used by renderer queues and automation presentation. It is
-    /// deliberately conservative: false means a chunk cannot contribute pixels to the current camera,
-    /// while true may still be rejected later by normal depth testing or finer Godot culling.
+    /// Shared high-level visibility gate used by renderer queues and automation presentation. A modified
+    /// chunk with possible cavity walls bypasses only the original cube-face test; it must still overlap
+    /// the camera frustum. This keeps off-screen automation cheap without suppressing a tunnel wall that
+    /// can be visible through an excavation opening.
     /// </summary>
     private bool IsChunkPresentationRelevant(ChunkCoord chunk)
     {
@@ -165,8 +199,9 @@ public partial class WorldView
         Vector3I centerVoxel = minVoxel + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
         Vector3 centerWorld = VoxelToWorld(centerVoxel);
         Vector3 toCamera = _camera.Camera.GlobalPosition - centerWorld;
-        return IsFullSurfaceChunkCameraFacing(chunk, centerVoxel, toCamera)
-            && IsSphereWithinCameraFrustum(centerWorld, ChunkPresentationRadiusWorld(chunkSize));
+        bool facing = HasSparseExposurePotential(chunk)
+            || IsFullSurfaceChunkCameraFacing(chunk, centerVoxel, toCamera);
+        return facing && IsSphereWithinCameraFrustum(centerWorld, ChunkPresentationRadiusWorld(chunkSize));
     }
 
     private float ChunkPresentationRadiusWorld(int chunkSize)
@@ -312,13 +347,6 @@ public partial class WorldView
         }
 
         if (shell) return false;
-
-        // Interior sparse chunks contain tunnel/cavity walls whose visible faces are no longer tied to
-        // the original cube's outward normal. Applying the old center-normal backface test to those roots
-        // could hide a perfectly visible tunnel wall and make the player see through to the far side of
-        // the cube. Excavated interior chunks therefore bypass only this coarse backface stage; the
-        // conservative frustum test and normal GPU depth/backface rejection still apply.
-        if (HasSparseExposurePotential(chunk)) return true;
 
         Vector3I outward = _world.Source.GetOutwardNormal(centerVoxel);
         return toCamera.Dot((Vector3)outward) > 0.0f;
