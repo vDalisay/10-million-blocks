@@ -9,13 +9,21 @@ namespace TenMillionBlocks.Automation;
 public partial class MinerSimulationService
 {
     private const int MaxVisualPolicyChecksPerRefresh = 256;
+    private const float AutomationCullBelowPixels = 3.0f;
+    private const float DrillRotorCullBelowPixels = 11.0f;
 
     private int _lastDrillMaterialTier;
     private double _visualVisibilityRefreshTimer;
     private int _visualPolicyCursor;
     private readonly HashSet<long> _attentionMinerIds = new();
+    private readonly HashSet<long> _visualLodHiddenMinerIds = new();
+    private readonly HashSet<long> _rotorLodHiddenMinerIds = new();
+    private readonly HashSet<ulong> _automationGeometryConfiguredRoots = new();
 
     public event Action<MinerInstance>? MinerStopped;
+
+    public int VisualLodHiddenMinerCount => _visualLodHiddenMinerIds.Count;
+    public int RotorLodHiddenCount => _rotorLodHiddenMinerIds.Count;
 
     public int AttentionMinerCount
     {
@@ -340,6 +348,9 @@ public partial class MinerSimulationService
         if (minerCount == 0)
         {
             _visualPolicyCursor = 0;
+            _visualLodHiddenMinerIds.Clear();
+            _rotorLodHiddenMinerIds.Clear();
+            _automationGeometryConfiguredRoots.Clear();
             return;
         }
 
@@ -371,10 +382,87 @@ public partial class MinerSimulationService
     {
         TrackAttentionState(miner);
         if (!_visuals.TryGetValue(miner.InstanceId, out Node3D? root)) return;
+        ConfigureAutomationGeometryOnce(root);
+
         MinerDefinition definition = _catalog.Get(miner.DefinitionId);
         Vector3I outward = -miner.Direction;
         Vector3I anchor = MinerAnchorVoxel(miner, definition);
-        root.Visible = _view.ShouldPresentAutomation(anchor, outward);
+        bool coarseVisible = _view.ShouldPresentAutomation(anchor, outward);
+        if (!coarseVisible)
+        {
+            root.Visible = false;
+            _visualLodHiddenMinerIds.Remove(miner.InstanceId);
+            SetRotorLod(miner, root, visible: false, countAsLod: false);
+            return;
+        }
+
+        float projectedPixels = ProjectedAutomationPixels(anchor, definition);
+        bool lodVisible = projectedPixels >= AutomationCullBelowPixels;
+        root.Visible = lodVisible;
+        if (!lodVisible)
+        {
+            _visualLodHiddenMinerIds.Add(miner.InstanceId);
+            SetRotorLod(miner, root, visible: false, countAsLod: false);
+            return;
+        }
+
+        _visualLodHiddenMinerIds.Remove(miner.InstanceId);
+        bool rotorVisible = projectedPixels >= DrillRotorCullBelowPixels;
+        SetRotorLod(miner, root, rotorVisible, countAsLod: !rotorVisible);
+    }
+
+    private float ProjectedAutomationPixels(Vector3I anchor, MinerDefinition definition)
+    {
+        Camera3D? camera = GetViewport().GetCamera3D();
+        if (camera is null) return float.PositiveInfinity;
+
+        Vector3 worldPosition = _view.VoxelToWorld(anchor);
+        float distance = Math.Max(0.001f, camera.GlobalPosition.DistanceTo(worldPosition));
+        float viewportHeight = Math.Max(1.0f, GetViewport().GetVisibleRect().Size.Y);
+        float focalPixels = viewportHeight * 0.5f
+            / Math.Max(0.01f, MathF.Tan(Mathf.DegToRad(camera.Fov) * 0.5f));
+        float footprint = Math.Max(1.0f, DrillFootprint(definition));
+        float approximateWorldDiameter = _world.Profile.BlockSpacing
+            * (IsShovel(definition) ? 1.8f : 1.7f * footprint);
+        return approximateWorldDiameter * focalPixels / distance;
+    }
+
+    private void SetRotorLod(MinerInstance miner, Node3D root, bool visible, bool countAsLod)
+    {
+        MinerDefinition definition = _catalog.Get(miner.DefinitionId);
+        if (!IsPrimaryDrill(definition))
+        {
+            _rotorLodHiddenMinerIds.Remove(miner.InstanceId);
+            return;
+        }
+
+        Node3D? rotor = root.GetNodeOrNull<Node3D>("Rotor");
+        if (rotor is not null) rotor.Visible = visible;
+        if (countAsLod) _rotorLodHiddenMinerIds.Add(miner.InstanceId);
+        else _rotorLodHiddenMinerIds.Remove(miner.InstanceId);
+    }
+
+    private void ConfigureAutomationGeometryOnce(Node3D root)
+    {
+        ulong id = root.GetInstanceId();
+        if (!_automationGeometryConfiguredRoots.Add(id)) return;
+        DisableAutomationShadowsRecursive(root);
+    }
+
+    private static void DisableAutomationShadowsRecursive(Node node)
+    {
+        if (node is GeometryInstance3D geometry)
+        {
+            // Hundreds of small moving machines contribute little useful shadow detail on the giant
+            // cube but each shadow caster adds render work. Terrain keeps its normal LOD shadow policy;
+            // only automation geometry is made non-shadow-casting.
+            geometry.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+        }
+
+        foreach (Node child in node.GetChildren())
+        {
+            DisableAutomationShadowsRecursive(child);
+        }
     }
 
     private bool ShouldEmitPresentation(MinerInstance miner, Vector3I voxel)
