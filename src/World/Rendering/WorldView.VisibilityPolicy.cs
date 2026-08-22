@@ -29,11 +29,6 @@ public partial class WorldView
     public int LodHiddenTreeBatchCount { get; private set; }
     public int LodShadowDisabledBatchCount { get; private set; }
 
-    /// <summary>
-    /// Runs the culling policy often enough to follow camera motion without making every process tick
-    /// walk the complete resident shell. The actual refresh also has a pose cache, so explicit refreshes
-    /// requested by automation remain cheap while the view is stationary.
-    /// </summary>
     private void TickViewDependentPresentation(double delta)
     {
         _visibilityRefreshTimer += Math.Max(0.0, delta);
@@ -62,15 +57,14 @@ public partial class WorldView
 
     /// <summary>
     /// Million-block worlds keep deterministic shell chunks resident so orbiting never causes a large
-    /// regeneration spike, but resident does not mean drawable. Base shell roots are rejected in
-    /// increasingly expensive stages: cube-face/back-side test first, then a conservative chunk-sphere
+    /// regeneration spike, but resident does not mean drawable. Untouched base-shell roots are rejected
+    /// in increasingly expensive stages: cube-face/back-side test first, then a conservative chunk-sphere
     /// frustum test, then screen-space LOD for decorative tree batches and shadows.
     ///
-    /// Excavated cavity overlays are intentionally a separate visibility class. Once a tunnel exists its
-    /// faces are no longer tied to the original cube normal, so applying shell backface culling to those
-    /// walls can create see-through holes. Sparse overlays therefore use conservative frustum culling and
-    /// normal GPU depth/backface rejection, while the untouched/base shell retains the cheaper CPU-side
-    /// cube-face rejection.
+    /// Once a chunk participates in excavation, its surviving base-column blocks may also form cavity
+    /// boundaries. Those blocks can be visible from a direction unrelated to the chunk's original cube
+    /// face, so excavated chunks bypass only the coarse cube-face rejection. They still receive frustum
+    /// culling, normal GPU depth/backface rejection and screen-space LOD.
     /// </summary>
     public void RefreshViewDependentPresentation()
     {
@@ -181,12 +175,6 @@ public partial class WorldView
         LodShadowDisabledBatchCount = shadowDisabledBatches;
     }
 
-    /// <summary>
-    /// Shared high-level visibility gate used by renderer queues and automation presentation. A modified
-    /// chunk with possible cavity walls bypasses only the original cube-face test; it must still overlap
-    /// the camera frustum. This keeps off-screen automation cheap without suppressing a tunnel wall that
-    /// can be visible through an excavation opening.
-    /// </summary>
     private bool IsChunkPresentationRelevant(ChunkCoord chunk)
     {
         if (!FullSurfaceRenderer || _camera?.Camera is null)
@@ -207,8 +195,6 @@ public partial class WorldView
     private float ChunkPresentationRadiusWorld(int chunkSize)
     {
         float halfExtent = chunkSize * _world.Profile.BlockSpacing * 0.5f;
-        // Sphere encloses the chunk AABB. Extra padding keeps trees/grass fringes conservative so the
-        // coarse CPU culler never clips a visible decorative mesh at the edge of the screen.
         return halfExtent * 1.7320508f + _world.Profile.BlockSpacing * 3.0f;
     }
 
@@ -242,8 +228,6 @@ public partial class WorldView
         float tanHorizontal = tanVertical * aspect;
         float effectiveDepth = MathF.Max(camera.Near, depth);
 
-        // Radius is expanded by the slope of each plane rather than testing only the center point.
-        // This intentionally errs toward rendering a borderline chunk instead of producing pop-in.
         float horizontalAllowance = effectiveDepth * tanHorizontal + radius * (1.0f + tanHorizontal);
         float verticalAllowance = effectiveDepth * tanVertical + radius * (1.0f + tanVertical);
         return MathF.Abs(toCenter.Dot(right)) <= horizontalAllowance
@@ -310,6 +294,15 @@ public partial class WorldView
 
     private bool IsFullSurfaceChunkCameraFacing(ChunkCoord chunk, Vector3I centerVoxel, Vector3 toCamera)
     {
+        // A modified shell chunk can contribute both the original outward-column surface and a newly
+        // exposed cavity boundary. The cavity can face the camera even when none of the chunk's original
+        // cube faces do. SparseOverlay deliberately omits blocks already supplied by this base root, so
+        // hiding the base root here creates a literal visual hole. Keep excavated chunks conservative.
+        if (HasSparseExposurePotential(chunk))
+        {
+            return true;
+        }
+
         int depth = Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
         int min = _world.MinChunkCoordinate;
         int max = _world.MaxChunkCoordinate;
