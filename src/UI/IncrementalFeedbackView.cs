@@ -4,6 +4,7 @@ using Godot;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Economy;
 using TenMillionBlocks.Mining;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Rendering;
 
@@ -130,6 +131,12 @@ public partial class IncrementalFeedbackView : CanvasLayer
             RefreshCounters();
         }
 
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            StopAnimatedFeedback();
+            return;
+        }
+
         FlushReadyBuckets(delta);
         AdvanceFlights((float)delta);
         AdvancePulses((float)delta);
@@ -241,7 +248,6 @@ public partial class IncrementalFeedbackView : CanvasLayer
         };
         row.AddChild(icon);
 
-        // Keep the normal two-line counter structure, but place the miniature beside the numeric row.
         VBoxContainer? column = FindFirstVBox(chip.Root);
         column?.AddChild(row);
         if (column is not null)
@@ -384,6 +390,11 @@ public partial class IncrementalFeedbackView : CanvasLayer
         bool hasSource,
         bool special)
     {
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            return;
+        }
+
         var key = new PendingKey(visualId, special);
         if (_pending.TryGetValue(key, out PendingBucket? bucket))
         {
@@ -545,14 +556,17 @@ public partial class IncrementalFeedbackView : CanvasLayer
     private void Pulse(Control target, bool strong)
     {
         if (target is null || !IsInstanceValid(target)) return;
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            target.Scale = Vector2.One;
+            return;
+        }
 
         float startScale = strong ? 1.12f : 1.055f;
         float duration = strong ? 0.24f : 0.16f;
         target.PivotOffset = target.Size * 0.5f;
         target.Scale = Vector2.One * startScale;
 
-        // Repeated mining usually hits the same two counters many times in one frame. Reset the existing
-        // pulse instead of allocating a Godot Tween for every event.
         foreach (PulseAnimation pulse in _activePulses)
         {
             if (!ReferenceEquals(pulse.Target, target)) continue;
@@ -593,6 +607,30 @@ public partial class IncrementalFeedbackView : CanvasLayer
             _activePulses.RemoveAt(i);
             _pulsePool.Push(pulse);
         }
+    }
+
+    private void StopAnimatedFeedback()
+    {
+        _pending.Clear();
+        _readyBuckets.Clear();
+
+        for (int i = _activeFlights.Count - 1; i >= 0; i--)
+        {
+            PickupFlight flight = _activeFlights[i];
+            flight.Root.Visible = false;
+            flight.Root.Modulate = Colors.White;
+            flight.Root.Scale = Vector2.One;
+            _flightPool.Push(flight);
+        }
+        _activeFlights.Clear();
+
+        for (int i = _activePulses.Count - 1; i >= 0; i--)
+        {
+            PulseAnimation pulse = _activePulses[i];
+            if (IsInstanceValid(pulse.Target)) pulse.Target.Scale = Vector2.One;
+            _pulsePool.Push(pulse);
+        }
+        _activePulses.Clear();
     }
 
     private Texture2D GetPreviewTexture(string blockId)
