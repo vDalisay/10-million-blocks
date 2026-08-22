@@ -8,13 +8,12 @@ namespace TenMillionBlocks.World.Rendering;
 /// <summary>
 /// Full-surface worlds normally need only one generated surface sample per face column. Mining used to
 /// switch an affected 16^3 chunk to RebuildEagerChunk so tunnel side walls were correct, but that turns
-/// one click into thousands of generated voxel/exposure queries and was measured at 10-23 ms per chunk
-/// in the 100^3 stress world.
+/// one click into thousands of generated voxel/exposure queries.
 ///
-/// Keep the cheap column renderer authoritative for the outward-facing surface and add only the sparse
-/// newly-exposed frontier around mined voxels as a child overlay. The work is proportional to modified
-/// state, coalesced per chunk and frame-budgeted. This preserves tunnel/cavity side walls without ever
-/// rescanning an untouched chunk volume after every click.
+/// The overlay is now an incremental exposed-frontier cache. A block removal can only make its six
+/// neighbours newly visible, so live mining records those neighbours directly instead of rescanning all
+/// previously mined voxels in the chunk on every rebuild. Existing save/deferred state is bootstrapped
+/// once, lazily, when that chunk next becomes presentation-relevant.
 /// </summary>
 public partial class WorldView
 {
@@ -33,11 +32,15 @@ public partial class WorldView
     };
 
     private readonly HashSet<ChunkCoord> _sparseOverlayDirtyChunks = new();
-    private readonly HashSet<Vector3I> _sparseOverlayCandidateScratch = new();
+    private readonly Dictionary<ChunkCoord, HashSet<Vector3I>> _sparseExposureFrontierByChunk = new();
+    private readonly HashSet<ChunkCoord> _sparseExposureInitializedChunks = new();
+    private readonly List<Vector3I> _sparseExposureRemovalScratch = new();
     private SparseExposureWorker? _sparseExposureWorker;
     private double _sparseOverlayBuildTotalMilliseconds;
+    private long _sparseExposureFrontierCandidateCount;
 
     public int PendingSparseExposureOverlays => _sparseOverlayDirtyChunks.Count;
+    public long SparseExposureFrontierCandidateCount => _sparseExposureFrontierCandidateCount;
     public long SparseExposureOverlayBuilds { get; private set; }
     public double LastSparseExposureOverlayBuildMilliseconds { get; private set; }
     public double AverageSparseExposureOverlayBuildMilliseconds
@@ -48,7 +51,7 @@ public partial class WorldView
     /// <summary>
     /// Shared mining/automation dirty path. Full-surface worlds intentionally do not set forceExact:
     /// their base chunk is rebuilt through the cheap surface-column path while the sparse overlay below
-    /// accounts for non-column tunnel walls. Other renderer modes retain their existing cheap behavior.
+    /// accounts for non-column tunnel walls. Other renderer modes retain their existing behavior.
     /// </summary>
     private void MarkInteractiveChunkDirty(ChunkCoord chunk)
     {
@@ -60,11 +63,173 @@ public partial class WorldView
         }
     }
 
+    /// <summary>
+    /// Records the only cells whose exposure can change after one exact block removal: the removed cell
+    /// itself (which must disappear from any old overlay) and its six neighbours. This is the same local
+    /// invalidation principle used by mature voxel/tile engines: mutation work is proportional to the
+    /// changed frontier, not to the total amount of excavation already stored in the chunk.
+    /// </summary>
+    private void RecordSparseExposureMutation(Vector3I minedVoxel)
+    {
+        if (!FullSurfaceRenderer) return;
+
+        int chunkSize = _world.Profile.ChunkSize;
+        ChunkCoord minedChunk = ChunkCoord.FromVoxel(minedVoxel, chunkSize);
+        RemoveSparseExposureCandidate(minedChunk, minedVoxel);
+        QueueSparseExposureOverlay(minedChunk);
+
+        foreach (Vector3I direction in VoxelMath.Neighbors)
+        {
+            Vector3I candidate = minedVoxel + direction;
+            if (Math.Abs(candidate.X) > _world.MaxCoordinate
+                || Math.Abs(candidate.Y) > _world.MaxCoordinate
+                || Math.Abs(candidate.Z) > _world.MaxCoordinate)
+            {
+                continue;
+            }
+
+            ChunkCoord candidateChunk = ChunkCoord.FromVoxel(candidate, chunkSize);
+            if (!ChunkInWorldBounds(candidateChunk)) continue;
+            AddSparseExposureCandidate(candidateChunk, candidate);
+            QueueSparseExposureOverlay(candidateChunk);
+        }
+    }
+
+    /// <summary>
+    /// Hidden automation should not maintain millions of per-voxel presentation candidates. Mark its
+    /// affected chunks stale instead. When a stale chunk becomes visible again, one lazy bootstrap from
+    /// compact mined-state reconstructs the frontier and then returns to incremental updates.
+    /// </summary>
+    private void InvalidateSparseExposureFrontier(ChunkCoord chunk)
+    {
+        if (!FullSurfaceRenderer || !ChunkInWorldBounds(chunk)) return;
+        _sparseExposureInitializedChunks.Remove(chunk);
+        if (_sparseExposureFrontierByChunk.Remove(chunk, out HashSet<Vector3I>? candidates))
+        {
+            _sparseExposureFrontierCandidateCount -= candidates.Count;
+        }
+    }
+
+    private void InvalidateSparseExposureFrontierForMutation(Vector3I voxel)
+    {
+        if (!FullSurfaceRenderer) return;
+
+        int chunkSize = _world.Profile.ChunkSize;
+        ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, chunkSize);
+        InvalidateSparseExposureFrontier(chunk);
+
+        int localX = VoxelMath.PositiveMod(voxel.X, chunkSize);
+        int localY = VoxelMath.PositiveMod(voxel.Y, chunkSize);
+        int localZ = VoxelMath.PositiveMod(voxel.Z, chunkSize);
+
+        if (localX == 0) InvalidateSparseExposureFrontier(new ChunkCoord(chunk.X - 1, chunk.Y, chunk.Z));
+        else if (localX == chunkSize - 1) InvalidateSparseExposureFrontier(new ChunkCoord(chunk.X + 1, chunk.Y, chunk.Z));
+
+        if (localY == 0) InvalidateSparseExposureFrontier(new ChunkCoord(chunk.X, chunk.Y - 1, chunk.Z));
+        else if (localY == chunkSize - 1) InvalidateSparseExposureFrontier(new ChunkCoord(chunk.X, chunk.Y + 1, chunk.Z));
+
+        if (localZ == 0) InvalidateSparseExposureFrontier(new ChunkCoord(chunk.X, chunk.Y, chunk.Z - 1));
+        else if (localZ == chunkSize - 1) InvalidateSparseExposureFrontier(new ChunkCoord(chunk.X, chunk.Y, chunk.Z + 1));
+    }
+
+    private void AddSparseExposureCandidate(ChunkCoord chunk, Vector3I candidate)
+    {
+        if (!_sparseExposureFrontierByChunk.TryGetValue(chunk, out HashSet<Vector3I>? frontier))
+        {
+            frontier = new HashSet<Vector3I>();
+            _sparseExposureFrontierByChunk.Add(chunk, frontier);
+        }
+
+        if (frontier.Add(candidate))
+        {
+            _sparseExposureFrontierCandidateCount++;
+        }
+    }
+
+    private void RemoveSparseExposureCandidate(ChunkCoord chunk, Vector3I candidate)
+    {
+        if (!_sparseExposureFrontierByChunk.TryGetValue(chunk, out HashSet<Vector3I>? frontier)
+            || !frontier.Remove(candidate))
+        {
+            return;
+        }
+
+        _sparseExposureFrontierCandidateCount--;
+        if (frontier.Count == 0)
+        {
+            _sparseExposureFrontierByChunk.Remove(chunk);
+        }
+    }
+
     private void QueueSparseExposureOverlay(ChunkCoord chunk)
     {
         if (!FullSurfaceRenderer || !ChunkInWorldBounds(chunk)) return;
         _sparseOverlayDirtyChunks.Add(chunk);
         EnsureSparseExposureWorker();
+    }
+
+    /// <summary>
+    /// When loading an existing save, or when off-screen automation was deliberately collapsed to a
+    /// chunk marker, we do not have the live mutation frontier. Reconstruct it once from the compact
+    /// mined bitsets in this chunk and its six neighbours. Subsequent mining is incremental again.
+    /// </summary>
+    private void EnsureSparseExposureFrontierInitialized(ChunkCoord chunk)
+    {
+        if (!_sparseExposureInitializedChunks.Add(chunk)) return;
+
+        int chunkSize = _world.Profile.ChunkSize;
+        foreach (ChunkCoord offset in SparseOverlaySourceOffsets)
+        {
+            ChunkCoord sourceChunk = new(
+                chunk.X + offset.X,
+                chunk.Y + offset.Y,
+                chunk.Z + offset.Z);
+            if (!ChunkInWorldBounds(sourceChunk)) continue;
+
+            IReadOnlyCollection<int> minedIndices = _world.State.GetMinedLocalIndices(sourceChunk);
+            if (minedIndices.Count == 0) continue;
+
+            Vector3I sourceMin = sourceChunk.MinVoxel(chunkSize);
+            foreach (int index in minedIndices)
+            {
+                int x = index % chunkSize;
+                int yz = index / chunkSize;
+                int y = yz % chunkSize;
+                int z = yz / chunkSize;
+                Vector3I minedVoxel = sourceMin + new Vector3I(x, y, z);
+
+                foreach (Vector3I direction in VoxelMath.Neighbors)
+                {
+                    Vector3I candidate = minedVoxel + direction;
+                    if (ChunkCoord.FromVoxel(candidate, chunkSize) == chunk)
+                    {
+                        AddSparseExposureCandidate(chunk, candidate);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Surface chunks loaded from a save need their old tunnel walls too. Avoid bootstrapping every
+    /// shell chunk: only queue chunks that actually have exact sparse modifications in themselves or an
+    /// adjacent chunk capable of exposing one of their cells.
+    /// </summary>
+    private void QueueSparseExposureOverlayForRestoredState(ChunkCoord chunk)
+    {
+        if (!FullSurfaceRenderer || _world.State.ModifiedChunkCount == 0) return;
+
+        foreach (ChunkCoord offset in SparseOverlaySourceOffsets)
+        {
+            ChunkCoord sourceChunk = new(
+                chunk.X + offset.X,
+                chunk.Y + offset.Y,
+                chunk.Z + offset.Z);
+            if (!ChunkInWorldBounds(sourceChunk)) continue;
+            if (_world.State.GetMinedLocalIndices(sourceChunk).Count == 0) continue;
+            QueueSparseExposureOverlay(chunk);
+            return;
+        }
     }
 
     private void EnsureSparseExposureWorker()
@@ -110,66 +275,41 @@ public partial class WorldView
     private void RebuildSparseExposureOverlay(ChunkCoord chunk)
     {
         ulong started = Time.GetTicksUsec();
-        _sparseOverlayCandidateScratch.Clear();
+        EnsureSparseExposureFrontierInitialized(chunk);
 
-        int chunkSize = _world.Profile.ChunkSize;
-        int max = _world.MaxCoordinate;
-
-        // Exposure in this render chunk can be caused by a mined voxel in the chunk itself or by one
-        // in an immediately adjacent chunk at the shared boundary. Enumerate only those sparse mined
-        // addresses; untouched voxels never enter this path.
-        foreach (ChunkCoord offset in SparseOverlaySourceOffsets)
+        if (!_sparseExposureFrontierByChunk.TryGetValue(chunk, out HashSet<Vector3I>? frontier)
+            || frontier.Count == 0)
         {
-            ChunkCoord sourceChunk = new(
-                chunk.X + offset.X,
-                chunk.Y + offset.Y,
-                chunk.Z + offset.Z);
-            if (!ChunkInWorldBounds(sourceChunk)) continue;
-
-            IReadOnlyCollection<int> minedIndices = _world.State.GetMinedLocalIndices(sourceChunk);
-            if (minedIndices.Count == 0) continue;
-
-            Vector3I sourceMin = sourceChunk.MinVoxel(chunkSize);
-            foreach (int index in minedIndices)
-            {
-                int x = index % chunkSize;
-                int yz = index / chunkSize;
-                int y = yz % chunkSize;
-                int z = yz / chunkSize;
-                Vector3I minedVoxel = sourceMin + new Vector3I(x, y, z);
-
-                foreach (Vector3I direction in VoxelMath.Neighbors)
-                {
-                    Vector3I candidate = minedVoxel + direction;
-                    if (ChunkCoord.FromVoxel(candidate, chunkSize) == chunk)
-                    {
-                        _sparseOverlayCandidateScratch.Add(candidate);
-                    }
-                }
-            }
+            RemoveSparseOverlayNode(chunk);
+            FinishSparseExposureBuild(started);
+            return;
         }
 
         var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         var treeBatches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
+        _sparseExposureRemovalScratch.Clear();
+        int max = _world.MaxCoordinate;
 
-        foreach (Vector3I voxel in _sparseOverlayCandidateScratch)
+        foreach (Vector3I voxel in frontier)
         {
             if (Math.Abs(voxel.X) > max || Math.Abs(voxel.Y) > max || Math.Abs(voxel.Z) > max)
             {
+                _sparseExposureRemovalScratch.Add(voxel);
                 continue;
             }
 
             BlockSample sample = _world.SampleVoxel(voxel);
             if (!sample.Present || !_world.IsExposed(voxel, sample))
             {
+                _sparseExposureRemovalScratch.Add(voxel);
                 continue;
             }
 
             // The base surface-column chunk already renders the first surviving block in each outward
-            // column. Only add candidates that column rendering cannot represent, i.e. tunnel/cavity
-            // side walls and modified interior chunks. This avoids duplicate coplanar instances.
+            // column. Keep only tunnel/cavity side walls in the sparse overlay to avoid coplanar copies.
             if (IsRepresentedByFullSurfaceBase(chunk, voxel))
             {
+                _sparseExposureRemovalScratch.Add(voxel);
                 continue;
             }
 
@@ -188,8 +328,17 @@ public partial class WorldView
             }
         }
 
-        ReplaceSparseOverlayNode(chunk, batches, treeBatches);
+        foreach (Vector3I stale in _sparseExposureRemovalScratch)
+        {
+            RemoveSparseExposureCandidate(chunk, stale);
+        }
 
+        ReplaceSparseOverlayNode(chunk, batches, treeBatches);
+        FinishSparseExposureBuild(started);
+    }
+
+    private void FinishSparseExposureBuild(ulong started)
+    {
         LastSparseExposureOverlayBuildMilliseconds = (Time.GetTicksUsec() - started) / 1000.0;
         _sparseOverlayBuildTotalMilliseconds += LastSparseExposureOverlayBuildMilliseconds;
         SparseExposureOverlayBuilds++;
@@ -305,6 +454,23 @@ public partial class WorldView
         foreach ((string variant, List<Transform3D> transforms) in treeBatches)
         {
             AddBatch(overlay, variant, transforms, true);
+        }
+    }
+
+    private void RemoveSparseOverlayNode(ChunkCoord chunk)
+    {
+        if (!_chunkRoots.TryGetValue(chunk, out Node3D? root)) return;
+        Node3D? oldOverlay = root.GetNodeOrNull<Node3D>(SparseOverlayNodeName);
+        if (oldOverlay is not null)
+        {
+            root.RemoveChild(oldOverlay);
+            oldOverlay.QueueFree();
+        }
+
+        if (root.Name.ToString().StartsWith("SparseExposureChunk_", StringComparison.Ordinal))
+        {
+            _chunkRoots.Remove(chunk);
+            root.QueueFree();
         }
     }
 
