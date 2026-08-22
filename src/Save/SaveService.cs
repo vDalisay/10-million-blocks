@@ -20,6 +20,7 @@ public sealed class WorldSaveData
     public long TutorialLocalCurrency { get; set; }
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
+    public double ActivePlaySeconds { get; set; }
     public bool HoverMiningEnabled { get; set; }
     public bool Completed { get; set; }
     public long FirstStartedUnixSeconds { get; set; }
@@ -79,9 +80,6 @@ public sealed class SaveService
             }
         }
 
-        // Deserialize directly from disk instead of first allocating one giant UTF-16 JSON string.
-        // Large-world mined-state snapshots can be substantial, so streaming materially reduces peak
-        // managed memory and the chance of a GC hitch during startup/continue.
         string sourceAbsolute = ProjectSettings.GlobalizePath(sourcePath);
         using FileStream input = new(
             sourceAbsolute,
@@ -124,9 +122,6 @@ public sealed class SaveService
             activeWorld.LastPlayedUnixSeconds = data.SavedAtUnixSeconds;
         }
 
-        // Serialize directly to the temporary file. The previous Serialize()->StoreString path held a
-        // complete JSON string plus the serializer's temporary buffers at once, producing avoidable
-        // large-object-heap/GC pressure as mined-state grows toward million-block worlds.
         string absolute = ProjectSettings.GlobalizePath(path);
         string tempAbsolute = ProjectSettings.GlobalizePath(path + ".tmp");
         string? directory = Path.GetDirectoryName(tempAbsolute);
@@ -210,6 +205,7 @@ public sealed class SaveService
             }
             world.InitialMineableBlocks = Math.Max(0L, world.InitialMineableBlocks);
             world.TutorialLocalCurrency = Math.Max(0L, world.TutorialLocalCurrency);
+            world.ActivePlaySeconds = Math.Max(0.0, world.ActivePlaySeconds);
             legacyLocalCurrency = checked(legacyLocalCurrency + world.TutorialLocalCurrency);
             if (world.LastPlayedUnixSeconds <= 0) world.LastPlayedUnixSeconds = world.FirstStartedUnixSeconds;
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
@@ -218,8 +214,6 @@ public sealed class SaveService
             if (world.Completed) data.CompletedWorldIds.Add(world.WorldId);
         }
 
-        // Tutorial wallets were previously isolated per world. Fold every remaining balance into the
-        // persistent wallet exactly once, then clear the obsolete fields so later loads cannot duplicate it.
         if (legacyLocalCurrency <= 0L) return false;
 
         data.PersistentMainCurrency = checked(data.PersistentMainCurrency + legacyLocalCurrency);
