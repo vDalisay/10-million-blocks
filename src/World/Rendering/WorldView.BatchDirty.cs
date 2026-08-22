@@ -10,11 +10,13 @@ public partial class WorldView
 
     /// <summary>
     /// Marks the chunk containing one changed voxel plus only the adjacent chunks whose shared border
-    /// can actually have changed exposure. Full-surface worlds now use the cheap surface-column rebuild
-    /// plus a sparse exposure overlay instead of rescanning the whole 16^3 chunk after every click.
+    /// can actually have changed exposure. Full-surface worlds also record the six-cell incremental
+    /// exposure frontier so tunnel rendering never has to rescan all previous excavation in the chunk.
     /// </summary>
     public void MarkDirtyVoxel(Vector3I voxel)
     {
+        RecordSparseExposureMutation(voxel);
+
         int chunkSize = _world.Profile.ChunkSize;
         ChunkCoord chunk = ChunkCoord.FromVoxel(voxel, chunkSize);
         MarkInteractiveChunkDirty(chunk);
@@ -45,6 +47,7 @@ public partial class WorldView
 
         foreach (Vector3I voxel in voxels)
         {
+            RecordSparseExposureMutation(voxel);
             AddAffectedChunks(voxel, chunkSize, _dirtyBatchScratch);
         }
 
@@ -53,8 +56,9 @@ public partial class WorldView
 
     /// <summary>
     /// Allocation-free dirty-region path for bounded blast effects. It coalesces the entire sphere to
-    /// chunk coordinates before touching the rebuild scheduler, which is substantially cheaper than
-    /// calling MarkDirtyAround for every removed voxel in a crater.
+    /// chunk coordinates before touching the rebuild scheduler. Only cells that are actually mined in
+    /// authoritative state feed the sparse frontier, so an explosion does not permanently retain the
+    /// unused cells in its bounding sphere.
     /// </summary>
     public void MarkDirtySphere(Vector3I center, int radius)
     {
@@ -74,7 +78,12 @@ public partial class WorldView
         for (int x = -safeRadius; x <= safeRadius; x++)
         {
             if (x * x + y * y + z * z > radiusSquared) continue;
-            AddAffectedChunks(center + new Vector3I(x, y, z), chunkSize, _dirtyBatchScratch);
+            Vector3I voxel = center + new Vector3I(x, y, z);
+            if (_world.State.IsMined(voxel))
+            {
+                RecordSparseExposureMutation(voxel);
+            }
+            AddAffectedChunks(voxel, chunkSize, _dirtyBatchScratch);
         }
 
         FlushDirtyBatchScratch();
