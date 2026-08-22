@@ -38,7 +38,6 @@ public partial class PauseMenuView : CanvasLayer
 
     public override void _ExitTree()
     {
-        // Never leave the SceneTree paused if this overlay is destroyed during a scene change.
         if (GetTree() is SceneTree tree)
         {
             tree.Paused = false;
@@ -66,8 +65,6 @@ public partial class PauseMenuView : CanvasLayer
             return;
         }
 
-        // Let higher-priority gameplay overlays consume Escape first. GameRoot supplies this predicate
-        // so World Browser, Skill Tree, completion and replay retain their existing Escape semantics.
         if (_canOpen is not null && !_canOpen()) return;
 
         SetOpen(true);
@@ -178,7 +175,7 @@ public partial class PauseMenuView : CanvasLayer
 
     private Control BuildSettingsPanel()
     {
-        PanelContainer panel = CenteredPanel(285.0f, 305.0f);
+        PanelContainer panel = CenteredPanel(285.0f, 330.0f);
         var margin = StandardMargin();
         panel.AddChild(margin);
         var column = StandardColumn();
@@ -254,6 +251,16 @@ public partial class PauseMenuView : CanvasLayer
         idleOrbit.Toggled += _graphics.SetIdleCameraOrbitEnabled;
         column.AddChild(idleOrbit);
 
+        var reducedMotion = new CheckButton
+        {
+            Text = "Reduced motion",
+            ButtonPressed = _graphics.ReducedMotionEnabled,
+            TooltipText = "Reduce non-gameplay pulsing, rotation and transition motion.",
+            CustomMinimumSize = new Vector2(0.0f, 38.0f),
+        };
+        reducedMotion.Toggled += _graphics.SetReducedMotionEnabled;
+        column.AddChild(reducedMotion);
+
         var defaults = new Button
         {
             Text = "RESET PRESENTATION DEFAULTS",
@@ -267,6 +274,7 @@ public partial class PauseMenuView : CanvasLayer
             ao.SetPressedNoSignal(true);
             glow.SetPressedNoSignal(false);
             idleOrbit.SetPressedNoSignal(true);
+            reducedMotion.SetPressedNoSignal(false);
         };
         column.AddChild(defaults);
 
