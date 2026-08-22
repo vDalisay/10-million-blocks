@@ -151,11 +151,11 @@ public partial class OrbitCameraController : Node3D
         }
     }
 
-    public void ConfigureWorldExtent(float worldRadius)
+    public void ConfigureWorldExtent(float worldRadius, bool requireSurfaceFocus = false)
     {
         _worldRadius = MathF.Max(1.0f, worldRadius);
         _presetScale = MathF.Max(1.0f, _worldRadius / ReferenceWorldRadius);
-        _surfaceFocusEnabled = _worldRadius >= LargeWorldFocusThreshold;
+        _surfaceFocusEnabled = requireSurfaceFocus || _worldRadius >= LargeWorldFocusThreshold;
         _forceFarOnNextPreset = true;
         ResetIdleOrbit();
 

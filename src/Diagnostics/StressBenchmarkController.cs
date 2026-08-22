@@ -630,6 +630,7 @@ public partial class StressBenchmarkController : Node
         report.AppendLine($"automation_work_units_per_frame_cap={automationBudget}");
         report.AppendLine($"automation_presentation_queued_delta={Math.Max(0L, _view.AutomationPresentationUpdatesQueued - _automationQueuedAtStart)}");
         report.AppendLine($"automation_presentation_suppressed_delta={Math.Max(0L, _view.AutomationPresentationUpdatesSuppressed - _automationSuppressedAtStart)}");
+        report.AppendLine($"detail_distance={GraphicsSettingsRuntime.Current?.DetailDistance ?? 1}");
         report.AppendLine($"live_blocks_mined_during_benchmark={liveMinedDelta}");
         report.AppendLine($"mining_service_total_delta={miningTotalDelta}");
         report.AppendLine($"currency_delta={currencyDelta}");

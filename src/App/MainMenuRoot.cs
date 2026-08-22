@@ -143,7 +143,7 @@ public partial class MainMenuRoot : Node
 
     private Control BuildSettingsPanel()
     {
-        PanelContainer panel = CenteredPanel(285, 340);
+        PanelContainer panel = CenteredPanel(285, 355);
         var margin = StandardMargin();
         panel.AddChild(margin);
         var column = StandardColumn();
@@ -185,6 +185,10 @@ public partial class MainMenuRoot : Node
             _graphics.SetResolutionScale(scale);
         };
         column.AddChild(BuildSettingRow("3D Resolution", resolution));
+
+        var detailDistance = BuildDetailDistanceButton(_graphics.DetailDistance);
+        detailDistance.ItemSelected += index => _graphics.SetDetailDistance((int)index);
+        column.AddChild(BuildSettingRow("Detail Distance", detailDistance));
 
         var msaa = new OptionButton
         {
@@ -250,6 +254,7 @@ public partial class MainMenuRoot : Node
         {
             _graphics.RestoreDefaults();
             resolution.Select(2);
+            detailDistance.Select(1);
             msaa.Select(0);
             ao.SetPressedNoSignal(true);
             glow.SetPressedNoSignal(false);
@@ -286,6 +291,21 @@ public partial class MainMenuRoot : Node
         back.Pressed += ShowMain;
         column.AddChild(back);
         return panel;
+    }
+
+    private static OptionButton BuildDetailDistanceButton(int selected)
+    {
+        var button = new OptionButton
+        {
+            CustomMinimumSize = new Vector2(210, 38),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            TooltipText = "Controls how far decorative trees render. Lower values improve performance.",
+        };
+        button.AddItem("Low", 0);
+        button.AddItem("Medium", 1);
+        button.AddItem("High", 2);
+        button.Select(Math.Clamp(selected, 0, 2));
+        return button;
     }
 
     private Control BuildConfirmPanel()

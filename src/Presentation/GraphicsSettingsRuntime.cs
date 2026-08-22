@@ -24,6 +24,7 @@ public partial class GraphicsSettingsRuntime : Node
     public int MsaaLevel { get; private set; }
     public bool AmbientOcclusionEnabled { get; private set; } = true;
     public bool GlowEnabled { get; private set; }
+    public int DetailDistance { get; private set; } = 1;
     public bool IdleCameraOrbitEnabled { get; private set; } = true;
     public bool ReducedMotionEnabled { get; private set; }
 
@@ -103,6 +104,14 @@ public partial class GraphicsSettingsRuntime : Node
         Save();
     }
 
+    public void SetDetailDistance(int level)
+    {
+        int next = Math.Clamp(level, 0, 2);
+        if (DetailDistance == next) return;
+        DetailDistance = next;
+        Save();
+    }
+
     public void SetIdleCameraOrbitEnabled(bool enabled)
     {
         if (IdleCameraOrbitEnabled == enabled) return;
@@ -123,6 +132,7 @@ public partial class GraphicsSettingsRuntime : Node
         MsaaLevel = 0;
         AmbientOcclusionEnabled = true;
         GlowEnabled = false;
+        DetailDistance = 1;
         IdleCameraOrbitEnabled = true;
         ReducedMotionEnabled = false;
         ApplyViewport();
@@ -148,6 +158,7 @@ public partial class GraphicsSettingsRuntime : Node
         MsaaLevel = storedMsaa is 2 or 4 ? storedMsaa : 0;
         AmbientOcclusionEnabled = (bool)config.GetValue(Section, "ambient_occlusion", true);
         GlowEnabled = (bool)config.GetValue(Section, "glow", false);
+        DetailDistance = Math.Clamp((int)config.GetValue(Section, "detail_distance", 1), 0, 2);
         IdleCameraOrbitEnabled = (bool)config.GetValue(Section, "idle_camera_orbit", true);
         ReducedMotionEnabled = (bool)config.GetValue(Section, "reduced_motion", false);
     }
@@ -159,6 +170,7 @@ public partial class GraphicsSettingsRuntime : Node
         config.SetValue(Section, "msaa_samples", MsaaLevel);
         config.SetValue(Section, "ambient_occlusion", AmbientOcclusionEnabled);
         config.SetValue(Section, "glow", GlowEnabled);
+        config.SetValue(Section, "detail_distance", DetailDistance);
         config.SetValue(Section, "idle_camera_orbit", IdleCameraOrbitEnabled);
         config.SetValue(Section, "reduced_motion", ReducedMotionEnabled);
         Error result = config.Save(SettingsPath);

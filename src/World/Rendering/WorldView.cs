@@ -580,15 +580,14 @@ public partial class WorldView : Node3D
                 continue;
             }
 
-            Vector3I actualNormal = _world.Source.GetOutwardNormal(voxel);
-            if (actualNormal != normal)
+            if (WorldStructuralRules.DominantNormal(voxel) != normal)
             {
                 continue;
             }
 
             string visualBlockId = ResolveSurfaceVisualBlockId(voxel, sample.BlockId);
             Basis blockBasis = ShouldOrientToCubeFace(visualBlockId)
-                ? BasisForNormal(actualNormal)
+                ? BasisForNormal(normal)
                 : Basis.Identity;
             AddTransform(batches, visualBlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
@@ -627,6 +626,7 @@ public partial class WorldView : Node3D
         }
 
         _chunkRoots[chunk] = chunkRoot;
+        ApplyPresentationToRebuiltRoot(chunk, chunkRoot);
         FinishChunkBuild(started, sampledColumns);
     }
 
@@ -637,40 +637,48 @@ public partial class WorldView : Node3D
         // so generation-v3 structural rules (inset water, sand support/shoreline, cube-rim rules) and mined
         // state are honored.
         BlockSample resolved = _world.SampleVoxel(voxel);
-        if (resolved.Present)
+        if (!resolved.Present)
         {
-            sample = resolved;
-            return true;
-        }
+            int detailedShellDepth = _world.Profile.ChunkSize
+                * Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
+            int maxInward = FullSurfaceRenderer
+                ? Math.Max(8, detailedShellDepth + 2)
+                : Math.Max(8, detailedShellDepth);
 
-        int detailedShellDepth = _world.Profile.ChunkSize
-            * Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
-        int maxInward = FullSurfaceRenderer
-            ? Math.Max(8, detailedShellDepth + 2)
-            : Math.Max(8, detailedShellDepth);
-
-        // The old 100^3 full-surface path searched as far as 202 cells inward for every missing surface
-        // column. Once drills had opened deep tunnels this made a nominal 16x16 shell rebuild walk across
-        // most of the entire cube, which is why the last F11 trace still averaged ~4.3 ms per chunk build.
-        // Deep excavation is already owned by SparseExposureOverlay; the outer-shell renderer only needs
-        // to resolve the authored detailed shell. Giving up beyond that boundary is both faster and makes
-        // ownership unambiguous: deep walls stay in the cavity renderer instead of being half-claimed by
-        // an outward column that later rejects them because they belong to a different chunk/face.
-        for (int inward = 1; inward <= maxInward; inward++)
-        {
-            Vector3I candidate = voxel - normal * inward;
-            BlockSample candidateSample = _world.SampleVoxel(candidate);
-            if (!candidateSample.Present)
+            // Deep excavation is owned by SparseExposureOverlay, so only resolve the authored shell.
+            for (int inward = 1; inward <= maxInward; inward++)
             {
-                continue;
+                Vector3I candidate = voxel - normal * inward;
+                resolved = _world.SampleVoxel(candidate);
+                if (!resolved.Present) continue;
+                voxel = candidate;
+                break;
             }
 
-            voxel = candidate;
-            sample = candidateSample;
-            return true;
+            if (!resolved.Present) return false;
         }
 
-        return false;
+        // Another face's filled terrain column can protrude one or two cells beyond this face's raw
+        // height estimate. Walk the contiguous solid outward so the fast locator still returns the
+        // true structural surface instead of leaving a slit or substituting the block behind it.
+        while (true)
+        {
+            Vector3I candidate = voxel + normal;
+            if (Math.Abs(candidate.X) > _world.MaxCoordinate
+                || Math.Abs(candidate.Y) > _world.MaxCoordinate
+                || Math.Abs(candidate.Z) > _world.MaxCoordinate)
+            {
+                break;
+            }
+
+            BlockSample outward = _world.SampleVoxel(candidate);
+            if (!outward.Present) break;
+            voxel = candidate;
+            resolved = outward;
+        }
+
+        sample = resolved;
+        return true;
     }
 
     private void RebuildEagerChunk(ChunkCoord chunk, ulong started)

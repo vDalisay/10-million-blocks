@@ -93,6 +93,97 @@ static bool TryFindRuntimeFaceSurface(
     return false;
 }
 
+static void ValidateFullSurfaceRendererCoverage(WorldProfile profile)
+{
+    var world = new VirtualWorld(profile);
+    Vector3I[] faces =
+    [
+        Vector3I.Right, Vector3I.Left, Vector3I.Up, Vector3I.Down, Vector3I.Back, Vector3I.Forward,
+    ];
+    var expected = new HashSet<Vector3I>();
+    var rendered = new HashSet<Vector3I>();
+    var missingByBlock = new Dictionary<string, int>(StringComparer.Ordinal);
+    int locatorMisses = 0;
+    int resolvedMisses = 0;
+    int normalMismatches = 0;
+    int maxInward = Math.Max(8, profile.ChunkSize * Math.Max(1, profile.DetailedSurfaceDepthChunks) + 2);
+
+    foreach (Vector3I face in faces)
+    for (int v = -world.MaxCoordinate; v <= world.MaxCoordinate; v++)
+    for (int u = -world.MaxCoordinate; u <= world.MaxCoordinate; u++)
+    {
+        if (TryFindRuntimeFaceSurface(world, face, u, v, out Vector3I expectedVoxel, out _))
+        {
+            expected.Add(expectedVoxel);
+        }
+
+        if (!world.Source.TrySampleOutermostSurfaceVoxel(face, u, v, out Vector3I voxel, out BlockSample sample))
+        {
+            locatorMisses++;
+            continue;
+        }
+
+        BlockSample resolved = world.SampleVoxel(voxel);
+        if (!resolved.Present)
+        {
+            bool found = false;
+            for (int inward = 1; inward <= maxInward; inward++)
+            {
+                Vector3I candidate = voxel - face * inward;
+                resolved = world.SampleVoxel(candidate);
+                if (!resolved.Present) continue;
+                voxel = candidate;
+                found = true;
+                break;
+            }
+            if (!found)
+            {
+                resolvedMisses++;
+                continue;
+            }
+        }
+
+        while (true)
+        {
+            Vector3I candidate = voxel + face;
+            if (Math.Abs(candidate.X) > world.MaxCoordinate
+                || Math.Abs(candidate.Y) > world.MaxCoordinate
+                || Math.Abs(candidate.Z) > world.MaxCoordinate)
+            {
+                break;
+            }
+            BlockSample outward = world.SampleVoxel(candidate);
+            if (!outward.Present) break;
+            voxel = candidate;
+            resolved = outward;
+        }
+
+        if (WorldStructuralRules.DominantNormal(voxel) != face)
+        {
+            normalMismatches++;
+            continue;
+        }
+        rendered.Add(voxel);
+    }
+
+    foreach (Vector3I voxel in expected)
+    {
+        if (rendered.Contains(voxel)) continue;
+        BlockSample sample = world.SampleVoxel(voxel);
+        string block = sample.Present ? sample.BlockId : "empty";
+        missingByBlock[block] = missingByBlock.GetValueOrDefault(block) + 1;
+    }
+
+    int missing = missingByBlock.Values.Sum();
+    int extras = rendered.Count(voxel => !expected.Contains(voxel));
+    Console.WriteLine(
+        $"full-surface coverage world={profile.Id}: expected={expected.Count:N0}, rendered={rendered.Count:N0}, " +
+        $"missing={missing:N0}, extras={extras:N0}, locator_miss={locatorMisses:N0}, resolve_miss={resolvedMisses:N0}, " +
+        $"normal_mismatch={normalMismatches:N0}, missing_by_block={string.Join(',', missingByBlock.OrderByDescending(pair => pair.Value).Select(pair => $"{pair.Key}:{pair.Value}"))}");
+    Require(missing == 0 && extras == 0,
+        $"Full-surface renderer coverage differs by {missing:N0} missing/{extras:N0} extra blocks in {profile.Id}.");
+}
+
 static void ValidateWaterComponents(
     WorldProfile profile,
     Vector3I face,
@@ -326,6 +417,7 @@ foreach (int seed in new[] { 73021, 73323, 1939109028 })
 
 IReadOnlyList<WorldProfile> committedProfiles = LoadCommittedProfiles();
 ValidateExactTutorialCompletion(committedProfiles);
+ValidateFullSurfaceRendererCoverage(committedProfiles.Single(item => item.Id == "stress_1000"));
 
 var expectedPhysicalCounts = new Dictionary<string, long>(StringComparer.Ordinal)
 {

@@ -1,12 +1,15 @@
 using System;
+using System.Collections.Generic;
 using Godot;
+using TenMillionBlocks.Presentation;
 
 namespace TenMillionBlocks.World.Rendering;
 
 public partial class WorldView
 {
     private const double VisibilityRefreshIntervalSeconds = 0.05;
-    private const float TreeLodMinimumProjectedBlockPixels = 3.5f;
+    private const float TreeLodMinimumProjectedBlockPixels = 12.0f;
+    private const float TreeLodShowHysteresis = 1.25f;
     private const float TerrainShadowMinimumProjectedBlockPixels = 5.0f;
     private const float TreeShadowMinimumProjectedBlockPixels = 10.0f;
 
@@ -17,6 +20,8 @@ public partial class WorldView
     private float _lastVisibilityFov;
     private int _lastVisibilityChunkCount = -1;
     private int _lastVisibilitySparseOverlayCount = -1;
+    private int _lastVisibilityDetailDistance = -1;
+    private readonly Dictionary<ChunkCoord, bool> _treeLodVisibilityByChunk = new();
     private double _visibilityRefreshTimer;
     private VisibilityRefreshTicker? _visibilityRefreshTicker;
 
@@ -25,6 +30,7 @@ public partial class WorldView
     public int BackfaceCulledChunkCount { get; private set; }
     public int FrustumCulledChunkCount { get; private set; }
     public int PresentedSparseOverlayCount { get; private set; }
+    public int BackfaceCulledSparseOverlayCount { get; private set; }
     public int FrustumCulledSparseOverlayCount { get; private set; }
     public int LodHiddenTreeBatchCount { get; private set; }
     public int LodShadowDisabledBatchCount { get; private set; }
@@ -61,10 +67,9 @@ public partial class WorldView
     /// in increasingly expensive stages: cube-face/back-side test first, then a conservative chunk-sphere
     /// frustum test, then screen-space LOD for decorative tree batches and shadows.
     ///
-    /// Once a chunk participates in excavation, its surviving base-column blocks may also form cavity
-    /// boundaries. Those blocks can be visible from a direction unrelated to the chunk's original cube
-    /// face, so excavated chunks bypass only the coarse cube-face rejection. They still receive frustum
-    /// culling, normal GPU depth/backface rejection and screen-space LOD.
+    /// Far/medium views also reject excavated roots on the cube's hidden side, keeping background mining
+    /// data-only. Close tunnel inspection stays conservative because a cavity wall can face a direction
+    /// unrelated to its original cube face.
     /// </summary>
     public void RefreshViewDependentPresentation()
     {
@@ -75,6 +80,7 @@ public partial class WorldView
             BackfaceCulledChunkCount = 0;
             FrustumCulledChunkCount = 0;
             PresentedSparseOverlayCount = _sparseOverlayRoots.Count;
+            BackfaceCulledSparseOverlayCount = 0;
             FrustumCulledSparseOverlayCount = 0;
             LodHiddenTreeBatchCount = 0;
             LodShadowDisabledBatchCount = 0;
@@ -90,12 +96,14 @@ public partial class WorldView
         Vector3 cameraPosition = camera.GlobalPosition;
         Vector3 cameraForward = -camera.GlobalBasis.Z.Normalized();
         Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
+        int detailDistance = GraphicsSettingsRuntime.Current?.DetailDistance ?? 1;
         bool samePose = _visibilityPoseInitialized
             && _lastVisibilityChunkCount == _chunkRoots.Count
             && _lastVisibilitySparseOverlayCount == _sparseOverlayRoots.Count
             && cameraPosition.DistanceSquaredTo(_lastVisibilityCameraPosition) < 0.0004f
             && cameraForward.Dot(_lastVisibilityCameraForward) > 0.999995f
             && viewportSize.DistanceSquaredTo(_lastVisibilityViewportSize) < 0.25f
+            && detailDistance == _lastVisibilityDetailDistance
             && MathF.Abs(camera.Fov - _lastVisibilityFov) < 0.001f;
         if (samePose)
         {
@@ -106,6 +114,7 @@ public partial class WorldView
         _lastVisibilityCameraPosition = cameraPosition;
         _lastVisibilityCameraForward = cameraForward;
         _lastVisibilityViewportSize = viewportSize;
+        _lastVisibilityDetailDistance = detailDistance;
         _lastVisibilityFov = camera.Fov;
         _lastVisibilityChunkCount = _chunkRoots.Count;
         _lastVisibilitySparseOverlayCount = _sparseOverlayRoots.Count;
@@ -114,6 +123,7 @@ public partial class WorldView
         int backfaceCulled = 0;
         int frustumCulled = 0;
         int presentedSparse = 0;
+        int backfaceCulledSparse = 0;
         int frustumCulledSparse = 0;
         int hiddenTreeBatches = 0;
         int shadowDisabledBatches = 0;
@@ -144,7 +154,7 @@ public partial class WorldView
             root.Visible = true;
             presented++;
             float projectedBlockPixels = EstimateProjectedBlockPixels(centerWorld);
-            ApplyScreenSpaceLod(root, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
+            ApplyScreenSpaceLod(chunk, root, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
         }
 
         foreach ((ChunkCoord chunk, Node3D root) in _sparseOverlayRoots)
@@ -152,6 +162,13 @@ public partial class WorldView
             Vector3I minVoxel = chunk.MinVoxel(chunkSize);
             Vector3I centerVoxel = minVoxel + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
             Vector3 centerWorld = VoxelToWorld(centerVoxel);
+            Vector3 toCamera = cameraPosition - centerWorld;
+            if (!IsFullSurfaceChunkCameraFacing(chunk, centerVoxel, toCamera))
+            {
+                root.Visible = false;
+                backfaceCulledSparse++;
+                continue;
+            }
             if (!IsSphereWithinCameraFrustum(centerWorld, chunkRadius))
             {
                 root.Visible = false;
@@ -162,13 +179,14 @@ public partial class WorldView
             root.Visible = true;
             presentedSparse++;
             float projectedBlockPixels = EstimateProjectedBlockPixels(centerWorld);
-            ApplyScreenSpaceLod(root, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
+            ApplyScreenSpaceLod(chunk, root, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
         }
 
         PresentedChunkCount = presented;
         BackfaceCulledChunkCount = backfaceCulled;
         FrustumCulledChunkCount = frustumCulled;
         PresentedSparseOverlayCount = presentedSparse;
+        BackfaceCulledSparseOverlayCount = backfaceCulledSparse;
         FrustumCulledSparseOverlayCount = frustumCulledSparse;
         CulledChunkCount = backfaceCulled + frustumCulled;
         LodHiddenTreeBatchCount = hiddenTreeBatches;
@@ -187,8 +205,7 @@ public partial class WorldView
         Vector3I centerVoxel = minVoxel + new Vector3I(chunkSize / 2, chunkSize / 2, chunkSize / 2);
         Vector3 centerWorld = VoxelToWorld(centerVoxel);
         Vector3 toCamera = _camera.Camera.GlobalPosition - centerWorld;
-        bool facing = HasSparseExposurePotential(chunk)
-            || IsFullSurfaceChunkCameraFacing(chunk, centerVoxel, toCamera);
+        bool facing = IsFullSurfaceChunkCameraFacing(chunk, centerVoxel, toCamera);
         return facing && IsSphereWithinCameraFrustum(centerWorld, ChunkPresentationRadiusWorld(chunkSize));
     }
 
@@ -250,13 +267,13 @@ public partial class WorldView
     }
 
     private void ApplyScreenSpaceLod(
+        ChunkCoord chunk,
         Node node,
         float projectedBlockPixels,
         ref int hiddenTreeBatches,
         ref int shadowDisabledBatches)
     {
         float focus = _camera?.SurfaceFocusBlend ?? 0.0f;
-        bool showTrees = projectedBlockPixels >= TreeLodMinimumProjectedBlockPixels || focus >= 0.42f;
         bool terrainShadows = projectedBlockPixels >= TerrainShadowMinimumProjectedBlockPixels || focus >= 0.30f;
         bool treeShadows = projectedBlockPixels >= TreeShadowMinimumProjectedBlockPixels || focus >= 0.58f;
 
@@ -266,8 +283,13 @@ public partial class WorldView
             {
                 string name = batch.Name.ToString();
                 bool tree = name.StartsWith("Batch_tree_", StringComparison.Ordinal);
-                bool visible = !tree || showTrees;
+                bool visible = !tree || ShouldShowTreeBatch(
+                    projectedBlockPixels,
+                    focus,
+                    _treeLodVisibilityByChunk.GetValueOrDefault(chunk, batch.Visible),
+                    GraphicsSettingsRuntime.Current?.DetailDistance ?? 1);
                 batch.Visible = visible;
+                if (tree) _treeLodVisibilityByChunk[chunk] = visible;
                 if (tree && !visible)
                 {
                     hiddenTreeBatches++;
@@ -288,17 +310,53 @@ public partial class WorldView
                 continue;
             }
 
-            ApplyScreenSpaceLod(child, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
+            ApplyScreenSpaceLod(chunk, child, projectedBlockPixels, ref hiddenTreeBatches, ref shadowDisabledBatches);
         }
+    }
+
+    private void ApplyPresentationToRebuiltRoot(ChunkCoord chunk, Node3D root)
+    {
+        if (!FullSurfaceRenderer || _camera?.Camera is null) return;
+        root.Visible = IsChunkPresentationRelevant(chunk);
+        if (!root.Visible) return;
+
+        Vector3I min = chunk.MinVoxel(_world.Profile.ChunkSize);
+        Vector3I center = min + new Vector3I(
+            _world.Profile.ChunkSize / 2,
+            _world.Profile.ChunkSize / 2,
+            _world.Profile.ChunkSize / 2);
+        int hiddenTrees = 0;
+        int disabledShadows = 0;
+        ApplyScreenSpaceLod(
+            chunk,
+            root,
+            EstimateProjectedBlockPixels(VoxelToWorld(center)),
+            ref hiddenTrees,
+            ref disabledShadows);
+    }
+
+    internal static bool ShouldShowTreeBatch(
+        float projectedBlockPixels,
+        float surfaceFocusBlend,
+        bool currentlyVisible,
+        int detailDistance)
+    {
+        if (surfaceFocusBlend >= 0.42f) return true;
+        float hideThreshold = detailDistance switch
+        {
+            0 => 16.0f,
+            2 => 8.0f,
+            _ => TreeLodMinimumProjectedBlockPixels,
+        };
+        float threshold = currentlyVisible ? hideThreshold : hideThreshold * TreeLodShowHysteresis;
+        return projectedBlockPixels >= threshold;
     }
 
     private bool IsFullSurfaceChunkCameraFacing(ChunkCoord chunk, Vector3I centerVoxel, Vector3 toCamera)
     {
-        // A modified shell chunk can contribute both the original outward-column surface and a newly
-        // exposed cavity boundary. The cavity can face the camera even when none of the chunk's original
-        // cube faces do. SparseOverlay deliberately omits blocks already supplied by this base root, so
-        // hiding the base root here creates a literal visual hole. Keep excavated chunks conservative.
-        if (HasSparseExposurePotential(chunk))
+        // ponytail: close inspection keeps conservative cavity roots; add portal/occlusion tests only if
+        // measured overdraw here outweighs the correctness of seeing through deep tunnels.
+        if ((_camera?.SurfaceFocusBlend ?? 0.0f) >= 0.55f && HasSparseExposurePotential(chunk))
         {
             return true;
         }
@@ -306,6 +364,18 @@ public partial class WorldView
         int depth = Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
         int min = _world.MinChunkCoordinate;
         int max = _world.MaxChunkCoordinate;
+        Vector3I outward = _world.Source.GetOutwardNormal(centerVoxel);
+        return IsStructuralChunkCameraFacing(chunk, depth, min, max, toCamera, outward);
+    }
+
+    internal static bool IsStructuralChunkCameraFacing(
+        ChunkCoord chunk,
+        int depth,
+        int min,
+        int max,
+        Vector3 toCamera,
+        Vector3I interiorOutward)
+    {
         bool shell = false;
 
         if (max - chunk.X < depth)
@@ -340,9 +410,7 @@ public partial class WorldView
         }
 
         if (shell) return false;
-
-        Vector3I outward = _world.Source.GetOutwardNormal(centerVoxel);
-        return toCamera.Dot((Vector3)outward) > 0.0f;
+        return toCamera.Dot((Vector3)interiorOutward) > 0.0f;
     }
 
     private sealed partial class VisibilityRefreshTicker : Node

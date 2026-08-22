@@ -548,7 +548,7 @@ public partial class GameRoot : Node3D
             profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude + MathF.Max(0.0f, profile.SeaLevelOffset));
         _clouds.Visible = !profile.UsesSingleBlockGenerator && !profile.UsesSolidCubeGenerator;
         _clouds.SetWorldExtent(worldExtent);
-        _camera.ConfigureWorldExtent(worldExtent);
+        _camera.ConfigureWorldExtent(worldExtent, profile.UsesFullSurfaceRenderer);
     }
 
     private void ApplyDefaultCameraPreset(WorldProfile profile)

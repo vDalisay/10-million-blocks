@@ -9,9 +9,9 @@ public partial class WorldView
     // Automation can mutate hundreds of blocks per second, but the exterior surface does not need to
     // reconstruct a whole chunk for every simulation frame. Cavity/tunnel walls have their own sparse
     // renderer and remain responsive independently; coalescing the comparatively expensive outer-shell
-    // commit to ~13 Hz cuts repeated 16x16 surface-column reconstruction under large fleets without
+    // commit to ~7 Hz cuts repeated 16x16 surface-column reconstruction under large fleets without
     // affecting authoritative mining, rewards or save state.
-    private const double VisibleAutomationFlushIntervalSeconds = 0.075;
+    private const double VisibleAutomationFlushIntervalSeconds = 0.15;
     private const int VisibleAutomationFlushChunkBudget = 64;
 
     private readonly HashSet<ChunkCoord> _deferredAutomationChunks = new();

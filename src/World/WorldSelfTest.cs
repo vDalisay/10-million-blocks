@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Mining;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.World.Generation;
 using TenMillionBlocks.World.Rendering;
 using TenMillionBlocks.World.Storage;
@@ -30,6 +31,22 @@ public static class WorldSelfTest
             "perimeter dirt uses stable solid green");
         Assert(WorldView.ResolveTerrainVisualBlockId("dirt", "grass", "dirt_grass", "dirt", false) == "dirt",
             "non-perimeter dirt remains brown");
+
+        using var camera = new OrbitCameraController();
+        camera.ConfigureWorldExtent(84.45f, requireSurfaceFocus: true);
+        Assert(camera.SurfaceFocusEnabled, "full-surface worlds keep the camera outside their shell");
+        var frontChunk = new ChunkCoord(3, 0, 0);
+        Assert(WorldView.IsStructuralChunkCameraFacing(
+            frontChunk, 2, -4, 3, Vector3.Right, Vector3I.Right),
+            "front-side automation chunks remain presentable");
+        Assert(!WorldView.IsStructuralChunkCameraFacing(
+            frontChunk, 2, -4, 3, Vector3.Left, Vector3I.Right),
+            "back-side automation chunks remain data-only");
+        Assert(!WorldView.ShouldShowTreeBatch(8.0f, 0.0f, true, 1), "distant tree batches use data-only LOD");
+        Assert(!WorldView.ShouldShowTreeBatch(13.0f, 0.0f, false, 1)
+            && WorldView.ShouldShowTreeBatch(15.0f, 0.0f, false, 1), "tree LOD hysteresis prevents threshold chatter");
+        Assert(WorldView.ShouldShowTreeBatch(8.0f, 0.0f, true, 2)
+            && WorldView.ShouldShowTreeBatch(1.0f, 0.42f, false, 0), "detail distance and close focus preserve trees");
 
         ValidateSingleBlockTutorial(catalog.Get("tutorial_single_block"));
         ValidateManualMiningFootprint(catalog.Get("tutorial_dirt_5"));

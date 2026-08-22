@@ -700,6 +700,7 @@ public partial class AutomationRampStressSuite : Node
         report.AppendLine($"lod_shadow_batches_disabled_avg={Average(_lodShadowsDisabledTotal, samples):0.0}");
         report.AppendLine($"sparse_overlay_roots_end={_view.SparseExposureOverlayRootCount}");
         report.AppendLine($"sparse_overlay_presented_end={_view.PresentedSparseOverlayCount}");
+        report.AppendLine($"sparse_overlay_backface_culled_end={_view.BackfaceCulledSparseOverlayCount}");
         report.AppendLine($"sparse_overlay_frustum_culled_end={_view.FrustumCulledSparseOverlayCount}");
         report.AppendLine();
 
@@ -762,6 +763,7 @@ public partial class AutomationRampStressSuite : Node
         report.AppendLine($"gpu={Sanitize(RenderingServer.GetVideoAdapterName())}");
         report.AppendLine($"rendering_method={RenderingServer.GetCurrentRenderingMethod()}");
         report.AppendLine($"rendering_driver={RenderingServer.GetCurrentRenderingDriverName()}");
+        report.AppendLine($"detail_distance={GraphicsSettingsRuntime.Current?.DetailDistance ?? 1}");
         Vector2 viewport = GetViewport().GetVisibleRect().Size;
         report.AppendLine($"viewport={viewport.X:0}x{viewport.Y:0}");
         report.AppendLine();

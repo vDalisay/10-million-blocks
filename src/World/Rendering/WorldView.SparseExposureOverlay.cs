@@ -24,6 +24,7 @@ public partial class WorldView
 {
     private const int SparseOverlayBuildsPerFrame = 2;
     private const double SparseOverlayFrameBudgetMilliseconds = 1.75;
+    private const double SparseOverlayFlushIntervalSeconds = 0.05;
     private static readonly ChunkCoord[] SparseOverlaySourceOffsets =
     {
         new(0, 0, 0),
@@ -187,9 +188,8 @@ public partial class WorldView
     }
 
     /// <summary>
-    /// Conservative visibility hint used by automation presentation. Excavated geometry is no longer
-    /// assumed to face the original cube normal, so modified chunks may need presentation even when the
-    /// outer-shell base for that chunk is back-facing.
+    /// Close-inspection visibility hint. Cavity walls can face away from the original cube normal, so
+    /// nearby modified chunks stay conservative while far/medium views keep the hidden side data-only.
     /// </summary>
     private bool HasSparseExposurePotential(ChunkCoord chunk)
     {
@@ -395,7 +395,7 @@ public partial class WorldView
 
     private bool IsRepresentedByFullSurfaceBase(ChunkCoord chunk, Vector3I voxel)
     {
-        Vector3I normal = _world.Source.GetOutwardNormal(voxel);
+        Vector3I normal = WorldStructuralRules.DominantNormal(voxel);
         if (!IsFullSurfaceNormalRelevantToChunk(chunk, normal))
         {
             return false;
@@ -436,7 +436,7 @@ public partial class WorldView
 
         return visibleVoxel == voxel
             && ChunkCoord.FromVoxel(visibleVoxel, _world.Profile.ChunkSize) == chunk
-            && _world.Source.GetOutwardNormal(visibleVoxel) == normal;
+            && WorldStructuralRules.DominantNormal(visibleVoxel) == normal;
     }
 
     private bool IsFullSurfaceNormalRelevantToChunk(ChunkCoord chunk, Vector3I normal)
@@ -486,9 +486,7 @@ public partial class WorldView
 
         _sparseOverlayRoots[chunk] = overlayRoot;
         _resolvedChunks.Add(chunk);
-        // Show immediately; the next visibility refresh may frustum-cull it, but never hide a newly
-        // exposed wall for a frame merely because the previous base-root pose cache was unchanged.
-        overlayRoot.Visible = true;
+        ApplyPresentationToRebuiltRoot(chunk, overlayRoot);
         _visibilityPoseInitialized = false;
     }
 
@@ -519,6 +517,7 @@ public partial class WorldView
     private sealed partial class SparseExposureWorker : Node
     {
         private readonly WorldView _owner;
+        private double _elapsed;
 
         public SparseExposureWorker(WorldView owner)
         {
@@ -527,7 +526,9 @@ public partial class WorldView
 
         public override void _Process(double delta)
         {
-            _ = delta;
+            _elapsed += Math.Max(0.0, delta);
+            if (_elapsed < SparseOverlayFlushIntervalSeconds) return;
+            _elapsed = 0.0;
             _owner.ProcessSparseExposureQueue();
         }
     }
