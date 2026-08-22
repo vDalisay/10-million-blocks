@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.World.Rendering;
 
 namespace TenMillionBlocks.UI;
@@ -17,13 +18,13 @@ public partial class WorldLoadingScreen : CanvasLayer
 {
     private static readonly Color[] BlockPalettes =
     [
-        new Color(0.72f, 0.43f, 0.28f), // dirt
-        new Color(0.08f, 0.78f, 0.48f), // grass
-        new Color(0.77f, 0.74f, 0.67f), // stone
-        new Color(0.94f, 0.78f, 0.48f), // sand
-        new Color(0.12f, 0.68f, 0.94f), // azure gem
-        new Color(0.18f, 0.78f, 0.34f), // verdant gem
-        new Color(0.90f, 0.20f, 0.22f), // core gem
+        new Color(0.72f, 0.43f, 0.28f),
+        new Color(0.08f, 0.78f, 0.48f),
+        new Color(0.77f, 0.74f, 0.67f),
+        new Color(0.94f, 0.78f, 0.48f),
+        new Color(0.12f, 0.68f, 0.94f),
+        new Color(0.18f, 0.78f, 0.34f),
+        new Color(0.90f, 0.20f, 0.22f),
     ];
 
     private static WorldLoadingScreen? _instance;
@@ -41,6 +42,10 @@ public partial class WorldLoadingScreen : CanvasLayer
     private double _elapsed;
     private double _phase;
     private bool _transitionActionInvoked;
+
+    public static bool IsActive => _instance is not null
+        && GodotObject.IsInstanceValid(_instance)
+        && _instance.Visible;
 
     public static void RunTransition(Node context, string label, Action transition)
     {
@@ -75,8 +80,6 @@ public partial class WorldLoadingScreen : CanvasLayer
 
         try
         {
-            // Wait on the persistent loading node, not the initiating UI control. Scene changes are
-            // allowed to destroy that control while these frames are being awaited.
             await loading.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             await loading.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
 
@@ -91,9 +94,6 @@ public partial class WorldLoadingScreen : CanvasLayer
         }
         catch (Exception exception)
         {
-            // RunTransition is intentionally fire-and-forget. Never rethrow out of this task: an
-            // unobserved transition exception can otherwise become a second failure on top of the
-            // original load problem. Restore the UI and leave the existing scene usable instead.
             loading.HideLoading();
             GD.PushError($"World transition failed: {exception}");
         }
@@ -126,9 +126,17 @@ public partial class WorldLoadingScreen : CanvasLayer
         _elapsed += Math.Max(0.0, delta);
         _phase += Math.Max(0.0, delta) * 3.25;
 
-        float pulse = 0.92f + 0.09f * (0.5f + 0.5f * MathF.Sin((float)_phase));
-        _block.Scale = Vector2.One * pulse;
-        _block.Rotation = MathF.Sin((float)_phase * 0.47f) * 0.025f;
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            _block.Scale = Vector2.One;
+            _block.Rotation = 0.0f;
+        }
+        else
+        {
+            float pulse = 0.92f + 0.09f * (0.5f + 0.5f * MathF.Sin((float)_phase));
+            _block.Scale = Vector2.One * pulse;
+            _block.Rotation = MathF.Sin((float)_phase * 0.47f) * 0.025f;
+        }
 
         WorldView? currentWorldView = FindWorldView(GetTree().CurrentScene);
         ulong currentWorldViewId = currentWorldView?.GetInstanceId() ?? 0;
@@ -159,9 +167,6 @@ public partial class WorldLoadingScreen : CanvasLayer
             _replacementStableFrames = 0;
             _subtitle.Text = "PREPARING CUBE...";
 
-            // A transition action that returns without replacing the WorldView is almost always a
-            // rejected/stale request (for example a replay file disappearing between UI refresh and
-            // click). Do not leave an opaque loader covering the still-valid scene for a full minute.
             if (_transitionActionInvoked && _elapsed >= 3.0)
             {
                 GD.PushWarning("World transition produced no replacement world; dismissing loading screen.");
@@ -170,8 +175,6 @@ public partial class WorldLoadingScreen : CanvasLayer
             }
         }
 
-        // Do not permanently mask a fatal initialization error. Normal reviewed worlds should replace
-        // their WorldView long before this fallback is reached.
         if (_elapsed >= 60.0)
         {
             HideLoading();
@@ -220,8 +223,6 @@ public partial class WorldLoadingScreen : CanvasLayer
         backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(backdrop);
 
-        // Lightweight deterministic star field. It is deliberately Canvas-based so it remains visible
-        // even while the gameplay scene and its 3D presentation are being replaced.
         var random = new Random(6824);
         for (int i = 0; i < 90; i++)
         {
@@ -282,8 +283,6 @@ public partial class WorldLoadingScreen : CanvasLayer
         };
         _block.AddChild(_blockSide);
 
-        // A few tiny block flecks keep the loader visually related to the supplied block art without
-        // loading or instantiating gameplay resources during the transition itself.
         for (int i = 0; i < 15; i++)
         {
             float x = 24.0f + (float)random.NextDouble() * 78.0f;
