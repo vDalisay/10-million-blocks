@@ -43,10 +43,6 @@ public partial class WorldLoadingScreen : CanvasLayer
     private double _phase;
     private bool _transitionActionInvoked;
 
-    public static bool IsActive => _instance is not null
-        && GodotObject.IsInstanceValid(_instance)
-        && _instance.Visible;
-
     public static void RunTransition(Node context, string label, Action transition)
     {
         if (context is null || transition is null || _transitionPending || IsActive) return;
