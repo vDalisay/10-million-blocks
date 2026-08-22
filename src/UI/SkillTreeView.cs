@@ -216,7 +216,7 @@ public partial class SkillTreeView : CanvasLayer
     private void Purchase(string skillId)
     {
         SkillNodeDefinition node = _skills.Catalog.Get(skillId);
-        if (!_profile.IsSkillVisible(node.Id, node.Category)) return;
+        if (!_profile.IsSkillVisible(node.Id, node.Category) || !_skills.IsRevealed(node)) return;
 
         // Automation skills now buy permanent class capability only. Physical units are a separate,
         // fixed-price world-local purchase in the Automation drawer.
@@ -278,6 +278,10 @@ public partial class SkillTreeView : CanvasLayer
         foreach ((string id, Button button) in _buttons)
         {
             SkillNodeDefinition node = _skills.Catalog.Get(id);
+            bool revealed = _skills.IsRevealed(node);
+            button.Visible = revealed;
+            if (!revealed) continue;
+
             int rank = _skills.GetRank(id);
             bool maxed = rank >= node.MaxRank;
             bool prerequisites = _skills.PrerequisitesMet(node);
@@ -379,12 +383,12 @@ public partial class SkillGraphCanvas : Control
 
         foreach (SkillNodeDefinition node in _skills.Catalog.Nodes.Values)
         {
-            if (!_profile.IsSkillVisible(node.Id, node.Category)) continue;
+            if (!_profile.IsSkillVisible(node.Id, node.Category) || !_skills.IsRevealed(node)) continue;
             Vector2 target = NodeCenter(node);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             {
                 SkillNodeDefinition sourceNode = _skills.Catalog.Get(prerequisite.NodeId);
-                if (!_profile.IsSkillVisible(sourceNode.Id, sourceNode.Category)) continue;
+                if (!_profile.IsSkillVisible(sourceNode.Id, sourceNode.Category) || !_skills.IsRevealed(sourceNode)) continue;
 
                 Vector2 previous = NodeCenter(sourceNode);
                 bool requirementMet = _skills.GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank;
