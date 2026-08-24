@@ -152,7 +152,7 @@ public partial class IncrementalSkillNodeButton : Button
     private Vector2 _baseScale = Vector2.One;
 
     public string SkillId { get; private set; } = string.Empty;
-    public SkillNodeVisualKind VisualKind => _visualKind;
+    internal SkillNodeVisualKind VisualKind => _visualKind;
 
     public event Action<IncrementalSkillNodeButton>? Hovered;
 
