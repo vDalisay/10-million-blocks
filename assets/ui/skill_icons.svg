@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="192" viewBox="0 0 384 192">
+  <defs>
+    <style>.i{fill:none;stroke:#263238;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}.f{fill:#263238}</style>
+  </defs>
+  <!-- 0 broad swing -->
+  <g transform="translate(0 0)"><path class="i" d="M18 46L43 21M36 17l11 11M15 49l8-2-6-6z"/><path class="i" d="M23 19c6-5 12-6 18-4"/></g>
+  <!-- 1 full sweep -->
+  <g transform="translate(64 0)"><rect class="i" x="14" y="14" width="36" height="36" rx="3"/><path class="i" d="M26 14v36M38 14v36M14 26h36M14 38h36"/><circle class="f" cx="32" cy="32" r="5"/></g>
+  <!-- 2 hover mining -->
+  <g transform="translate(128 0)"><path class="i" d="M20 13l23 22-12 2-5 12z"/><circle class="i" cx="43" cy="18" r="5"/><path class="i" d="M47 8v5M55 16h-5M50 27l-4-4"/></g>
+  <!-- 3 steady hands -->
+  <g transform="translate(192 0)"><path class="i" d="M36 8L18 35h13l-4 21 19-29H33z"/></g>
+  <!-- 4 automation -->
+  <g transform="translate(256 0)"><circle class="i" cx="32" cy="32" r="12"/><path class="i" d="M32 9v7M32 48v7M9 32h7M48 32h7M16 16l5 5M43 43l5 5M48 16l-5 5M21 43l-5 5"/><circle class="f" cx="32" cy="32" r="4"/></g>
+  <!-- 5 hardened bit -->
+  <g transform="translate(320 0)"><path class="i" d="M12 27h23l8 5-8 5H12zM43 32h9M18 22v20"/><path class="i" d="M47 27l6 5-6 5"/></g>
+  <!-- 6 ore cutting -->
+  <g transform="translate(0 64)"><path class="i" d="M11 39l16-16 7 7-16 16zM30 20l4-4 14 14-4 4"/><path class="i" d="M44 13l7 7-7 7-7-7z"/></g>
+  <!-- 7 faster motors -->
+  <g transform="translate(64 64)"><circle class="i" cx="28" cy="32" r="13"/><path class="i" d="M28 13v7M28 44v7M9 32h7M40 32h7"/><path class="i" d="M43 18h9l-5-5M43 46h9l-5 5"/></g>
+  <!-- 8 wide bore -->
+  <g transform="translate(128 64)"><path class="i" d="M16 16h32v32H16zM16 27h32M16 38h32M27 16v32M38 16v32"/><circle class="f" cx="32" cy="32" r="6"/></g>
+  <!-- 9 resource sensors -->
+  <g transform="translate(192 64)"><circle class="i" cx="32" cy="32" r="18"/><circle class="i" cx="32" cy="32" r="10"/><circle class="f" cx="32" cy="32" r="4"/><path class="i" d="M32 8v6M50 14l-5 5M56 32h-6"/></g>
+  <!-- 10 rock breaker -->
+  <g transform="translate(256 64)"><path class="i" d="M16 17c10-6 21-5 32 4M30 22l7 7M16 50l21-21M13 53l8-2-6-6z"/></g>
+  <!-- 11 cloud charger -->
+  <g transform="translate(320 64)"><path class="i" d="M15 35c-5-10 4-18 13-15 4-9 19-7 20 4 9 0 11 14 1 17H19c-5 0-8-2-8-6z"/><path class="i" d="M34 38l-8 10h7l-3 8 9-12h-7z"/></g>
+  <!-- 12 forest cutter -->
+  <g transform="translate(0 128)"><path class="i" d="M31 10l-12 16h8l-10 14h12v13h7V40h12L38 26h8z"/><path class="i" d="M47 15L18 47M43 12l8 8"/></g>
+  <!-- 13 powered shovel -->
+  <g transform="translate(64 128)"><path class="i" d="M35 10l-7 24M24 33l12 4-5 16-12-4zM31 10c5-2 9 1 8 5"/></g>
+  <!-- 14 shovel gearbox -->
+  <g transform="translate(128 128)"><circle class="i" cx="30" cy="32" r="12"/><circle class="f" cx="30" cy="32" r="4"/><path class="i" d="M30 12v7M30 45v7M10 32h7M43 32h7M42 17l8-4-2 8M44 47l8 2-6 6"/></g>
+  <!-- 15 high torque -->
+  <g transform="translate(192 128)"><circle class="i" cx="32" cy="32" r="19"/><path class="i" d="M35 11L21 34h10l-3 19 15-25H33z"/></g>
+  <!-- 16 slope sensor -->
+  <g transform="translate(256 128)"><path class="i" d="M11 48h12V37h11V26h11V15h8"/><circle class="f" cx="19" cy="43" r="4"/><path class="i" d="M14 17c8-7 18-8 27-2M18 24c6-4 12-4 18-1"/></g>
+  <!-- 17 terrain scout -->
+  <g transform="translate(320 128)"><circle class="i" cx="24" cy="33" r="10"/><circle class="i" cx="45" cy="33" r="10"/><path class="i" d="M14 33H9M55 33h5M31 31h7M20 20l4-7M49 20l-4-7"/><path class="i" d="M29 50h10"/></g>
+</svg>
