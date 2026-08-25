@@ -71,6 +71,8 @@ public sealed class SkillTreeCatalog
     {
         "add_manual_blocks_per_click",
         "multiply_manual_mining_rate",
+        "set_manual_mining_power",
+        "set_manual_penetration_depth",
         "set_manual_footprint",
         "unlock_hover_mining",
         "multiply_miner_rate",
