@@ -87,6 +87,7 @@ public sealed class SkillTreeCatalog
         "set_shovel_search_radius",
         "unlock_resource_filter",
         "unlock_auto_cloud_charger",
+        "unlock_radioactive_cloud",
         "multiply_cloud_charge_rate",
         "add_lightning_radius",
         "add_lightning_chain_count",
