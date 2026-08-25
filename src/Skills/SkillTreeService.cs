@@ -8,12 +8,21 @@ namespace TenMillionBlocks.Skills;
 
 public sealed class SkillDerivedStats
 {
-    // Legacy count remains for compatibility with existing saves/data while the future progression
-    // moves manual area mining onto explicit footprint strategies.
+    // Legacy count remains for compatibility with existing saves/data while progression moves manual
+    // area mining onto explicit footprint strategies.
     public int ManualBlocksPerClick { get; internal set; } = 1;
     public ManualMiningFootprintKind ManualFootprint { get; internal set; } = ManualMiningFootprintKind.Single;
     public bool HoverMiningUnlocked { get; internal set; }
     public double ManualMiningRateMultiplier { get; internal set; } = 1.0;
+
+    // Manual power is the voxel-world analogue of incremental-game damage. Hardness is already authored
+    // on every block, so this lets harder content slow the player until the corresponding power node is
+    // reached instead of making speed/footprint the only meaningful throughput stats.
+    public double ManualMiningPower { get; internal set; } = 1.0;
+
+    // Penetration is deliberately reserved for a late, expensive payoff. A value of two means a timed
+    // manual action may continue one freshly exposed voxel inward after clearing its surface target.
+    public int ManualPenetrationDepth { get; internal set; } = 1;
 
     public double MinerRateMultiplier { get; internal set; } = 1.0;
     public int MinerPatternWidth { get; internal set; } = 1;
@@ -23,8 +32,8 @@ public sealed class SkillDerivedStats
     // the drill silently skip blockers it does not yet understand.
     public int DrillMaterialTier { get; internal set; } = 0;
 
-    // Powered Shovel deliberately starts primitive: one sand tile per second, adjacent cardinal tiles
-    // only, and no ability to climb/drop. Separate skills make it faster and smarter.
+    // Powered Shovel deliberately starts primitive: one soft-terrain tile per second, adjacent cardinal
+    // tiles only, and no ability to climb/drop. Separate skills make it faster and smarter.
     public double ShovelRateMultiplier { get; internal set; } = 1.0;
     public int ShovelHeightTolerance { get; internal set; } = 0;
     public int ShovelSearchRadius { get; internal set; } = 1;
@@ -284,6 +293,12 @@ public sealed class SkillTreeService
                 break;
             case "multiply_manual_mining_rate":
                 stats.ManualMiningRateMultiplier *= Math.Max(0.01, effect.Value);
+                break;
+            case "set_manual_mining_power":
+                stats.ManualMiningPower = Math.Max(stats.ManualMiningPower, Math.Max(0.01, effect.Value));
+                break;
+            case "set_manual_penetration_depth":
+                stats.ManualPenetrationDepth = Math.Max(stats.ManualPenetrationDepth, Math.Max(1, (int)Math.Round(effect.Value)));
                 break;
             case "set_manual_footprint":
                 stats.ManualFootprint = ManualMiningFootprint.Parse(effect.StringValue);
