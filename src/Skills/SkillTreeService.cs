@@ -30,6 +30,7 @@ public sealed class SkillDerivedStats
     public int ShovelSearchRadius { get; internal set; } = 1;
 
     public bool AutoCloudChargerUnlocked { get; internal set; }
+    public bool RadioactiveCloudUnlocked { get; internal set; }
     public double CloudChargeRateMultiplier { get; internal set; } = 1.0;
     public int LightningRadiusBonus { get; internal set; }
     public int LightningChainCount { get; internal set; }
@@ -215,6 +216,7 @@ public sealed class SkillTreeService
             case "set_shovel_search_radius": stats.ShovelSearchRadius = Math.Max(stats.ShovelSearchRadius, (int)Math.Round(effect.Value)); break;
             case "unlock_resource_filter": if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.ResourceFilters.Add(effect.StringValue); break;
             case "unlock_auto_cloud_charger": stats.AutoCloudChargerUnlocked = true; break;
+            case "unlock_radioactive_cloud": stats.RadioactiveCloudUnlocked = true; break;
             case "multiply_cloud_charge_rate": stats.CloudChargeRateMultiplier *= Math.Max(0.01, effect.Value); break;
             case "add_lightning_radius": stats.LightningRadiusBonus = checked(stats.LightningRadiusBonus + Math.Max(0, (int)Math.Round(effect.Value))); break;
             case "add_lightning_chain_count": stats.LightningChainCount = checked(stats.LightningChainCount + Math.Max(0, (int)Math.Round(effect.Value))); break;
