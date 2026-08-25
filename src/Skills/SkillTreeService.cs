@@ -31,8 +31,12 @@ public sealed class SkillDerivedStats
 
     public bool AutoCloudChargerUnlocked { get; internal set; }
     public bool RadioactiveCloudUnlocked { get; internal set; }
+    public double RadioactiveCloudRateMultiplier { get; internal set; } = 1.0;
+    public int RadioactiveCloudRadiusBonus { get; internal set; }
     public bool OrbBreakerUnlocked { get; internal set; }
     public double OrbBreakerRateMultiplier { get; internal set; } = 1.0;
+    public int OrbBreakerCount { get; internal set; } = 1;
+    public int OrbBreakerRadiusBonus { get; internal set; }
     public double CloudChargeRateMultiplier { get; internal set; } = 1.0;
     public int LightningRadiusBonus { get; internal set; }
     public int LightningChainCount { get; internal set; }
@@ -219,8 +223,12 @@ public sealed class SkillTreeService
             case "unlock_resource_filter": if (!string.IsNullOrWhiteSpace(effect.StringValue)) stats.ResourceFilters.Add(effect.StringValue); break;
             case "unlock_auto_cloud_charger": stats.AutoCloudChargerUnlocked = true; break;
             case "unlock_radioactive_cloud": stats.RadioactiveCloudUnlocked = true; break;
+            case "multiply_radioactive_cloud_rate": stats.RadioactiveCloudRateMultiplier *= Math.Max(0.01, effect.Value); break;
+            case "add_radioactive_cloud_radius": stats.RadioactiveCloudRadiusBonus = checked(stats.RadioactiveCloudRadiusBonus + Math.Max(0, (int)Math.Round(effect.Value))); break;
             case "unlock_orb_breaker": stats.OrbBreakerUnlocked = true; break;
             case "multiply_orb_breaker_rate": stats.OrbBreakerRateMultiplier *= Math.Max(0.01, effect.Value); break;
+            case "add_orb_breaker_count": stats.OrbBreakerCount = checked(stats.OrbBreakerCount + Math.Max(0, (int)Math.Round(effect.Value))); break;
+            case "add_orb_breaker_radius": stats.OrbBreakerRadiusBonus = checked(stats.OrbBreakerRadiusBonus + Math.Max(0, (int)Math.Round(effect.Value))); break;
             case "multiply_cloud_charge_rate": stats.CloudChargeRateMultiplier *= Math.Max(0.01, effect.Value); break;
             case "add_lightning_radius": stats.LightningRadiusBonus = checked(stats.LightningRadiusBonus + Math.Max(0, (int)Math.Round(effect.Value))); break;
             case "add_lightning_chain_count": stats.LightningChainCount = checked(stats.LightningChainCount + Math.Max(0, (int)Math.Round(effect.Value))); break;
