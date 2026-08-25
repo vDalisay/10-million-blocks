@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
+using TenMillionBlocks.World.Generation;
 
 namespace TenMillionBlocks.WorldEvents;
 
