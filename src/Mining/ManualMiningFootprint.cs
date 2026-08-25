@@ -10,6 +10,7 @@ public enum ManualMiningFootprintKind
     Single,
     Plus3,
     Square3,
+    Square5,
     Square10,
 }
 
@@ -19,8 +20,8 @@ public enum ManualMiningFootprintKind
 public static class ManualMiningFootprint
 {
     // Footprint shapes are immutable content, not per-hover state. Keep one template for the lifetime of
-    // the process so Square10 does not allocate/build a 100-element List every time the cursor moves or
-    // hover mining exposes the next layer.
+    // the process so larger radii do not allocate/build a List every time the cursor moves or hover
+    // mining exposes the next layer.
     private static readonly Vector2I[] SingleOffsets = [Vector2I.Zero];
     private static readonly Vector2I[] Plus3Offsets =
     [
@@ -31,6 +32,7 @@ public static class ManualMiningFootprint
         Vector2I.Down,
     ];
     private static readonly Vector2I[] Square3Offsets = BuildSquare(3);
+    private static readonly Vector2I[] Square5Offsets = BuildSquare(5);
     private static readonly Vector2I[] Square10Offsets = BuildSquare(10);
 
     /// <summary>
@@ -70,6 +72,7 @@ public static class ManualMiningFootprint
         {
             "plus_3" or "plus3" => ManualMiningFootprintKind.Plus3,
             "square_3" or "square3" => ManualMiningFootprintKind.Square3,
+            "square_5" or "square5" => ManualMiningFootprintKind.Square5,
             "square_10" or "square10" => ManualMiningFootprintKind.Square10,
             _ => ManualMiningFootprintKind.Single,
         };
@@ -79,6 +82,7 @@ public static class ManualMiningFootprint
         {
             ManualMiningFootprintKind.Plus3 => Plus3Offsets,
             ManualMiningFootprintKind.Square3 => Square3Offsets,
+            ManualMiningFootprintKind.Square5 => Square5Offsets,
             ManualMiningFootprintKind.Square10 => Square10Offsets,
             _ => SingleOffsets,
         };
