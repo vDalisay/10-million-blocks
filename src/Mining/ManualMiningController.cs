@@ -24,6 +24,7 @@ public partial class ManualMiningController : Node3D
 
     private Vector3I? _hoveredVoxel;
     private IReadOnlyList<Vector3I> _hoverTargets = Array.Empty<Vector3I>();
+    private Vector3I _hoverSurfaceNormal = Vector3I.Zero;
     private Vector3I? _lastHoverMiningVoxel;
     private double _hoverMiningAccumulator;
     private bool _hoverMiningEnabled;
@@ -107,7 +108,7 @@ public partial class ManualMiningController : Node3D
         UpdateHover(button.Position);
         if (_hoveredVoxel is null || _hoverTargets.Count == 0) return;
 
-        int actions = MineManualTick(_hoverTargets, hoverMining: false);
+        int actions = MineManualTick(_hoverTargets, hoverMining: false, _hoverSurfaceNormal);
         if (actions > 0)
         {
             UpdateHover(button.Position, force: true);
@@ -167,7 +168,7 @@ public partial class ManualMiningController : Node3D
         // cadence, not a backlog that explodes after a hitch or menu pause.
         _hoverMiningAccumulator %= interval;
         _hoverIndicator?.Pulse();
-        if (MineManualTick(_hoverTargets, hoverMining: true) > 0)
+        if (MineManualTick(_hoverTargets, hoverMining: true, _hoverSurfaceNormal) > 0)
         {
             _highlight.PulseMine();
             UpdateHover(mouse, force: true);
@@ -179,36 +180,53 @@ public partial class ManualMiningController : Node3D
             (float)Math.Clamp(_hoverMiningAccumulator / interval, 0.0, 1.0));
     }
 
-    private int MineManualTick(IReadOnlyList<Vector3I> targets, bool hoverMining)
+    private int MineManualTick(IReadOnlyList<Vector3I> targets, bool hoverMining, Vector3I surfaceNormal)
     {
         if (targets.Count == 0) return 0;
 
         int actions = 0;
         int presentationBursts = 0;
+        int penetrationDepth = surfaceNormal == Vector3I.Zero
+            ? 1
+            : Math.Max(1, _skills.Derived.ManualPenetrationDepth);
+        double manualPower = Math.Max(0.01, _skills.Derived.ManualMiningPower);
+        bool blastTriggered = false;
+
         _mining.BeginCurrencyNotificationBatch();
         try
         {
-            foreach (Vector3I candidate in targets)
+            foreach (Vector3I target in targets)
             {
-                MiningResult result = _mining.TryMine(candidate);
-                if (!result.Success) continue;
-
-                actions++;
-                if (!result.Removed) continue;
-
-                MarkEffectDirty(result);
-                if (presentationBursts < 5)
+                for (int depth = 0; depth < penetrationDepth; depth++)
                 {
-                    _view.SpawnManualMinePop(
-                        result.Voxel,
-                        result.BlockId,
-                        hoverMining ? 1.24f : 1.12f);
-                    EmitDebris(result, presentationBursts++);
+                    Vector3I candidate = target - surfaceNormal * depth;
+                    MiningResult result = _mining.TryMineManual(candidate, manualPower);
+                    if (!result.Success) break;
+
+                    actions++;
+                    if (!result.Removed) break;
+
+                    MarkEffectDirty(result);
+                    if (presentationBursts < 5)
+                    {
+                        _view.SpawnManualMinePop(
+                            result.Voxel,
+                            result.BlockId,
+                            hoverMining ? 1.24f : 1.12f);
+                        EmitDebris(result, presentationBursts++);
+                    }
+
+                    // An unstable-block blast is already a complete high-impact action. Other targets in
+                    // the same footprint are left for the next manual tick rather than chaining through
+                    // the crater or trying to penetrate behind a block that no longer has a clean column.
+                    if (result.EffectRadius > 0)
+                    {
+                        blastTriggered = true;
+                        break;
+                    }
                 }
 
-                // An unstable-block blast is already a complete high-impact action. Other targets in the
-                // same footprint are left for the next manual tick rather than chaining through the crater.
-                if (result.EffectRadius > 0) break;
+                if (blastTriggered) break;
             }
         }
         finally
@@ -285,6 +303,7 @@ public partial class ManualMiningController : Node3D
             out Vector3I surfaceNormal))
         {
             _hoveredVoxel = voxel;
+            _hoverSurfaceNormal = surfaceNormal;
             _hoverTargets = ManualMiningFootprint.ResolveFromCenter(
                 _world,
                 voxel,
@@ -304,6 +323,7 @@ public partial class ManualMiningController : Node3D
     {
         _hoveredVoxel = null;
         _hoverTargets = Array.Empty<Vector3I>();
+        _hoverSurfaceNormal = Vector3I.Zero;
         _highlight.HideVoxel();
         if (invalidateRayCache) _hoverRayCacheValid = false;
     }
