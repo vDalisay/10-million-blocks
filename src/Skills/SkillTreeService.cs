@@ -24,6 +24,13 @@ public sealed class SkillDerivedStats
     // manual action may continue one freshly exposed voxel inward after clearing its surface target.
     public int ManualPenetrationDepth { get; internal set; } = 1;
 
+    // Incremental economy axes deliberately mirror the satisfying payout/golden/critical upgrade
+    // vocabulary common to the reference game, but operate on our authored block rewards.
+    public double ResourceYieldMultiplier { get; internal set; } = 1.0;
+    public double PreciousResourceYieldMultiplier { get; internal set; } = 1.0;
+    public double CriticalYieldChance { get; internal set; }
+    public double CriticalYieldMultiplier { get; internal set; } = 2.0;
+
     public double MinerRateMultiplier { get; internal set; } = 1.0;
     public int MinerPatternWidth { get; internal set; } = 1;
     public string DrillPatternId { get; internal set; } = "line";
@@ -38,9 +45,12 @@ public sealed class SkillDerivedStats
     public int ShovelHeightTolerance { get; internal set; } = 0;
     public int ShovelSearchRadius { get; internal set; } = 1;
 
-    // World-event automation deliberately starts as partial automation: the player can still click
-    // clouds to accelerate them, while the late-game charger periodically contributes charge itself.
+    // Late event upgrades are the voxel equivalents of electricity-chain and supernova-radius upgrades:
+    // the authored cloud/meteor mechanics stay the same while their reach grows through the tree.
     public bool AutoCloudChargerUnlocked { get; internal set; }
+    public int LightningRadiusBonus { get; internal set; }
+    public int LightningChainCount { get; internal set; }
+    public int MeteorRadiusBonus { get; internal set; }
 
     public HashSet<string> UnlockedMiners { get; } = new(StringComparer.Ordinal);
     public HashSet<string> UnlockedPatterns { get; } = new(StringComparer.Ordinal) { "line" };
@@ -282,6 +292,11 @@ public sealed class SkillTreeService
         }
 
         Derived = stats;
+        _mining.ConfigureProgressionEconomy(
+            stats.ResourceYieldMultiplier,
+            stats.PreciousResourceYieldMultiplier,
+            stats.CriticalYieldChance,
+            stats.CriticalYieldMultiplier);
     }
 
     private static void ApplyEffect(SkillDerivedStats stats, SkillEffectDefinition effect)
@@ -305,6 +320,18 @@ public sealed class SkillTreeService
                 break;
             case "unlock_hover_mining":
                 stats.HoverMiningUnlocked = true;
+                break;
+            case "multiply_resource_yield":
+                stats.ResourceYieldMultiplier *= Math.Max(0.01, effect.Value);
+                break;
+            case "multiply_precious_resource_yield":
+                stats.PreciousResourceYieldMultiplier *= Math.Max(0.01, effect.Value);
+                break;
+            case "add_critical_yield_chance":
+                stats.CriticalYieldChance = Math.Clamp(stats.CriticalYieldChance + Math.Max(0.0, effect.Value), 0.0, 0.75);
+                break;
+            case "set_critical_yield_multiplier":
+                stats.CriticalYieldMultiplier = Math.Max(stats.CriticalYieldMultiplier, Math.Max(1.0, effect.Value));
                 break;
             case "multiply_miner_rate":
                 stats.MinerRateMultiplier *= Math.Max(0.01, effect.Value);
@@ -338,6 +365,15 @@ public sealed class SkillTreeService
                 break;
             case "unlock_auto_cloud_charger":
                 stats.AutoCloudChargerUnlocked = true;
+                break;
+            case "add_lightning_radius":
+                stats.LightningRadiusBonus = checked(stats.LightningRadiusBonus + Math.Max(0, (int)Math.Round(effect.Value)));
+                break;
+            case "add_lightning_chain_count":
+                stats.LightningChainCount = checked(stats.LightningChainCount + Math.Max(0, (int)Math.Round(effect.Value)));
+                break;
+            case "add_meteor_radius":
+                stats.MeteorRadiusBonus = checked(stats.MeteorRadiusBonus + Math.Max(0, (int)Math.Round(effect.Value)));
                 break;
         }
     }
