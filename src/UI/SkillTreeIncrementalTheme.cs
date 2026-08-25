@@ -57,9 +57,6 @@ internal static class SkillTreeIncrementalTheme
             return SkillNodeVisualKind.Milestone;
         }
 
-        // Individual stat steps are compact circles even though each is a one-time node. The authored
-        // graph deliberately explodes rank piles into many purchases so the cadence reads like a classic
-        // incremental tree: buy a small stat, reveal the next piece, repeat.
         if (node.Effects.Any(effect => effect.Type is
                 "multiply_manual_mining_rate" or
                 "set_manual_mining_power" or
@@ -192,12 +189,14 @@ public partial class IncrementalSkillNodeButton : Button
 {
     private TextureRect _icon = null!;
     private Label _rankBadge = null!;
+    private Label _recommendBadge = null!;
     private SkillNodeLockGlyph _lockGlyph = null!;
     private Color _categoryColor;
     private SkillNodeVisualKind _visualKind;
     private bool _purchased;
     private bool _affordable;
     private bool _requirementsMet;
+    private bool _recommended;
     private bool _initialized;
     private double _time;
     private Vector2 _baseScale = Vector2.One;
@@ -253,6 +252,20 @@ public partial class IncrementalSkillNodeButton : Button
         _rankBadge.AddThemeFontSizeOverride("font_size", 11);
         AddChild(_rankBadge);
 
+        _recommendBadge = new Label
+        {
+            Text = "NEXT",
+            Position = new Vector2(-2, -18),
+            Size = new Vector2(74, 17),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = MouseFilterEnum.Ignore,
+            Visible = false,
+            Modulate = _categoryColor.Darkened(0.10f),
+        };
+        _recommendBadge.AddThemeFontSizeOverride("font_size", 10);
+        AddChild(_recommendBadge);
+
         MouseEntered += () => { Hovered?.Invoke(this); AnimateScale(1.11f, 0.08f); };
         MouseExited += () => AnimateScale(1.0f, 0.10f);
         ButtonDown += () => AnimateScale(0.92f, 0.045f);
@@ -262,13 +275,21 @@ public partial class IncrementalSkillNodeButton : Button
         ApplyState(0, 1, false, false, false, immediate: true);
     }
 
+    public void SetRecommended(bool recommended)
+    {
+        _recommended = recommended;
+        if (_recommendBadge is not null) _recommendBadge.Visible = recommended && !_purchased;
+    }
+
     public override void _Process(double delta)
     {
         if (!_initialized || GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true) return;
         _time += delta;
-        if (_affordable && _requirementsMet && !_purchased && !Disabled)
+        if ((_affordable || _recommended) && _requirementsMet && !_purchased && !Disabled)
         {
-            float pulse = 1.0f + 0.014f * (float)Math.Sin(_time * 3.1);
+            float amplitude = _recommended ? 0.030f : 0.014f;
+            float frequency = _recommended ? 3.8f : 3.1f;
+            float pulse = 1.0f + amplitude * (float)Math.Sin(_time * frequency);
             if (!IsHovered()) Scale = _baseScale * pulse;
         }
     }
@@ -283,6 +304,7 @@ public partial class IncrementalSkillNodeButton : Button
         Disabled = maxed || !requirementsMet;
         _rankBadge.Text = maxRank > 1 ? $"{rank}/{maxRank}" : (maxed ? "✓" : string.Empty);
         _lockGlyph.Visible = !requirementsMet && !maxed;
+        if (_recommendBadge is not null) _recommendBadge.Visible = _recommended && !_purchased;
 
         Color fill;
         Color border;
@@ -313,6 +335,12 @@ public partial class IncrementalSkillNodeButton : Button
             fill = SkillTreeIncrementalTheme.PaperBright;
             border = affordable ? _categoryColor : _categoryColor.Darkened(0.20f);
             icon = affordable ? _categoryColor.Darkened(0.30f) : SkillTreeIncrementalTheme.MutedInk;
+        }
+
+        if (_recommended && !maxed && requirementsMet)
+        {
+            border = _categoryColor.Lightened(0.08f);
+            borderWidth += 1;
         }
 
         AddThemeStyleboxOverride("normal", SkillTreeIncrementalTheme.FlatBox(fill, border, radius, borderWidth));
