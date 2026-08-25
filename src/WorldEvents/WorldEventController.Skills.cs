@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Generation;
@@ -13,10 +14,15 @@ public partial class WorldEventController
     private const double RadioactiveCloudPulseIntervalSeconds = 6.0;
     private const int RadioactiveCloudRadius = 1;
     private const int RadioactiveSurfaceSearchDepth = 128;
+    private const double OrbBreakerIntervalSeconds = 2.5;
+    private const int OrbBreakerRadius = 1;
 
     private SkillTreeService? _eventSkills;
     private Timer? _cloudChargerTimer;
     private Timer? _radioactiveCloudTimer;
+    private Timer? _orbBreakerTimer;
+    private Node3D? _breakerOrb;
+    private float _breakerOrbPhase;
 
     public void AttachSkills(SkillTreeService skills)
     {
@@ -81,6 +87,39 @@ public partial class WorldEventController
             _radioactiveCloudTimer?.Stop();
         }
 
+        bool orbEnabled = _eventSkills is not null && _eventSkills.Derived.OrbBreakerUnlocked;
+        if (orbEnabled)
+        {
+            if (_breakerOrb is null)
+            {
+                _breakerOrbPhase = DeterministicPhase(_world.Profile.Seed + 2609);
+                _breakerOrb = BuildBreakerOrb();
+                _breakerOrb.GlobalPosition = OrbitPosition(_breakerOrbPhase, 1.15f, -0.04f);
+                AddChild(_breakerOrb);
+            }
+
+            if (_orbBreakerTimer is null)
+            {
+                _orbBreakerTimer = new Timer
+                {
+                    Name = "OrbBreakerPulse",
+                    OneShot = false,
+                    Autostart = false,
+                };
+                _orbBreakerTimer.Timeout += OnOrbBreakerPulse;
+                AddChild(_orbBreakerTimer);
+            }
+
+            _orbBreakerTimer.WaitTime = EffectiveOrbBreakerInterval();
+            if (_orbBreakerTimer.IsStopped()) _orbBreakerTimer.Start();
+            _breakerOrb.Visible = true;
+        }
+        else
+        {
+            _orbBreakerTimer?.Stop();
+            if (_breakerOrb is not null) _breakerOrb.Visible = false;
+        }
+
         _meteorCooldown = Math.Min(_meteorCooldown, EffectiveMeteorRespawnDelay());
         RefreshStatus();
     }
@@ -102,11 +141,34 @@ public partial class WorldEventController
         RequestPersistence();
     }
 
+    private void OnOrbBreakerPulse()
+    {
+        if (_breakerOrb is null || _eventSkills is null || !_eventSkills.Derived.OrbBreakerUnlocked) return;
+
+        _breakerOrbPhase = Mathf.Wrap(_breakerOrbPhase + 0.82f, 0.0f, Mathf.Tau);
+        Vector3 destination = OrbitPosition(_breakerOrbPhase, 1.15f, -0.04f);
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            _breakerOrb.GlobalPosition = destination;
+        }
+        else
+        {
+            Tween tween = CreateTween();
+            tween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
+            tween.TweenProperty(_breakerOrb, "global_position", destination, Math.Min(0.42, EffectiveOrbBreakerInterval() * 0.35));
+        }
+
+        if (!TryCurrentSurfaceUnder(destination, out Vector3I target)) return;
+        ApplyCrater(target, OrbBreakerRadius);
+        SpawnFlash(_view.VoxelToWorld(target), new Color(0.46f, 0.82f, 1.0f), 2.1f);
+        RequestPersistence();
+    }
+
     /// <summary>
-    /// The generation source knows the original outer shell, while passive clouds need the current
+    /// The generation source knows the original outer shell, while passive systems need the current
     /// excavation front. Start from the authored outer surface and walk inward along that face until an
-    /// authoritative present voxel is found. This keeps radioactive idle mining advancing instead of
-    /// repeatedly pulsing a coordinate that an earlier cloud pass already removed.
+    /// authoritative present voxel is found. This keeps idle mining advancing instead of repeatedly
+    /// pulsing a coordinate that an earlier pass already removed.
     /// </summary>
     private bool TryCurrentSurfaceUnder(Vector3 worldPosition, out Vector3I voxel)
     {
@@ -126,8 +188,38 @@ public partial class WorldEventController
         return false;
     }
 
+    private Node3D BuildBreakerOrb()
+    {
+        float radius = MathF.Max(0.34f, _world.Profile.BlockSpacing * 0.26f);
+        var material = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.52f, 0.82f, 1.0f),
+            EmissionEnabled = true,
+            Emission = new Color(0.28f, 0.68f, 1.0f),
+            EmissionEnergyMultiplier = 2.1f,
+            Roughness = 0.32f,
+        };
+        var root = new Node3D { Name = "BreakerOrb" };
+        root.AddChild(new MeshInstance3D
+        {
+            Mesh = new SphereMesh
+            {
+                Radius = radius,
+                Height = radius * 2.0f,
+                RadialSegments = 12,
+                Rings = 8,
+                Material = material,
+            },
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        });
+        return root;
+    }
+
     private double EffectiveCloudChargeInterval()
         => AutomaticCloudChargeIntervalSeconds / Math.Max(0.1, _eventSkills?.Derived.CloudChargeRateMultiplier ?? 1.0);
+
+    private double EffectiveOrbBreakerInterval()
+        => OrbBreakerIntervalSeconds / Math.Max(0.1, _eventSkills?.Derived.OrbBreakerRateMultiplier ?? 1.0);
 
     private double EffectiveMeteorRespawnDelay()
         => MeteorRespawnDelay / Math.Max(0.1, _eventSkills?.Derived.MeteorSpawnRateMultiplier ?? 1.0);
@@ -227,12 +319,15 @@ public partial class WorldEventController
         string radioactive = stats.RadioactiveCloudUnlocked
             ? $"   |   Radioactive AUTO {RadioactiveCloudPulseIntervalSeconds:0.0}s"
             : string.Empty;
+        string orb = stats.OrbBreakerUnlocked
+            ? $"   |   Orb Breaker {EffectiveOrbBreakerInterval():0.0}s"
+            : string.Empty;
         string power = stats.LightningRadiusBonus > 0 || stats.LightningChainCount > 0
             ? $"   |   Lightning R{EffectiveLightningRadius()} / forks {stats.LightningChainCount}"
             : string.Empty;
         string meteor = stats.MeteorRadiusBonus > 0 || stats.MeteorSpawnRateMultiplier > 1.001
             ? $"   |   Meteor R{EffectiveMeteorRadius()} / {EffectiveMeteorRespawnDelay():0}s"
             : string.Empty;
-        return charger + radioactive + power + meteor;
+        return charger + radioactive + orb + power + meteor;
     }
 }
