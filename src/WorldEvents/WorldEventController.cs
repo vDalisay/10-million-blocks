@@ -153,8 +153,7 @@ public partial class WorldEventController : Node3D
         RefreshCloudMaterial();
         if (_cloud is not null && TrySurfaceUnder(_cloud.GlobalPosition, out Vector3I target))
         {
-            ApplyCrater(target, LightningRadius);
-            SpawnFlash(_view.VoxelToWorld(target), new Color(0.76f, 0.88f, 1.0f), 8.0f);
+            ApplyLightning(target);
         }
         RefreshStatus();
     }
@@ -177,7 +176,7 @@ public partial class WorldEventController : Node3D
             _meteor.Scale = Vector3.One * Mathf.Lerp(1.0f, 0.58f, t);
             if (_impactProgress >= 1.0)
             {
-                ApplyCrater(impact, MeteorRadius);
+                ApplyCrater(impact, EffectiveMeteorRadius());
                 SpawnFlash(target, new Color(1.0f, 0.40f, 0.14f), 6.0f);
                 DespawnMeteor();
             }
@@ -398,7 +397,8 @@ public partial class WorldEventController : Node3D
                         ? "Meteor: impact locked"
                         : $"Meteor: catch it ({Math.Max(0.0, _meteorWindow):0}s)"
             : string.Empty;
-        _status.Text = string.IsNullOrEmpty(cloud) ? meteor : string.IsNullOrEmpty(meteor) ? cloud : cloud + "   |   " + meteor;
+        string baseStatus = string.IsNullOrEmpty(cloud) ? meteor : string.IsNullOrEmpty(meteor) ? cloud : cloud + "   |   " + meteor;
+        _status.Text = baseStatus + CloudChargerStatus();
     }
 
     private static Vector3I DominantNormal(Vector3I coordinate)
