@@ -15,7 +15,9 @@ def load(relative: str):
 
 worlds_doc = load("data/worlds/worlds.json")
 progression_doc = load("data/progression/world_progression.json")
+skills_doc = load("data/skills/skill_tree.json")
 worlds = {item["id"]: item for item in worlds_doc["worlds"]}
+skills = {item["id"]: item for item in skills_doc["nodes"]}
 order = progression_doc["world_ids"]
 
 tutorial_ids = [
@@ -103,6 +105,19 @@ assert "events" in finale.get("visibleSkillCategories", [])
 assert set(finale.get("visibleSkillIds", [])) == expected_finale_ids, (
     f"50-cube finale must expose exactly the capstone nodes, got {finale.get('visibleSkillIds', [])}"
 )
+
+# The two newest literal-reference adaptations belong to the 40-cube era through normal category
+# staging and prerequisite disclosure, not the 20-cube world or exact-ID finale gate.
+assert skills["radioactive_cloud_unlock"].get("category") == "events"
+assert skills["radioactive_cloud_unlock"].get("prerequisites") == [
+    {"node_id": "cloud_charger_unlock", "required_rank": 1}
+]
+assert skills["drill_gem_bit"].get("category") == "drill"
+assert {item["node_id"] for item in skills["drill_gem_bit"].get("prerequisites", [])} == {
+    "drill_ore_bit", "precious_yield_1"
+}
+assert "events" not in reference_natural.get("visibleSkillCategories", [])
+assert "events" in storm.get("visibleSkillCategories", [])
 
 for world_id in ("stress_1000", "final_target_1m"):
     assert int(worlds[world_id].get("targetMineableBlocks", 0)) == 1_000_000, (
