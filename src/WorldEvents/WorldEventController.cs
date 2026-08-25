@@ -233,7 +233,7 @@ public partial class WorldEventController : Node3D
         _meteorGrabbed = false;
         _impactVoxel = null;
         _impactProgress = 0.0;
-        _meteorCooldown = MeteorRespawnDelay;
+        _meteorCooldown = EffectiveMeteorRespawnDelay();
         RefreshStatus();
     }
 
