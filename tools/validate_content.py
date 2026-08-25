@@ -58,6 +58,8 @@ known_effects = {
     "unlock_resource_filter",
     "unlock_auto_cloud_charger",
     "unlock_radioactive_cloud",
+    "unlock_orb_breaker",
+    "multiply_orb_breaker_rate",
     "multiply_cloud_charge_rate",
     "add_lightning_radius",
     "add_lightning_chain_count",
@@ -278,13 +280,16 @@ assert skills["axe_unlock"].get("category") == "forest" and skills["axe_unlock"]
 assert skills["cloud_charger_unlock"].get("category") == "events"
 assert any(effect.get("type") == "unlock_auto_cloud_charger" for effect in skills["cloud_charger_unlock"].get("effects", []))
 assert any(effect.get("type") == "unlock_radioactive_cloud" for effect in skills["radioactive_cloud_unlock"].get("effects", []))
+assert any(effect.get("type") == "unlock_orb_breaker" for effect in skills["orb_breaker_unlock"].get("effects", []))
+assert effect_values("orb_breaker_speed_1", "multiply_orb_breaker_rate") == [1.5]
 assert skills["radioactive_cloud_unlock"].get("prerequisites") == [{"node_id": "cloud_charger_unlock", "required_rank": 1}]
+assert skills["orb_breaker_unlock"].get("prerequisites") == [{"node_id": "radioactive_cloud_unlock", "required_rank": 1}]
 assert skills["cloud_charger_unlock"].get("prerequisites") == [{"node_id": "pickaxe_unlock", "required_rank": 1}]
 assert effect_values("lightning_chain_1", "add_lightning_chain_count") == [1.0]
 assert effect_values("meteor_radius_2", "add_meteor_radius") == [2.0]
 assert effect_values("resource_density_1", "multiply_resource_yield") == [1.25]
 assert effect_values("resource_density_2", "multiply_resource_yield") == [1.5]
 assert effect_values("precious_yield_1", "multiply_precious_resource_yield") == [2.0]
-assert len(skills) >= 47, "expanded incremental tree should retain many small individual purchases"
+assert len(skills) >= 49, "expanded incremental tree should retain many small individual purchases"
 
 print(f"content validation passed: {len(blocks)} blocks, {len(miners)} miners, {len(skills)} skills, {len(worlds)} worlds")
