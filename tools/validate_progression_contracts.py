@@ -49,9 +49,8 @@ for world_id, profile in worlds.items():
     scope = profile.get("currencyScope", "persistent_main")
     assert scope in {"tutorial_local", "persistent_main"}, f"{world_id} has unknown currencyScope {scope!r}"
 
-# The later progression decision replaced the original isolated tutorial wallets. Keep the authored
-# content explicit as well as the runtime compatibility property: ordinary resources follow the player
-# from the very first 1-cube tutorial through the 50-cube finale.
+# Ordinary resources follow the player from the first tutorial through the finale. Skill prices are
+# intentionally balanced against this persistent wallet rather than being reset per world.
 for world_id in order:
     assert worlds[world_id].get("currencyScope", "persistent_main") == "persistent_main", (
         f"Steam-demo world {world_id} must use the persistent ordinary-resource wallet"
@@ -62,32 +61,48 @@ assert int(worlds["tutorial_dirt_5"].get("targetMineableBlocks", 0)) == 125
 assert int(worlds["tutorial_lake_core_10"].get("targetMineableBlocks", 0)) == 1000
 assert int(worlds["tutorial_trees_gem_15"].get("targetMineableBlocks", 0)) == 3375
 
-# The 15-cube tutorial demonstrates that trees obstruct a Shovel while the player still has to clear
-# them manually. Forest Cutter is the payoff introduced at 20-cube, not a solution handed out before
-# the obstruction lesson has landed.
+# Tutorials deliberately expose only the mechanic families being taught at that size.
+assert worlds["tutorial_dirt_5"].get("visibleSkillCategories", []) == ["manual"]
+assert worlds["tutorial_lake_core_10"].get("visibleSkillCategories", []) == ["manual", "shovel"]
 assert worlds["tutorial_trees_gem_15"].get("visibleSkillCategories", []) == [
     "manual", "shovel", "automation", "drill", "patterns"
 ], "15-cube tutorial must keep Forest Cutter hidden while teaching tree obstruction"
-assert "forest" not in worlds["tutorial_trees_gem_15"].get("visibleSkillCategories", []), (
-    "Forest Cutter must not leak into the 15-cube tree-obstruction tutorial"
-)
-assert "forest" in worlds["reference_natural"].get("visibleSkillCategories", []), (
+assert "forest" not in worlds["tutorial_trees_gem_15"].get("visibleSkillCategories", [])
+
+# The 20-cube generated world introduces the normal full mining/economy toolset but no weather-event
+# progression yet. The 40-cube world opens the entire events family; the 50-cube finale adds a small
+# exact-ID capstone set whose category stays hidden everywhere else.
+reference_natural = worlds["reference_natural"]
+storm = worlds["reference_lakes"]
+finale = worlds["reference_ridges"]
+
+assert "forest" in reference_natural.get("visibleSkillCategories", []), (
     "Forest Cutter must first become available in the 20-cube main world"
 )
+assert "events" not in reference_natural.get("visibleSkillCategories", []), (
+    "active-event progression must not leak into the 20-cube world"
+)
+assert reference_natural.get("visibleSkillIds", []) == []
+assert int(reference_natural.get("worldVersion", 0)) == 3
+assert reference_natural.get("overrideFile") == "res://data/worlds/overrides/reference_natural_v3.json"
 
-assert worlds["reference_natural"].get("visibleSkillIds", []) == [], (
-    "active-event automation must not leak into the 20-cube world"
+assert "events" in storm.get("visibleSkillCategories", []), (
+    "40-cube Stormfront must reveal the event-upgrade family"
 )
-assert int(worlds["reference_natural"].get("worldVersion", 0)) == 3, (
-    "20-cube reviewed content changed when authored gems were added and must remain on worldVersion 3"
+assert storm.get("visibleSkillIds", []) == [], (
+    "40-cube should expose events through its category rather than leaking 50-cube capstone IDs"
 )
-assert worlds["reference_natural"].get("overrideFile") == "res://data/worlds/overrides/reference_natural_v3.json", (
-    "20-cube world must retain the reviewed version-matched special-resource override"
+
+expected_finale_ids = {
+    "miner_speed_4",
+    "lightning_chain_2",
+    "meteor_radius_2",
+    "manual_aftershock",
+}
+assert "events" in finale.get("visibleSkillCategories", [])
+assert set(finale.get("visibleSkillIds", [])) == expected_finale_ids, (
+    f"50-cube finale must expose exactly the capstone nodes, got {finale.get('visibleSkillIds', [])}"
 )
-for world_id in ("reference_lakes", "reference_ridges"):
-    assert worlds[world_id].get("visibleSkillIds", []) == ["cloud_charger_unlock"], (
-        f"{world_id} must expose Cloud Charger"
-    )
 
 for world_id in ("stress_1000", "final_target_1m"):
     assert int(worlds[world_id].get("targetMineableBlocks", 0)) == 1_000_000, (
@@ -101,5 +116,5 @@ for world_id in order:
 
 print(
     f"progression contracts passed: {len(order)} Steam-demo worlds share one persistent ordinary-resource wallet; "
-    f"{len(tutorial_ids)} are tutorial worlds"
+    f"events begin at 40-cube and {len(expected_finale_ids)} capstones stage at 50-cube"
 )
