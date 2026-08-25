@@ -18,6 +18,7 @@ public partial class SkillTreeView : CanvasLayer
     private Control _root = null!;
     private Label _resources = null!;
     private Label _specialResources = null!;
+    private Label _nextUpgrade = null!;
     private Label _feedback = null!;
     private PanelContainer _detailPanel = null!;
     private ColorRect _detailAccent = null!;
@@ -336,12 +337,23 @@ public partial class SkillTreeView : CanvasLayer
         _specialResources = new Label
         {
             Text = string.Empty,
-            CustomMinimumSize = new Vector2(210, 52),
+            CustomMinimumSize = new Vector2(190, 52),
             VerticalAlignment = VerticalAlignment.Center,
             Modulate = new Color(0.81f, 0.84f, 0.82f),
         };
         _specialResources.AddThemeFontSizeOverride("font_size", 12);
         row.AddChild(_specialResources);
+
+        _nextUpgrade = new Label
+        {
+            Text = "NEXT",
+            CustomMinimumSize = new Vector2(250, 52),
+            VerticalAlignment = VerticalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            Modulate = new Color("#f0d899"),
+        };
+        _nextUpgrade.AddThemeFontSizeOverride("font_size", 12);
+        row.AddChild(_nextUpgrade);
 
         var controls = new Label
         {
@@ -357,7 +369,7 @@ public partial class SkillTreeView : CanvasLayer
         _feedback = new Label
         {
             Text = string.Empty,
-            CustomMinimumSize = new Vector2(230, 52),
+            CustomMinimumSize = new Vector2(200, 52),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
@@ -517,12 +529,31 @@ public partial class SkillTreeView : CanvasLayer
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => $"{DisplayResourceName(pair.Key)}  {pair.Value:N0}"));
 
+        SkillNodeDefinition? recommended = _buttons.Keys
+            .Select(id => _skills.Catalog.Get(id))
+            .Where(node => _skills.IsRevealed(node))
+            .Where(node => _skills.GetRank(node.Id) < node.MaxRank)
+            .Where(_skills.PrerequisitesMet)
+            .Where(_skills.SpecialCostsAffordable)
+            .OrderBy(node => checked(node.Cost * (_skills.GetRank(node.Id) + 1L)))
+            .ThenBy(node => node.GridY)
+            .ThenBy(node => node.GridX)
+            .FirstOrDefault();
+        string? recommendedId = recommended?.Id;
+        if (_nextUpgrade is not null)
+        {
+            _nextUpgrade.Text = recommended is null
+                ? "NO READY UPGRADES"
+                : $"NEXT  {recommended.DisplayName.ToUpperInvariant()}  {checked(recommended.Cost * (_skills.GetRank(recommended.Id) + 1L)):N0}";
+        }
+
         foreach ((string id, IncrementalSkillNodeButton button) in _buttons)
         {
             SkillNodeDefinition node = _skills.Catalog.Get(id);
             bool revealed = _skills.IsRevealed(node);
             bool newlyRevealed = revealed && !_previouslyRevealed.Contains(id);
             button.Visible = revealed;
+            button.SetRecommended(revealed && id == recommendedId);
             if (!revealed) continue;
 
             int rank = _skills.GetRank(id);
@@ -669,8 +700,6 @@ public partial class SkillGraphCanvas : Control
         }
         else if (!Mathf.IsEqualApprox(from.X, to.X) && !Mathf.IsEqualApprox(from.Y, to.Y))
         {
-            // Unrouted edges become schematic right-angle paths. Authored route bends from the editor
-            // still win whenever a designer wants a different topology.
             float midX = Mathf.Round((from.X + to.X) * 0.5f);
             points.Add(new Vector2(midX, from.Y));
             points.Add(new Vector2(midX, to.Y));
