@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="384" height="256" viewBox="0 0 384 256">
   <defs>
     <style>
-      .i{fill:none;stroke:#424847;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
-      .f{fill:#424847}
-      .t{fill:none;stroke:#424847;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+      .i{fill:none;stroke:#ffffff;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
+      .f{fill:#ffffff}
+      .t{fill:none;stroke:#ffffff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
     </style>
   </defs>
 
