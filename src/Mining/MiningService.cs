@@ -56,6 +56,8 @@ public sealed class MiningService
     private const int BombHitsRequired = 3;
     private const int BombBlastRadius = 2;
     private const int DamageDisplayScale = 100;
+    private const uint RewardRoundSalt = 0x6D2B79F5u;
+    private const uint CriticalSalt = 0xA511E9B3u;
 
     private readonly VirtualWorld _world;
     private readonly ContentDatabase _content;
@@ -63,6 +65,14 @@ public sealed class MiningService
     private readonly Dictionary<Vector3I, double> _manualDamage = new();
     private int _currencyNotificationBatchDepth;
     private bool _currencyNotificationPending;
+
+    // SkillTreeService pushes these derived values after every restore/purchase. Keeping payout policy
+    // in MiningService means manual, automation, explosions, meteors and offline mining all use one
+    // authoritative economy instead of each feature remembering to apply an upgrade itself.
+    private double _resourceYieldMultiplier = 1.0;
+    private double _preciousResourceYieldMultiplier = 1.0;
+    private double _criticalYieldChance;
+    private double _criticalYieldMultiplier = 2.0;
 
     public MiningService(VirtualWorld world, ContentDatabase content)
         : this(world, content, new SpecialResourceInventory())
@@ -90,6 +100,18 @@ public sealed class MiningService
     public SpecialResourceInventory SpecialResources { get; }
 
     public BlockDefinition GetBlockDefinition(string blockId) => _content.GetBlock(blockId);
+
+    internal void ConfigureProgressionEconomy(
+        double resourceYieldMultiplier,
+        double preciousResourceYieldMultiplier,
+        double criticalYieldChance,
+        double criticalYieldMultiplier)
+    {
+        _resourceYieldMultiplier = Math.Max(0.01, resourceYieldMultiplier);
+        _preciousResourceYieldMultiplier = Math.Max(0.01, preciousResourceYieldMultiplier);
+        _criticalYieldChance = Math.Clamp(criticalYieldChance, 0.0, 0.75);
+        _criticalYieldMultiplier = Math.Max(1.0, criticalYieldMultiplier);
+    }
 
     /// <summary>
     /// Defers CurrencyChanged fan-out while a caller performs a bounded group of authoritative mining
@@ -239,7 +261,7 @@ public sealed class MiningService
 
         _manualDamage.Remove(voxel);
         BlockDefinition definition = _content.GetBlock(mined.BlockId);
-        long reward = definition.BaseValue;
+        long reward = CalculateReward(definition, voxel);
         Currency = checked(Currency + reward);
         CreditSpecialResource(definition, mined.BlockId);
 
@@ -290,7 +312,7 @@ public sealed class MiningService
             _bombHits.Remove(candidate);
             _manualDamage.Remove(candidate);
             BlockDefinition definition = _content.GetBlock(mined.BlockId);
-            long reward = definition.BaseValue;
+            long reward = CalculateReward(definition, candidate);
             Currency = checked(Currency + reward);
             totalReward = checked(totalReward + reward);
             CreditSpecialResource(definition, mined.BlockId);
@@ -349,7 +371,7 @@ public sealed class MiningService
             _bombHits.Remove(candidate);
             _manualDamage.Remove(candidate);
             BlockDefinition definition = _content.GetBlock(mined.BlockId);
-            long reward = definition.BaseValue;
+            long reward = CalculateReward(definition, candidate);
             totalReward = checked(totalReward + reward);
             Currency = checked(Currency + reward);
             CreditSpecialResource(definition, mined.BlockId);
@@ -395,10 +417,12 @@ public sealed class MiningService
             return new BulkMiningResult(false, region, 0L, 0L, TotalMined, Remaining, source);
         }
 
-        // Region aggregation is only a giant-world optimization. Demo worlds that contain authored
-        // special resources stay on exact voxel mining paths, because an aggregate region does not
-        // retain enough identity information to award a gem exactly once.
-        long reward = checked(blocksMined * _world.Profile.AggregateRewardPerBlock);
+        // Giant-world aggregate regions do not retain per-block material identity. Apply the global
+        // expected payout/critical value, but not the precious-material bonus, which requires an exact
+        // authored block id. Demo worlds with gems stay on exact voxel paths.
+        double expectedCritical = 1.0 + _criticalYieldChance * (_criticalYieldMultiplier - 1.0);
+        double scaledPerBlock = Math.Max(0.0, _world.Profile.AggregateRewardPerBlock * _resourceYieldMultiplier * expectedCritical);
+        long reward = checked((long)Math.Round(blocksMined * scaledPerBlock, MidpointRounding.AwayFromZero));
         Currency = checked(Currency + reward);
         var result = new BulkMiningResult(true, region, blocksMined, reward, TotalMined, Remaining, source);
         BulkMined?.Invoke(result);
@@ -427,6 +451,59 @@ public sealed class MiningService
     {
         Currency = Math.Max(0L, amount);
         NotifyCurrencyChanged();
+    }
+
+    private long CalculateReward(BlockDefinition definition, Vector3I voxel)
+    {
+        if (definition.BaseValue <= 0) return 0L;
+
+        double multiplier = _resourceYieldMultiplier;
+        if (definition.Tags.Contains("gold") || definition.Tags.Contains("gem"))
+        {
+            multiplier *= _preciousResourceYieldMultiplier;
+        }
+
+        double scaled = Math.Max(0.0, definition.BaseValue * multiplier);
+        long whole = checked((long)Math.Floor(scaled));
+        double fraction = scaled - whole;
+        if (fraction > 0.0 && UnitHash(voxel, RewardRoundSalt) < fraction)
+        {
+            whole = checked(whole + 1L);
+        }
+
+        if (whole > 0L && _criticalYieldChance > 0.0 && UnitHash(voxel, CriticalSalt) < _criticalYieldChance)
+        {
+            whole = checked((long)Math.Max(1.0, Math.Round(whole * _criticalYieldMultiplier, MidpointRounding.AwayFromZero)));
+        }
+        return whole;
+    }
+
+    private double UnitHash(Vector3I voxel, uint salt)
+    {
+        unchecked
+        {
+            uint hash = (uint)_world.Profile.Seed ^ salt;
+            hash ^= (uint)voxel.X * 0x9E3779B1u;
+            hash = Mix(hash);
+            hash ^= (uint)voxel.Y * 0x85EBCA77u;
+            hash = Mix(hash);
+            hash ^= (uint)voxel.Z * 0xC2B2AE3Du;
+            hash = Mix(hash);
+            return (hash & 0x00FFFFFFu) / 16777216.0;
+        }
+    }
+
+    private static uint Mix(uint value)
+    {
+        unchecked
+        {
+            value ^= value >> 16;
+            value *= 0x7FEB352Du;
+            value ^= value >> 15;
+            value *= 0x846CA68Bu;
+            value ^= value >> 16;
+            return value;
+        }
     }
 
     private void NotifyCurrencyChanged()
