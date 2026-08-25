@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 15,
+  "content_version": 16,
   "nodes": [
     {
       "id": "hover_mining_unlock",
@@ -69,7 +69,6 @@
       "max_rank": 1,
       "effects": [{ "type": "set_manual_footprint", "string_value": "square_3" }]
     },
-
     {
       "id": "shovel_unlock",
       "display_name": "Powered Shovel",
@@ -196,7 +195,6 @@
       "max_rank": 1,
       "effects": [{ "type": "multiply_shovel_rate", "value": 1.5 }]
     },
-
     {
       "id": "automation_unlock",
       "display_name": "Drill Automation",
@@ -280,7 +278,6 @@
       "max_rank": 1,
       "effects": [{ "type": "set_manual_mining_power", "value": 2.5 }]
     },
-
     {
       "id": "resource_sensors",
       "display_name": "Resource Sensors",
@@ -452,7 +449,6 @@
         { "type": "set_critical_yield_multiplier", "value": 3.0 }
       ]
     },
-
     {
       "id": "cloud_charger_unlock",
       "display_name": "Cloud Charger",
@@ -480,6 +476,34 @@
       "cost": 9000,
       "max_rank": 1,
       "effects": [{ "type": "unlock_radioactive_cloud" }]
+    },
+    {
+      "id": "orb_breaker_unlock",
+      "display_name": "Orb Breaker",
+      "description": "Spawn a glowing breaker orb that jumps to a new point around the cube every 2.5 seconds and breaks a small radius-1 patch beneath it.",
+      "grid_x": 12,
+      "grid_y": 16,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [{ "node_id": "radioactive_cloud_unlock", "required_rank": 1 }],
+      "hide_until_prerequisites_met": true,
+      "cost": 11000,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_orb_breaker" }]
+    },
+    {
+      "id": "orb_breaker_speed_1",
+      "display_name": "Orb Breaker Speed",
+      "description": "Increase Orb Breaker pulse frequency by 50%, reducing its base interval from 2.5 seconds to about 1.7 seconds.",
+      "grid_x": 12,
+      "grid_y": 18,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [{ "node_id": "orb_breaker_unlock", "required_rank": 1 }],
+      "hide_until_prerequisites_met": true,
+      "cost": 8500,
+      "max_rank": 1,
+      "effects": [{ "type": "multiply_orb_breaker_rate", "value": 1.5 }]
     },
     {
       "id": "resource_density_2",
@@ -676,7 +700,6 @@
       "max_rank": 1,
       "effects": [{ "type": "add_meteor_radius", "value": 1.0 }]
     },
-
     {
       "id": "miner_speed_4",
       "display_name": "Automation Speed IV",
