@@ -10,9 +10,12 @@ namespace TenMillionBlocks.WorldEvents;
 public partial class WorldEventController
 {
     private const double AutomaticCloudChargeIntervalSeconds = 3.0;
+    private const double RadioactiveCloudPulseIntervalSeconds = 6.0;
+    private const int RadioactiveCloudRadius = 1;
 
     private SkillTreeService? _eventSkills;
     private Timer? _cloudChargerTimer;
+    private Timer? _radioactiveCloudTimer;
 
     public void AttachSkills(SkillTreeService skills)
     {
@@ -31,29 +34,53 @@ public partial class WorldEventController
 
     private void RefreshCloudCharger()
     {
-        bool enabled = _cloudEnabled && _eventSkills is not null && _eventSkills.Derived.AutoCloudChargerUnlocked;
-        if (!enabled)
+        bool chargerEnabled = _cloudEnabled && _eventSkills is not null && _eventSkills.Derived.AutoCloudChargerUnlocked;
+        if (chargerEnabled)
+        {
+            if (_cloudChargerTimer is null)
+            {
+                _cloudChargerTimer = new Timer
+                {
+                    Name = "AutomaticCloudCharger",
+                    OneShot = false,
+                    Autostart = false,
+                };
+                _cloudChargerTimer.Timeout += OnAutomaticCloudCharge;
+                AddChild(_cloudChargerTimer);
+            }
+
+            _cloudChargerTimer.WaitTime = EffectiveCloudChargeInterval();
+            if (_cloudChargerTimer.IsStopped()) _cloudChargerTimer.Start();
+        }
+        else
         {
             _cloudChargerTimer?.Stop();
-            RefreshStatus();
-            return;
         }
 
-        if (_cloudChargerTimer is null)
+        bool radioactiveEnabled = _cloudEnabled && _eventSkills is not null && _eventSkills.Derived.RadioactiveCloudUnlocked;
+        if (radioactiveEnabled)
         {
-            _cloudChargerTimer = new Timer
+            if (_radioactiveCloudTimer is null)
             {
-                Name = "AutomaticCloudCharger",
-                OneShot = false,
-                Autostart = false,
-            };
-            _cloudChargerTimer.Timeout += OnAutomaticCloudCharge;
-            AddChild(_cloudChargerTimer);
+                _radioactiveCloudTimer = new Timer
+                {
+                    Name = "RadioactiveCloudPulse",
+                    WaitTime = RadioactiveCloudPulseIntervalSeconds,
+                    OneShot = false,
+                    Autostart = false,
+                };
+                _radioactiveCloudTimer.Timeout += OnRadioactiveCloudPulse;
+                AddChild(_radioactiveCloudTimer);
+            }
+
+            if (_radioactiveCloudTimer.IsStopped()) _radioactiveCloudTimer.Start();
+        }
+        else
+        {
+            _radioactiveCloudTimer?.Stop();
         }
 
-        _cloudChargerTimer.WaitTime = EffectiveCloudChargeInterval();
         _meteorCooldown = Math.Min(_meteorCooldown, EffectiveMeteorRespawnDelay());
-        if (_cloudChargerTimer.IsStopped()) _cloudChargerTimer.Start();
         RefreshStatus();
     }
 
@@ -61,6 +88,16 @@ public partial class WorldEventController
     {
         if (_cloud is null || _eventSkills is null || !_eventSkills.Derived.AutoCloudChargerUnlocked || !_cloudEnabled) return;
         ChargeCloud();
+        RequestPersistence();
+    }
+
+    private void OnRadioactiveCloudPulse()
+    {
+        if (_cloud is null || _eventSkills is null || !_eventSkills.Derived.RadioactiveCloudUnlocked || !_cloudEnabled) return;
+        if (!TrySurfaceUnder(_cloud.GlobalPosition, out Vector3I target)) return;
+
+        ApplyCrater(target, RadioactiveCloudRadius);
+        SpawnFlash(_view.VoxelToWorld(target), new Color(0.42f, 1.0f, 0.48f), 2.4f);
         RequestPersistence();
     }
 
@@ -162,12 +199,15 @@ public partial class WorldEventController
         string charger = stats.AutoCloudChargerUnlocked
             ? $"   |   Cloud AUTO {EffectiveCloudChargeInterval():0.0}s"
             : string.Empty;
+        string radioactive = stats.RadioactiveCloudUnlocked
+            ? $"   |   Radioactive AUTO {RadioactiveCloudPulseIntervalSeconds:0.0}s"
+            : string.Empty;
         string power = stats.LightningRadiusBonus > 0 || stats.LightningChainCount > 0
             ? $"   |   Lightning R{EffectiveLightningRadius()} / forks {stats.LightningChainCount}"
             : string.Empty;
         string meteor = stats.MeteorRadiusBonus > 0 || stats.MeteorSpawnRateMultiplier > 1.001
             ? $"   |   Meteor R{EffectiveMeteorRadius()} / {EffectiveMeteorRespawnDelay():0}s"
             : string.Empty;
-        return charger + power + meteor;
+        return charger + radioactive + power + meteor;
     }
 }
