@@ -559,7 +559,19 @@ public partial class MiningHud : CanvasLayer
     private void OnBlockDamaged(MiningResult result)
     {
         if (_feedback is null) return;
-        _feedback.Text = $"Unstable block: hit {result.DamageStage}/{result.DamageRequired}";
+
+        if (result.BlockId == "bomb")
+        {
+            _feedback.Text = $"Unstable block: hit {result.DamageStage}/{result.DamageRequired}";
+        }
+        else
+        {
+            double damage = result.DamageStage / 100.0;
+            double required = Math.Max(0.01, result.DamageRequired / 100.0);
+            int percent = Math.Clamp((int)Math.Round(result.DamageStage * 100.0 / Math.Max(1, result.DamageRequired)), 1, 99);
+            _feedback.Text = $"Breaker: {result.BlockId}  {damage:0.##}/{required:0.##} damage  ({percent}%)";
+        }
+
         _feedback.Modulate = new Color(1.0f, 0.78f, 0.40f);
         _feedback.Visible = true;
         _feedbackTime = 1.0;
