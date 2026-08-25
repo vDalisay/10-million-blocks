@@ -75,6 +75,10 @@ public sealed class SkillTreeCatalog
         "set_manual_penetration_depth",
         "set_manual_footprint",
         "unlock_hover_mining",
+        "multiply_resource_yield",
+        "multiply_precious_resource_yield",
+        "add_critical_yield_chance",
+        "set_critical_yield_multiplier",
         "multiply_miner_rate",
         "multiply_shovel_rate",
         "unlock_miner",
@@ -86,6 +90,9 @@ public sealed class SkillTreeCatalog
         "set_shovel_search_radius",
         "unlock_resource_filter",
         "unlock_auto_cloud_charger",
+        "add_lightning_radius",
+        "add_lightning_chain_count",
+        "add_meteor_radius",
     };
 
     private static readonly HashSet<string> KnownPurchaseModes = new(StringComparer.Ordinal)
