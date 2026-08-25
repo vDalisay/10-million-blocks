@@ -269,6 +269,7 @@ public partial class GameRoot : Node3D
         {
             _worldEvents = new WorldEventController { Name = "WorldEventController" };
             _worldEvents.Initialize(_world, _worldView, _mining, _camera, cloudEnabled: true, meteorEnabled: true);
+            _worldEvents.AttachSkills(_skills);
             _worldEvents.PersistentStateChanged += MarkAutosaveDirty;
             _sessionRoot.AddChild(_worldEvents);
             if (savedWorld?.WorldEvents is WorldEventSnapshot eventSnapshot)
