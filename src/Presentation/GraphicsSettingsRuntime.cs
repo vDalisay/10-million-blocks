@@ -6,8 +6,8 @@ namespace TenMillionBlocks.Presentation;
 /// <summary>
 /// Player presentation preferences that live above individual scenes. The root viewport keeps 2D/UI
 /// at full resolution while Scaling3DScale only changes the 3D buffer. The same persistent runtime
-/// reapplies environment toggles whenever a gameplay scene creates a new WorldEnvironment and also
-/// exposes lightweight motion preferences used by presentation controllers.
+/// reapplies the authored shipping look and quality toggles whenever a gameplay scene creates a new
+/// WorldEnvironment, and exposes lightweight motion preferences used by presentation controllers.
 /// </summary>
 public partial class GraphicsSettingsRuntime : Node
 {
@@ -23,7 +23,7 @@ public partial class GraphicsSettingsRuntime : Node
     public float ResolutionScale { get; private set; } = 1.0f;
     public int MsaaLevel { get; private set; }
     public bool AmbientOcclusionEnabled { get; private set; } = true;
-    public bool GlowEnabled { get; private set; }
+    public bool GlowEnabled { get; private set; } = true;
     public int DetailDistance { get; private set; } = 1;
     public bool IdleCameraOrbitEnabled { get; private set; } = true;
     public bool ReducedMotionEnabled { get; private set; }
@@ -131,7 +131,7 @@ public partial class GraphicsSettingsRuntime : Node
         ResolutionScale = 1.0f;
         MsaaLevel = 0;
         AmbientOcclusionEnabled = true;
-        GlowEnabled = false;
+        GlowEnabled = true;
         DetailDistance = 1;
         IdleCameraOrbitEnabled = true;
         ReducedMotionEnabled = false;
@@ -157,7 +157,7 @@ public partial class GraphicsSettingsRuntime : Node
         int storedMsaa = (int)config.GetValue(Section, "msaa_samples", 0);
         MsaaLevel = storedMsaa is 2 or 4 ? storedMsaa : 0;
         AmbientOcclusionEnabled = (bool)config.GetValue(Section, "ambient_occlusion", true);
-        GlowEnabled = (bool)config.GetValue(Section, "glow", false);
+        GlowEnabled = (bool)config.GetValue(Section, "glow", true);
         DetailDistance = Math.Clamp((int)config.GetValue(Section, "detail_distance", 1), 0, 2);
         IdleCameraOrbitEnabled = (bool)config.GetValue(Section, "idle_camera_orbit", true);
         ReducedMotionEnabled = (bool)config.GetValue(Section, "reduced_motion", false);
@@ -196,7 +196,8 @@ public partial class GraphicsSettingsRuntime : Node
     private void ApplyEnvironment(bool force)
     {
         if (!IsInsideTree()) return;
-        WorldEnvironment? worldEnvironment = FindWorldEnvironment(GetTree().CurrentScene);
+        Node? scene = GetTree().CurrentScene;
+        WorldEnvironment? worldEnvironment = FindWorldEnvironment(scene);
         if (worldEnvironment?.Environment is not Godot.Environment environment)
         {
             _lastEnvironmentId = 0;
@@ -207,8 +208,14 @@ public partial class GraphicsSettingsRuntime : Node
         if (!force && id == _lastEnvironmentId) return;
         _lastEnvironmentId = id;
 
-        // Godot 4.6 Compatibility supports a simplified SSAO/glow path. We intentionally only toggle
-        // those effects here; GameRoot remains authoritative for the tuned radius/intensity/tonemap.
+        // Apply the authored look first, then quality preferences. This makes GameRoot's initial values
+        // merely safe construction defaults instead of a second, drifting source of art-direction truth.
+        DirectionalLight3D? key = FindNamedDirectionalLight(scene, "KeyLight");
+        DirectionalLight3D? fill = FindNamedDirectionalLight(scene, "FillLight");
+        VisualLookProfiles.ApplyShipping(environment, key, fill);
+
+        // AO and glow are the player-facing quality escape hatches. Disabling either does not alter the
+        // rest of the grade, lighting or tonemap, so screenshots remain visually comparable.
         environment.SsaoEnabled = AmbientOcclusionEnabled;
         environment.GlowEnabled = GlowEnabled;
     }
@@ -221,6 +228,20 @@ public partial class GraphicsSettingsRuntime : Node
         foreach (Node child in node.GetChildren())
         {
             WorldEnvironment? found = FindWorldEnvironment(child);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private static DirectionalLight3D? FindNamedDirectionalLight(Node? node, string name)
+    {
+        if (node is null) return null;
+        if (node is DirectionalLight3D light && string.Equals(light.Name.ToString(), name, StringComparison.Ordinal))
+            return light;
+
+        foreach (Node child in node.GetChildren())
+        {
+            DirectionalLight3D? found = FindNamedDirectionalLight(child, name);
             if (found is not null) return found;
         }
         return null;
