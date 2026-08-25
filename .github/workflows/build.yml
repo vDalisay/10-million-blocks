@@ -23,6 +23,9 @@ jobs:
           python3 tools/validate_progression_contracts.py
           python3 -m py_compile tools/analyze_pacing_reports.py
 
+      - name: Skill economy balance simulation
+        run: python3 tools/simulate_skill_economy.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
