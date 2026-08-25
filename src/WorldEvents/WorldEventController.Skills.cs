@@ -10,19 +10,25 @@ namespace TenMillionBlocks.WorldEvents;
 
 public partial class WorldEventController
 {
+    private sealed class BreakerOrbAgent
+    {
+        public required Node3D Root { get; init; }
+        public float Phase { get; set; }
+    }
+
     private const double AutomaticCloudChargeIntervalSeconds = 3.0;
     private const double RadioactiveCloudPulseIntervalSeconds = 6.0;
     private const int RadioactiveCloudRadius = 1;
     private const int RadioactiveSurfaceSearchDepth = 128;
     private const double OrbBreakerIntervalSeconds = 2.5;
     private const int OrbBreakerRadius = 1;
+    private const int MaximumBreakerOrbs = 4;
 
     private SkillTreeService? _eventSkills;
     private Timer? _cloudChargerTimer;
     private Timer? _radioactiveCloudTimer;
     private Timer? _orbBreakerTimer;
-    private Node3D? _breakerOrb;
-    private float _breakerOrbPhase;
+    private readonly List<BreakerOrbAgent> _breakerOrbs = new();
 
     public void AttachSkills(SkillTreeService skills)
     {
@@ -72,7 +78,6 @@ public partial class WorldEventController
                 _radioactiveCloudTimer = new Timer
                 {
                     Name = "RadioactiveCloudPulse",
-                    WaitTime = RadioactiveCloudPulseIntervalSeconds,
                     OneShot = false,
                     Autostart = false,
                 };
@@ -80,6 +85,7 @@ public partial class WorldEventController
                 AddChild(_radioactiveCloudTimer);
             }
 
+            _radioactiveCloudTimer.WaitTime = EffectiveRadioactiveCloudInterval();
             if (_radioactiveCloudTimer.IsStopped()) _radioactiveCloudTimer.Start();
         }
         else
@@ -90,13 +96,8 @@ public partial class WorldEventController
         bool orbEnabled = _eventSkills is not null && _eventSkills.Derived.OrbBreakerUnlocked;
         if (orbEnabled)
         {
-            if (_breakerOrb is null)
-            {
-                _breakerOrbPhase = DeterministicPhase(_world.Profile.Seed + 2609);
-                _breakerOrb = BuildBreakerOrb();
-                _breakerOrb.GlobalPosition = OrbitPosition(_breakerOrbPhase, 1.15f, -0.04f);
-                AddChild(_breakerOrb);
-            }
+            EnsureBreakerOrbCount(EffectiveOrbBreakerCount());
+            foreach (BreakerOrbAgent orb in _breakerOrbs) orb.Root.Visible = true;
 
             if (_orbBreakerTimer is null)
             {
@@ -112,16 +113,32 @@ public partial class WorldEventController
 
             _orbBreakerTimer.WaitTime = EffectiveOrbBreakerInterval();
             if (_orbBreakerTimer.IsStopped()) _orbBreakerTimer.Start();
-            _breakerOrb.Visible = true;
         }
         else
         {
             _orbBreakerTimer?.Stop();
-            if (_breakerOrb is not null) _breakerOrb.Visible = false;
+            foreach (BreakerOrbAgent orb in _breakerOrbs) orb.Root.Visible = false;
         }
 
         _meteorCooldown = Math.Min(_meteorCooldown, EffectiveMeteorRespawnDelay());
         RefreshStatus();
+    }
+
+    private void EnsureBreakerOrbCount(int desiredCount)
+    {
+        desiredCount = Math.Clamp(desiredCount, 1, MaximumBreakerOrbs);
+        while (_breakerOrbs.Count < desiredCount)
+        {
+            int index = _breakerOrbs.Count;
+            float phase = DeterministicPhase(_world.Profile.Seed + 2609 + index * 733);
+            Node3D root = BuildBreakerOrb(index);
+            root.GlobalPosition = OrbitPosition(phase, 1.15f + index * 0.025f, -0.04f + (index % 2 == 0 ? 0.035f : -0.035f));
+            AddChild(root);
+            _breakerOrbs.Add(new BreakerOrbAgent { Root = root, Phase = phase });
+        }
+
+        for (int index = 0; index < _breakerOrbs.Count; index++)
+            _breakerOrbs[index].Root.Visible = index < desiredCount;
     }
 
     private void OnAutomaticCloudCharge()
@@ -136,31 +153,39 @@ public partial class WorldEventController
         if (_cloud is null || _eventSkills is null || !_eventSkills.Derived.RadioactiveCloudUnlocked || !_cloudEnabled) return;
         if (!TryCurrentSurfaceUnder(_cloud.GlobalPosition, out Vector3I target)) return;
 
-        ApplyCrater(target, RadioactiveCloudRadius);
+        ApplyCrater(target, EffectiveRadioactiveCloudRadius());
         SpawnFlash(_view.VoxelToWorld(target), new Color(0.42f, 1.0f, 0.48f), 2.4f);
         RequestPersistence();
     }
 
     private void OnOrbBreakerPulse()
     {
-        if (_breakerOrb is null || _eventSkills is null || !_eventSkills.Derived.OrbBreakerUnlocked) return;
+        if (_eventSkills is null || !_eventSkills.Derived.OrbBreakerUnlocked) return;
+        int activeCount = Math.Min(EffectiveOrbBreakerCount(), _breakerOrbs.Count);
+        if (activeCount <= 0) return;
 
-        _breakerOrbPhase = Mathf.Wrap(_breakerOrbPhase + 0.82f, 0.0f, Mathf.Tau);
-        Vector3 destination = OrbitPosition(_breakerOrbPhase, 1.15f, -0.04f);
-        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        for (int index = 0; index < activeCount; index++)
         {
-            _breakerOrb.GlobalPosition = destination;
-        }
-        else
-        {
-            Tween tween = CreateTween();
-            tween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
-            tween.TweenProperty(_breakerOrb, "global_position", destination, Math.Min(0.42, EffectiveOrbBreakerInterval() * 0.35));
+            BreakerOrbAgent orb = _breakerOrbs[index];
+            orb.Phase = Mathf.Wrap(orb.Phase + 0.82f + index * 0.071f, 0.0f, Mathf.Tau);
+            float verticalBias = -0.04f + (index % 2 == 0 ? 0.035f : -0.035f);
+            Vector3 destination = OrbitPosition(orb.Phase, 1.15f + index * 0.025f, verticalBias);
+            if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+            {
+                orb.Root.GlobalPosition = destination;
+            }
+            else
+            {
+                Tween tween = CreateTween();
+                tween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
+                tween.TweenProperty(orb.Root, "global_position", destination, Math.Min(0.42, EffectiveOrbBreakerInterval() * 0.35));
+            }
+
+            if (!TryCurrentSurfaceUnder(destination, out Vector3I target)) continue;
+            ApplyCrater(target, EffectiveOrbBreakerRadius());
+            SpawnFlash(_view.VoxelToWorld(target), new Color(0.46f, 0.82f, 1.0f), 2.1f);
         }
 
-        if (!TryCurrentSurfaceUnder(destination, out Vector3I target)) return;
-        ApplyCrater(target, OrbBreakerRadius);
-        SpawnFlash(_view.VoxelToWorld(target), new Color(0.46f, 0.82f, 1.0f), 2.1f);
         RequestPersistence();
     }
 
@@ -188,18 +213,24 @@ public partial class WorldEventController
         return false;
     }
 
-    private Node3D BuildBreakerOrb()
+    private Node3D BuildBreakerOrb(int index)
     {
         float radius = MathF.Max(0.34f, _world.Profile.BlockSpacing * 0.26f);
+        Color tint = index switch
+        {
+            1 => new Color(0.70f, 0.58f, 1.0f),
+            2 => new Color(0.42f, 1.0f, 0.82f),
+            _ => new Color(0.52f, 0.82f, 1.0f),
+        };
         var material = new StandardMaterial3D
         {
-            AlbedoColor = new Color(0.52f, 0.82f, 1.0f),
+            AlbedoColor = tint,
             EmissionEnabled = true,
-            Emission = new Color(0.28f, 0.68f, 1.0f),
+            Emission = tint,
             EmissionEnergyMultiplier = 2.1f,
             Roughness = 0.32f,
         };
-        var root = new Node3D { Name = "BreakerOrb" };
+        var root = new Node3D { Name = $"BreakerOrb{index + 1}" };
         root.AddChild(new MeshInstance3D
         {
             Mesh = new SphereMesh
@@ -218,8 +249,20 @@ public partial class WorldEventController
     private double EffectiveCloudChargeInterval()
         => AutomaticCloudChargeIntervalSeconds / Math.Max(0.1, _eventSkills?.Derived.CloudChargeRateMultiplier ?? 1.0);
 
+    private double EffectiveRadioactiveCloudInterval()
+        => RadioactiveCloudPulseIntervalSeconds / Math.Max(0.1, _eventSkills?.Derived.RadioactiveCloudRateMultiplier ?? 1.0);
+
+    private int EffectiveRadioactiveCloudRadius()
+        => Math.Clamp(RadioactiveCloudRadius + (_eventSkills?.Derived.RadioactiveCloudRadiusBonus ?? 0), 1, 5);
+
     private double EffectiveOrbBreakerInterval()
         => OrbBreakerIntervalSeconds / Math.Max(0.1, _eventSkills?.Derived.OrbBreakerRateMultiplier ?? 1.0);
+
+    private int EffectiveOrbBreakerCount()
+        => Math.Clamp(_eventSkills?.Derived.OrbBreakerCount ?? 1, 1, MaximumBreakerOrbs);
+
+    private int EffectiveOrbBreakerRadius()
+        => Math.Clamp(OrbBreakerRadius + (_eventSkills?.Derived.OrbBreakerRadiusBonus ?? 0), 1, 5);
 
     private double EffectiveMeteorRespawnDelay()
         => MeteorRespawnDelay / Math.Max(0.1, _eventSkills?.Derived.MeteorSpawnRateMultiplier ?? 1.0);
@@ -317,10 +360,10 @@ public partial class WorldEventController
             ? $"   |   Cloud AUTO {EffectiveCloudChargeInterval():0.0}s"
             : string.Empty;
         string radioactive = stats.RadioactiveCloudUnlocked
-            ? $"   |   Radioactive AUTO {RadioactiveCloudPulseIntervalSeconds:0.0}s"
+            ? $"   |   Radioactive R{EffectiveRadioactiveCloudRadius()} / {EffectiveRadioactiveCloudInterval():0.0}s"
             : string.Empty;
         string orb = stats.OrbBreakerUnlocked
-            ? $"   |   Orb Breaker {EffectiveOrbBreakerInterval():0.0}s"
+            ? $"   |   Orbs {EffectiveOrbBreakerCount()} x R{EffectiveOrbBreakerRadius()} / {EffectiveOrbBreakerInterval():0.0}s"
             : string.Empty;
         string power = stats.LightningRadiusBonus > 0 || stats.LightningChainCount > 0
             ? $"   |   Lightning R{EffectiveLightningRadius()} / forks {stats.LightningChainCount}"
