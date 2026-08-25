@@ -16,8 +16,6 @@ internal enum SkillNodeVisualKind
 
 internal static class SkillTreeIncrementalTheme
 {
-    // Warm paper + charcoal/branch colors deliberately mirror the visual language common to compact
-    // incremental upgrade maps while keeping the palette and iconography authored for this game.
     public static readonly Color Paper = new("#eeefe9");
     public static readonly Color PaperBright = new("#f8f8f3");
     public static readonly Color PaperGrid = new("#d9dcd3");
@@ -41,6 +39,7 @@ internal static class SkillTreeIncrementalTheme
         ["events"] = new Color("#825f9f"),
         ["forest"] = new Color("#588659"),
         ["shovel"] = new Color("#b17e4d"),
+        ["finale"] = new Color("#945f84"),
     };
 
     public static Color CategoryColor(string category)
@@ -54,9 +53,29 @@ internal static class SkillTreeIncrementalTheme
             return SkillNodeVisualKind.Milestone;
         }
 
-        return node.PurchaseMode == "repeatable"
-            ? SkillNodeVisualKind.Stat
-            : SkillNodeVisualKind.Feature;
+        // The reference-style tree represents individual stat steps as compact circles even though each
+        // step is a one-time node. Do not couple visual shape to repeatable ranks: our authored tree now
+        // deliberately explodes those ranks into many separate purchases for stronger incremental cadence.
+        if (node.Effects.Any(effect => effect.Type is
+                "multiply_manual_mining_rate" or
+                "set_manual_mining_power" or
+                "set_manual_footprint" or
+                "multiply_resource_yield" or
+                "multiply_precious_resource_yield" or
+                "add_critical_yield_chance" or
+                "set_critical_yield_multiplier" or
+                "multiply_miner_rate" or
+                "multiply_shovel_rate" or
+                "multiply_cloud_charge_rate" or
+                "add_lightning_radius" or
+                "add_lightning_chain_count" or
+                "multiply_meteor_spawn_rate" or
+                "add_meteor_radius"))
+        {
+            return SkillNodeVisualKind.Stat;
+        }
+
+        return node.PurchaseMode == "repeatable" ? SkillNodeVisualKind.Stat : SkillNodeVisualKind.Feature;
     }
 
     public static StyleBoxFlat FlatBox(Color background, Color border, int radius, int borderWidth = 1)
@@ -87,19 +106,46 @@ internal static class SkillTreeIconAtlas
     {
         ["manual_2x"] = 0,
         ["manual_3x"] = 1,
+        ["manual_5x"] = 1,
         ["hover_mining_unlock"] = 2,
         ["manual_hover_speed"] = 3,
+        ["manual_hover_speed_2"] = 3,
+        ["manual_hover_speed_3"] = 3,
+        ["manual_hover_speed_4"] = 3,
+        ["manual_hover_speed_5"] = 3,
+        ["manual_power_1"] = 10,
+        ["manual_power_2"] = 10,
+        ["manual_power_3"] = 10,
+        ["manual_power_4"] = 10,
+        ["manual_power_5"] = 10,
+        ["manual_aftershock"] = 8,
         ["automation_unlock"] = 4,
         ["drill_hardened_bit"] = 5,
         ["drill_ore_bit"] = 6,
         ["miner_speed_1"] = 7,
+        ["miner_speed_2"] = 7,
+        ["miner_speed_3"] = 7,
+        ["miner_speed_4"] = 7,
         ["wide_bore_unlock"] = 8,
         ["resource_sensors"] = 9,
+        ["resource_density_1"] = 9,
+        ["resource_density_2"] = 9,
+        ["precious_yield_1"] = 9,
+        ["critical_yield_1"] = 17,
+        ["critical_yield_2"] = 17,
         ["pickaxe_unlock"] = 10,
         ["cloud_charger_unlock"] = 11,
+        ["lightning_frequency_1"] = 11,
+        ["lightning_radius_1"] = 11,
+        ["lightning_chain_1"] = 11,
+        ["lightning_chain_2"] = 11,
+        ["meteor_frequency_1"] = 8,
+        ["meteor_radius_1"] = 8,
+        ["meteor_radius_2"] = 8,
         ["axe_unlock"] = 12,
         ["shovel_unlock"] = 13,
         ["shovel_speed"] = 14,
+        ["shovel_speed_2"] = 14,
         ["shovel_high_torque"] = 15,
         ["shovel_vertical_sensing"] = 16,
         ["shovel_search_upgrade"] = 17,
@@ -120,10 +166,6 @@ internal static class SkillTreeIconAtlas
     }
 }
 
-/// <summary>
-/// Tiny vector lock used by unreached feature nodes. Keeping it procedural avoids copying another
-/// game's lock art and lets the same symbol remain crisp at every UI scale.
-/// </summary>
 internal partial class SkillNodeLockGlyph : Control
 {
     public Color GlyphColor { get; set; } = new("#d8d9d4");
@@ -153,7 +195,6 @@ public partial class IncrementalSkillNodeButton : Button
 
     public string SkillId { get; private set; } = string.Empty;
     internal SkillNodeVisualKind VisualKind => _visualKind;
-
     public event Action<IncrementalSkillNodeButton>? Hovered;
 
     public void Initialize(SkillNodeDefinition node)
@@ -203,11 +244,7 @@ public partial class IncrementalSkillNodeButton : Button
         _rankBadge.AddThemeFontSizeOverride("font_size", 11);
         AddChild(_rankBadge);
 
-        MouseEntered += () =>
-        {
-            Hovered?.Invoke(this);
-            AnimateScale(1.11f, 0.08f);
-        };
+        MouseEntered += () => { Hovered?.Invoke(this); AnimateScale(1.11f, 0.08f); };
         MouseExited += () => AnimateScale(1.0f, 0.10f);
         ButtonDown += () => AnimateScale(0.92f, 0.045f);
         ButtonUp += () => AnimateScale(IsHovered() ? 1.11f : 1.0f, 0.09f);
@@ -220,7 +257,6 @@ public partial class IncrementalSkillNodeButton : Button
     {
         if (!_initialized || GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true) return;
         _time += delta;
-
         if (_affordable && _requirementsMet && !_purchased && !Disabled)
         {
             float pulse = 1.0f + 0.014f * (float)Math.Sin(_time * 3.1);
@@ -265,7 +301,6 @@ public partial class IncrementalSkillNodeButton : Button
         }
         else
         {
-            // Major unlocks read as little diagram cards instead of another identical colored bubble.
             fill = SkillTreeIncrementalTheme.PaperBright;
             border = affordable ? _categoryColor : _categoryColor.Darkened(0.20f);
             icon = affordable ? _categoryColor.Darkened(0.30f) : SkillTreeIncrementalTheme.MutedInk;
@@ -290,7 +325,6 @@ public partial class IncrementalSkillNodeButton : Button
             Scale = Vector2.One;
             return;
         }
-
         Modulate = new Color(1, 1, 1, 0);
         Scale = Vector2.One * 0.58f;
         Tween tween = CreateTween().SetParallel(true);
