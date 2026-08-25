@@ -48,14 +48,18 @@ internal static class SkillTreeIncrementalTheme
     public static SkillNodeVisualKind VisualKind(SkillNodeDefinition node)
     {
         if (node.SpecialCosts.Count > 0
-            || node.Effects.Any(effect => effect.Type is "unlock_miner" or "unlock_auto_cloud_charger" or "unlock_radioactive_cloud"))
+            || node.Effects.Any(effect => effect.Type is
+                "unlock_miner" or
+                "unlock_auto_cloud_charger" or
+                "unlock_radioactive_cloud" or
+                "unlock_orb_breaker"))
         {
             return SkillNodeVisualKind.Milestone;
         }
 
-        // The reference-style tree represents individual stat steps as compact circles even though each
-        // step is a one-time node. Do not couple visual shape to repeatable ranks: our authored tree now
-        // deliberately explodes those ranks into many separate purchases for stronger incremental cadence.
+        // Individual stat steps are compact circles even though each is a one-time node. The authored
+        // graph deliberately explodes rank piles into many purchases so the cadence reads like a classic
+        // incremental tree: buy a small stat, reveal the next piece, repeat.
         if (node.Effects.Any(effect => effect.Type is
                 "multiply_manual_mining_rate" or
                 "set_manual_mining_power" or
@@ -67,6 +71,7 @@ internal static class SkillTreeIncrementalTheme
                 "multiply_miner_rate" or
                 "multiply_shovel_rate" or
                 "multiply_cloud_charge_rate" or
+                "multiply_orb_breaker_rate" or
                 "add_lightning_radius" or
                 "add_lightning_chain_count" or
                 "multiply_meteor_spawn_rate" or
@@ -118,7 +123,7 @@ internal static class SkillTreeIconAtlas
         ["manual_power_3"] = 10,
         ["manual_power_4"] = 10,
         ["manual_power_5"] = 10,
-        ["manual_aftershock"] = 8,
+        ["manual_aftershock"] = 23,
         ["automation_unlock"] = 4,
         ["drill_hardened_bit"] = 5,
         ["drill_ore_bit"] = 6,
@@ -132,18 +137,20 @@ internal static class SkillTreeIconAtlas
         ["resource_density_1"] = 9,
         ["resource_density_2"] = 9,
         ["precious_yield_1"] = 9,
-        ["critical_yield_1"] = 17,
-        ["critical_yield_2"] = 17,
+        ["critical_yield_1"] = 18,
+        ["critical_yield_2"] = 18,
         ["pickaxe_unlock"] = 10,
         ["cloud_charger_unlock"] = 11,
-        ["radioactive_cloud_unlock"] = 11,
+        ["radioactive_cloud_unlock"] = 19,
+        ["orb_breaker_unlock"] = 20,
+        ["orb_breaker_speed_1"] = 20,
         ["lightning_frequency_1"] = 11,
         ["lightning_radius_1"] = 11,
-        ["lightning_chain_1"] = 11,
-        ["lightning_chain_2"] = 11,
-        ["meteor_frequency_1"] = 8,
-        ["meteor_radius_1"] = 8,
-        ["meteor_radius_2"] = 8,
+        ["lightning_chain_1"] = 22,
+        ["lightning_chain_2"] = 22,
+        ["meteor_frequency_1"] = 21,
+        ["meteor_radius_1"] = 21,
+        ["meteor_radius_2"] = 21,
         ["axe_unlock"] = 12,
         ["shovel_unlock"] = 13,
         ["shovel_speed"] = 14,
