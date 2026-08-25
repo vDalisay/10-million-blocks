@@ -52,7 +52,8 @@ internal static class SkillTreeIncrementalTheme
                 "unlock_miner" or
                 "unlock_auto_cloud_charger" or
                 "unlock_radioactive_cloud" or
-                "unlock_orb_breaker"))
+                "unlock_orb_breaker" or
+                "add_orb_breaker_count"))
         {
             return SkillNodeVisualKind.Milestone;
         }
@@ -68,7 +69,10 @@ internal static class SkillTreeIncrementalTheme
                 "multiply_miner_rate" or
                 "multiply_shovel_rate" or
                 "multiply_cloud_charge_rate" or
+                "multiply_radioactive_cloud_rate" or
+                "add_radioactive_cloud_radius" or
                 "multiply_orb_breaker_rate" or
+                "add_orb_breaker_radius" or
                 "add_lightning_radius" or
                 "add_lightning_chain_count" or
                 "multiply_meteor_spawn_rate" or
@@ -139,8 +143,14 @@ internal static class SkillTreeIconAtlas
         ["pickaxe_unlock"] = 10,
         ["cloud_charger_unlock"] = 11,
         ["radioactive_cloud_unlock"] = 19,
+        ["radioactive_cloud_frequency_1"] = 19,
+        ["radioactive_cloud_radius_1"] = 19,
         ["orb_breaker_unlock"] = 20,
+        ["orb_breaker_split_1"] = 20,
         ["orb_breaker_speed_1"] = 20,
+        ["orb_breaker_speed_2"] = 20,
+        ["orb_breaker_radius_1"] = 20,
+        ["orb_breaker_swarm"] = 20,
         ["lightning_frequency_1"] = 11,
         ["lightning_radius_1"] = 11,
         ["lightning_chain_1"] = 22,

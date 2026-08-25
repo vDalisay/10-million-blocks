@@ -58,7 +58,11 @@ known_effects = {
     "unlock_resource_filter",
     "unlock_auto_cloud_charger",
     "unlock_radioactive_cloud",
+    "multiply_radioactive_cloud_rate",
+    "add_radioactive_cloud_radius",
     "unlock_orb_breaker",
+    "add_orb_breaker_count",
+    "add_orb_breaker_radius",
     "multiply_orb_breaker_rate",
     "multiply_cloud_charge_rate",
     "add_lightning_radius",
@@ -238,7 +242,7 @@ storm = worlds["reference_lakes"]
 finale = worlds["reference_ridges"]
 assert "events" in storm.get("visibleSkillCategories", []) and storm.get("visibleSkillIds", []) == []
 assert "events" in finale.get("visibleSkillCategories", [])
-assert set(finale.get("visibleSkillIds", [])) == {"miner_speed_4", "lightning_chain_2", "meteor_radius_2", "manual_aftershock"}
+assert set(finale.get("visibleSkillIds", [])) == {"miner_speed_4", "lightning_chain_2", "meteor_radius_2", "manual_aftershock", "orb_breaker_swarm"}
 assert progression_doc["world_ids"][-1] == "reference_ridges"
 assert "final_target_1m" not in progression_doc["world_ids"]
 

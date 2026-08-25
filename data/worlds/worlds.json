@@ -38,7 +38,9 @@
       "currencyScope": "persistent_main",
       "skillTreeAvailable": true,
       "automationAvailable": false,
-      "visibleSkillCategories": ["manual"],
+      "visibleSkillCategories": [
+        "manual"
+      ],
       "seed": 5,
       "logicalWidth": 5,
       "logicalHeight": 5,
@@ -70,7 +72,10 @@
       "currencyScope": "persistent_main",
       "skillTreeAvailable": true,
       "automationAvailable": true,
-      "visibleSkillCategories": ["manual", "shovel"],
+      "visibleSkillCategories": [
+        "manual",
+        "shovel"
+      ],
       "seed": 10,
       "logicalWidth": 10,
       "logicalHeight": 10,
@@ -107,7 +112,13 @@
       "currencyScope": "persistent_main",
       "skillTreeAvailable": true,
       "automationAvailable": true,
-      "visibleSkillCategories": ["manual", "shovel", "automation", "drill", "patterns"],
+      "visibleSkillCategories": [
+        "manual",
+        "shovel",
+        "automation",
+        "drill",
+        "patterns"
+      ],
       "seed": 15,
       "logicalWidth": 15,
       "logicalHeight": 15,
@@ -146,7 +157,16 @@
       "currencyScope": "persistent_main",
       "skillTreeAvailable": true,
       "automationAvailable": true,
-      "visibleSkillCategories": ["manual", "shovel", "automation", "drill", "patterns", "forest", "resources", "tools"],
+      "visibleSkillCategories": [
+        "manual",
+        "shovel",
+        "automation",
+        "drill",
+        "patterns",
+        "forest",
+        "resources",
+        "tools"
+      ],
       "seed": 73021,
       "logicalWidth": 20,
       "logicalHeight": 20,
@@ -191,7 +211,17 @@
       "currencyScope": "persistent_main",
       "skillTreeAvailable": true,
       "automationAvailable": true,
-      "visibleSkillCategories": ["manual", "shovel", "automation", "drill", "patterns", "forest", "resources", "tools", "events"],
+      "visibleSkillCategories": [
+        "manual",
+        "shovel",
+        "automation",
+        "drill",
+        "patterns",
+        "forest",
+        "resources",
+        "tools",
+        "events"
+      ],
       "visibleSkillIds": [],
       "seed": 184731,
       "logicalWidth": 40,
@@ -237,8 +267,24 @@
       "currencyScope": "persistent_main",
       "skillTreeAvailable": true,
       "automationAvailable": true,
-      "visibleSkillCategories": ["manual", "shovel", "automation", "drill", "patterns", "forest", "resources", "tools", "events"],
-      "visibleSkillIds": ["miner_speed_4", "lightning_chain_2", "meteor_radius_2", "manual_aftershock"],
+      "visibleSkillCategories": [
+        "manual",
+        "shovel",
+        "automation",
+        "drill",
+        "patterns",
+        "forest",
+        "resources",
+        "tools",
+        "events"
+      ],
+      "visibleSkillIds": [
+        "miner_speed_4",
+        "lightning_chain_2",
+        "meteor_radius_2",
+        "manual_aftershock",
+        "orb_breaker_swarm"
+      ],
       "seed": 426119,
       "logicalWidth": 50,
       "logicalHeight": 50,

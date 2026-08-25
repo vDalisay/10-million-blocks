@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 16,
+  "content_version": 17,
   "nodes": [
     {
       "id": "hover_mining_unlock",
@@ -13,7 +13,11 @@
       "prerequisites": [],
       "cost": 8,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_hover_mining" }]
+      "effects": [
+        {
+          "type": "unlock_hover_mining"
+        }
+      ]
     },
     {
       "id": "manual_hover_speed",
@@ -23,11 +27,21 @@
       "grid_y": 2,
       "category": "manual",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "hover_mining_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "hover_mining_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 18,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_manual_mining_rate", "value": 1.25 }]
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.25
+        }
+      ]
     },
     {
       "id": "manual_power_1",
@@ -40,7 +54,12 @@
       "prerequisites": [],
       "cost": 20,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_mining_power", "value": 1.5 }]
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 1.5
+        }
+      ]
     },
     {
       "id": "manual_2x",
@@ -53,7 +72,12 @@
       "prerequisites": [],
       "cost": 20,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_footprint", "string_value": "plus_3" }]
+      "effects": [
+        {
+          "type": "set_manual_footprint",
+          "string_value": "plus_3"
+        }
+      ]
     },
     {
       "id": "manual_3x",
@@ -63,11 +87,21 @@
       "grid_y": 2,
       "category": "manual",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "manual_2x", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "manual_2x",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 50,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_footprint", "string_value": "square_3" }]
+      "effects": [
+        {
+          "type": "set_manual_footprint",
+          "string_value": "square_3"
+        }
+      ]
     },
     {
       "id": "shovel_unlock",
@@ -81,8 +115,14 @@
       "cost": 160,
       "max_rank": 1,
       "effects": [
-        { "type": "unlock_miner", "string_value": "shovel_miner" },
-        { "type": "unlock_pattern", "string_value": "surface_strip" }
+        {
+          "type": "unlock_miner",
+          "string_value": "shovel_miner"
+        },
+        {
+          "type": "unlock_pattern",
+          "string_value": "surface_strip"
+        }
       ]
     },
     {
@@ -93,11 +133,21 @@
       "grid_y": 6,
       "category": "shovel",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "shovel_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 110,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_shovel_rate", "value": 1.25 }]
+      "effects": [
+        {
+          "type": "multiply_shovel_rate",
+          "value": 1.25
+        }
+      ]
     },
     {
       "id": "shovel_vertical_sensing",
@@ -107,11 +157,21 @@
       "grid_y": 5,
       "category": "shovel",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "shovel_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 180,
       "max_rank": 1,
-      "effects": [{ "type": "set_shovel_height_tolerance", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "set_shovel_height_tolerance",
+          "value": 1.0
+        }
+      ]
     },
     {
       "id": "manual_hover_speed_2",
@@ -122,13 +182,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_hover_speed", "required_rank": 1 },
-        { "node_id": "shovel_unlock", "required_rank": 1 }
+        {
+          "node_id": "manual_hover_speed",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 140,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_manual_mining_rate", "value": 1.20 }]
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.2
+        }
+      ]
     },
     {
       "id": "manual_power_2",
@@ -139,13 +210,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_power_1", "required_rank": 1 },
-        { "node_id": "shovel_unlock", "required_rank": 1 }
+        {
+          "node_id": "manual_power_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 110,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_mining_power", "value": 2.0 }]
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 2.0
+        }
+      ]
     },
     {
       "id": "shovel_speed_2",
@@ -156,13 +238,24 @@
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "shovel_speed", "required_rank": 1 },
-        { "node_id": "shovel_vertical_sensing", "required_rank": 1 }
+        {
+          "node_id": "shovel_speed",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_vertical_sensing",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 300,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_shovel_rate", "value": 1.25 }]
+      "effects": [
+        {
+          "type": "multiply_shovel_rate",
+          "value": 1.25
+        }
+      ]
     },
     {
       "id": "shovel_search_upgrade",
@@ -172,11 +265,21 @@
       "grid_y": 7,
       "category": "shovel",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "shovel_vertical_sensing", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "shovel_vertical_sensing",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 520,
       "max_rank": 1,
-      "effects": [{ "type": "set_shovel_search_radius", "value": 5.0 }]
+      "effects": [
+        {
+          "type": "set_shovel_search_radius",
+          "value": 5.0
+        }
+      ]
     },
     {
       "id": "shovel_high_torque",
@@ -187,13 +290,24 @@
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "shovel_speed_2", "required_rank": 1 },
-        { "node_id": "shovel_search_upgrade", "required_rank": 1 }
+        {
+          "node_id": "shovel_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_search_upgrade",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 1400,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_shovel_rate", "value": 1.5 }]
+      "effects": [
+        {
+          "type": "multiply_shovel_rate",
+          "value": 1.5
+        }
+      ]
     },
     {
       "id": "automation_unlock",
@@ -206,7 +320,12 @@
       "prerequisites": [],
       "cost": 300,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_miner", "string_value": "line_miner" }]
+      "effects": [
+        {
+          "type": "unlock_miner",
+          "string_value": "line_miner"
+        }
+      ]
     },
     {
       "id": "drill_hardened_bit",
@@ -216,11 +335,21 @@
       "grid_y": 7,
       "category": "drill",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "automation_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 450,
       "max_rank": 1,
-      "effects": [{ "type": "set_drill_material_tier", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "set_drill_material_tier",
+          "value": 1.0
+        }
+      ]
     },
     {
       "id": "wide_bore_unlock",
@@ -231,17 +360,37 @@
       "category": "patterns",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "automation_unlock", "required_rank": 1 },
-        { "node_id": "drill_hardened_bit", "required_rank": 1 }
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        },
+        {
+          "node_id": "drill_hardened_bit",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 750,
-      "special_costs": [{ "resource_id": "gem_red", "amount": 1 }],
+      "special_costs": [
+        {
+          "resource_id": "gem_red",
+          "amount": 1
+        }
+      ],
       "max_rank": 1,
       "effects": [
-        { "type": "unlock_pattern", "string_value": "wide_line" },
-        { "type": "set_drill_pattern", "string_value": "wide_line" },
-        { "type": "set_miner_pattern_width", "value": 3.0 }
+        {
+          "type": "unlock_pattern",
+          "string_value": "wide_line"
+        },
+        {
+          "type": "set_drill_pattern",
+          "string_value": "wide_line"
+        },
+        {
+          "type": "set_miner_pattern_width",
+          "value": 3.0
+        }
       ]
     },
     {
@@ -253,13 +402,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_hover_speed_2", "required_rank": 1 },
-        { "node_id": "automation_unlock", "required_rank": 1 }
+        {
+          "node_id": "manual_hover_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 360,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_manual_mining_rate", "value": 1.20 }]
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.2
+        }
+      ]
     },
     {
       "id": "manual_power_3",
@@ -270,13 +430,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_power_2", "required_rank": 1 },
-        { "node_id": "automation_unlock", "required_rank": 1 }
+        {
+          "node_id": "manual_power_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 420,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_mining_power", "value": 2.5 }]
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 2.5
+        }
+      ]
     },
     {
       "id": "resource_sensors",
@@ -286,11 +457,21 @@
       "grid_y": 9,
       "category": "resources",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "automation_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 700,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_resource_filter", "string_value": "ore" }]
+      "effects": [
+        {
+          "type": "unlock_resource_filter",
+          "string_value": "ore"
+        }
+      ]
     },
     {
       "id": "drill_ore_bit",
@@ -301,13 +482,24 @@
       "category": "drill",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "drill_hardened_bit", "required_rank": 1 },
-        { "node_id": "resource_sensors", "required_rank": 1 }
+        {
+          "node_id": "drill_hardened_bit",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 1000,
       "max_rank": 1,
-      "effects": [{ "type": "set_drill_material_tier", "value": 2.0 }]
+      "effects": [
+        {
+          "type": "set_drill_material_tier",
+          "value": 2.0
+        }
+      ]
     },
     {
       "id": "pickaxe_unlock",
@@ -318,13 +510,24 @@
       "category": "tools",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "resource_sensors", "required_rank": 1 },
-        { "node_id": "drill_ore_bit", "required_rank": 1 }
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        },
+        {
+          "node_id": "drill_ore_bit",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 1500,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_miner", "string_value": "pickaxe_miner" }]
+      "effects": [
+        {
+          "type": "unlock_miner",
+          "string_value": "pickaxe_miner"
+        }
+      ]
     },
     {
       "id": "axe_unlock",
@@ -337,7 +540,12 @@
       "prerequisites": [],
       "cost": 1200,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_miner", "string_value": "axe_miner" }]
+      "effects": [
+        {
+          "type": "unlock_miner",
+          "string_value": "axe_miner"
+        }
+      ]
     },
     {
       "id": "miner_speed_1",
@@ -347,11 +555,21 @@
       "grid_y": 11,
       "category": "automation",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "pickaxe_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "pickaxe_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 650,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_miner_rate", "value": 1.15 }]
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.15
+        }
+      ]
     },
     {
       "id": "miner_speed_2",
@@ -361,11 +579,21 @@
       "grid_y": 13,
       "category": "automation",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "miner_speed_1", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "miner_speed_1",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 1350,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_miner_rate", "value": 1.15 }]
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.15
+        }
+      ]
     },
     {
       "id": "manual_hover_speed_4",
@@ -376,13 +604,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_hover_speed_3", "required_rank": 1 },
-        { "node_id": "resource_sensors", "required_rank": 1 }
+        {
+          "node_id": "manual_hover_speed_3",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 900,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_manual_mining_rate", "value": 1.20 }]
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.2
+        }
+      ]
     },
     {
       "id": "manual_power_4",
@@ -393,13 +632,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_power_3", "required_rank": 1 },
-        { "node_id": "drill_ore_bit", "required_rank": 1 }
+        {
+          "node_id": "manual_power_3",
+          "required_rank": 1
+        },
+        {
+          "node_id": "drill_ore_bit",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 1200,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_mining_power", "value": 3.5 }]
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 3.5
+        }
+      ]
     },
     {
       "id": "manual_5x",
@@ -410,13 +660,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_3x", "required_rank": 1 },
-        { "node_id": "pickaxe_unlock", "required_rank": 1 }
+        {
+          "node_id": "manual_3x",
+          "required_rank": 1
+        },
+        {
+          "node_id": "pickaxe_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 4500,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_footprint", "string_value": "square_5" }]
+      "effects": [
+        {
+          "type": "set_manual_footprint",
+          "string_value": "square_5"
+        }
+      ]
     },
     {
       "id": "resource_density_1",
@@ -426,11 +687,21 @@
       "grid_y": 11,
       "category": "resources",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "resource_sensors", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 1800,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_resource_yield", "value": 1.25 }]
+      "effects": [
+        {
+          "type": "multiply_resource_yield",
+          "value": 1.25
+        }
+      ]
     },
     {
       "id": "critical_yield_1",
@@ -440,13 +711,24 @@
       "grid_y": 13,
       "category": "resources",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "resource_density_1", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "resource_density_1",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 4000,
       "max_rank": 1,
       "effects": [
-        { "type": "add_critical_yield_chance", "value": 0.05 },
-        { "type": "set_critical_yield_multiplier", "value": 3.0 }
+        {
+          "type": "add_critical_yield_chance",
+          "value": 0.05
+        },
+        {
+          "type": "set_critical_yield_multiplier",
+          "value": 3.0
+        }
       ]
     },
     {
@@ -457,11 +739,20 @@
       "grid_y": 15,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "pickaxe_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "pickaxe_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 12000,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_auto_cloud_charger" }]
+      "effects": [
+        {
+          "type": "unlock_auto_cloud_charger"
+        }
+      ]
     },
     {
       "id": "radioactive_cloud_unlock",
@@ -471,11 +762,20 @@
       "grid_y": 16,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "cloud_charger_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 9000,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_radioactive_cloud" }]
+      "effects": [
+        {
+          "type": "unlock_radioactive_cloud"
+        }
+      ]
     },
     {
       "id": "orb_breaker_unlock",
@@ -485,11 +785,20 @@
       "grid_y": 16,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "radioactive_cloud_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "radioactive_cloud_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 11000,
       "max_rank": 1,
-      "effects": [{ "type": "unlock_orb_breaker" }]
+      "effects": [
+        {
+          "type": "unlock_orb_breaker"
+        }
+      ]
     },
     {
       "id": "orb_breaker_speed_1",
@@ -499,11 +808,21 @@
       "grid_y": 18,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "orb_breaker_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 8500,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_orb_breaker_rate", "value": 1.5 }]
+      "effects": [
+        {
+          "type": "multiply_orb_breaker_rate",
+          "value": 1.5
+        }
+      ]
     },
     {
       "id": "resource_density_2",
@@ -514,13 +833,24 @@
       "category": "resources",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "resource_density_1", "required_rank": 1 },
-        { "node_id": "cloud_charger_unlock", "required_rank": 1 }
+        {
+          "node_id": "resource_density_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 6000,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_resource_yield", "value": 1.50 }]
+      "effects": [
+        {
+          "type": "multiply_resource_yield",
+          "value": 1.5
+        }
+      ]
     },
     {
       "id": "precious_yield_1",
@@ -531,13 +861,24 @@
       "category": "resources",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "resource_density_2", "required_rank": 1 },
-        { "node_id": "critical_yield_1", "required_rank": 1 }
+        {
+          "node_id": "resource_density_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "critical_yield_1",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 8000,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_precious_resource_yield", "value": 2.0 }]
+      "effects": [
+        {
+          "type": "multiply_precious_resource_yield",
+          "value": 2.0
+        }
+      ]
     },
     {
       "id": "drill_gem_bit",
@@ -548,13 +889,24 @@
       "category": "drill",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "drill_ore_bit", "required_rank": 1 },
-        { "node_id": "precious_yield_1", "required_rank": 1 }
+        {
+          "node_id": "drill_ore_bit",
+          "required_rank": 1
+        },
+        {
+          "node_id": "precious_yield_1",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 12000,
       "max_rank": 1,
-      "effects": [{ "type": "set_drill_material_tier", "value": 3.0 }]
+      "effects": [
+        {
+          "type": "set_drill_material_tier",
+          "value": 3.0
+        }
+      ]
     },
     {
       "id": "critical_yield_2",
@@ -565,15 +917,27 @@
       "category": "resources",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "critical_yield_1", "required_rank": 1 },
-        { "node_id": "resource_density_2", "required_rank": 1 }
+        {
+          "node_id": "critical_yield_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_density_2",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 10000,
       "max_rank": 1,
       "effects": [
-        { "type": "add_critical_yield_chance", "value": 0.05 },
-        { "type": "set_critical_yield_multiplier", "value": 4.0 }
+        {
+          "type": "add_critical_yield_chance",
+          "value": 0.05
+        },
+        {
+          "type": "set_critical_yield_multiplier",
+          "value": 4.0
+        }
       ]
     },
     {
@@ -585,13 +949,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_hover_speed_4", "required_rank": 1 },
-        { "node_id": "cloud_charger_unlock", "required_rank": 1 }
+        {
+          "node_id": "manual_hover_speed_4",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 6000,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_manual_mining_rate", "value": 1.15 }]
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.15
+        }
+      ]
     },
     {
       "id": "manual_power_5",
@@ -602,13 +977,24 @@
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_power_4", "required_rank": 1 },
-        { "node_id": "cloud_charger_unlock", "required_rank": 1 }
+        {
+          "node_id": "manual_power_4",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 6500,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_mining_power", "value": 4.0 }]
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 4.0
+        }
+      ]
     },
     {
       "id": "miner_speed_3",
@@ -619,13 +1005,24 @@
       "category": "automation",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "miner_speed_2", "required_rank": 1 },
-        { "node_id": "cloud_charger_unlock", "required_rank": 1 }
+        {
+          "node_id": "miner_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 7000,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_miner_rate", "value": 1.15 }]
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.15
+        }
+      ]
     },
     {
       "id": "lightning_frequency_1",
@@ -635,11 +1032,21 @@
       "grid_y": 17,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "cloud_charger_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 6500,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_cloud_charge_rate", "value": 1.5 }]
+      "effects": [
+        {
+          "type": "multiply_cloud_charge_rate",
+          "value": 1.5
+        }
+      ]
     },
     {
       "id": "lightning_radius_1",
@@ -649,11 +1056,21 @@
       "grid_y": 18,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "cloud_charger_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 7000,
       "max_rank": 1,
-      "effects": [{ "type": "add_lightning_radius", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "add_lightning_radius",
+          "value": 1.0
+        }
+      ]
     },
     {
       "id": "lightning_chain_1",
@@ -664,13 +1081,24 @@
       "category": "events",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "lightning_radius_1", "required_rank": 1 },
-        { "node_id": "lightning_frequency_1", "required_rank": 1 }
+        {
+          "node_id": "lightning_radius_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "lightning_frequency_1",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 9000,
       "max_rank": 1,
-      "effects": [{ "type": "add_lightning_chain_count", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "add_lightning_chain_count",
+          "value": 1.0
+        }
+      ]
     },
     {
       "id": "meteor_frequency_1",
@@ -680,11 +1108,21 @@
       "grid_y": 17,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "cloud_charger_unlock", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 8000,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_meteor_spawn_rate", "value": 1.5 }]
+      "effects": [
+        {
+          "type": "multiply_meteor_spawn_rate",
+          "value": 1.5
+        }
+      ]
     },
     {
       "id": "meteor_radius_1",
@@ -694,11 +1132,145 @@
       "grid_y": 19,
       "category": "events",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "meteor_frequency_1", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "meteor_frequency_1",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 10000,
       "max_rank": 1,
-      "effects": [{ "type": "add_meteor_radius", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "add_meteor_radius",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "radioactive_cloud_frequency_1",
+      "display_name": "Radioactive Frequency",
+      "description": "Radioactive Clouds pulse 50% faster, cutting the passive corrosion interval from 6.0 seconds to 4.0 seconds.",
+      "grid_x": 10,
+      "grid_y": 18,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "radioactive_cloud_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 10500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_radioactive_cloud_rate",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "radioactive_cloud_radius_1",
+      "display_name": "Radioactive Radius",
+      "description": "Increase the passive Radioactive Cloud corrosion radius from 1 to 2 blocks for a much larger pseudo-idle bite.",
+      "grid_x": 10,
+      "grid_y": 20,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "radioactive_cloud_frequency_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 12500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_radioactive_cloud_radius",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_split_1",
+      "display_name": "Orb Split",
+      "description": "Spawn a second autonomous Orb Breaker. Both orbs choose separate deterministic routes and mine on every pulse.",
+      "grid_x": 13,
+      "grid_y": 18,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 14000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_orb_breaker_count",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_speed_2",
+      "display_name": "Orb Breaker Speed II",
+      "description": "Another 35% Orb Breaker speed increase. Combined with the first speed node, pulses arrive about every 1.23 seconds.",
+      "grid_x": 12,
+      "grid_y": 20,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_speed_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "orb_breaker_split_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 15000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_orb_breaker_rate",
+          "value": 1.35
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_radius_1",
+      "display_name": "Orb Breaker Radius",
+      "description": "Increase every Orb Breaker impact radius from 1 to 2 blocks, making each autonomous pulse substantially wider.",
+      "grid_x": 13,
+      "grid_y": 21,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_split_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 17000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_orb_breaker_radius",
+          "value": 1.0
+        }
+      ]
     },
     {
       "id": "miner_speed_4",
@@ -708,11 +1280,21 @@
       "grid_y": 22,
       "category": "finale",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "miner_speed_3", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "miner_speed_3",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 16000,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_miner_rate", "value": 1.10 }]
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.1
+        }
+      ]
     },
     {
       "id": "lightning_chain_2",
@@ -722,11 +1304,21 @@
       "grid_y": 22,
       "category": "finale",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "lightning_chain_1", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "lightning_chain_1",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 18000,
       "max_rank": 1,
-      "effects": [{ "type": "add_lightning_chain_count", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "add_lightning_chain_count",
+          "value": 1.0
+        }
+      ]
     },
     {
       "id": "meteor_radius_2",
@@ -736,11 +1328,21 @@
       "grid_y": 22,
       "category": "finale",
       "purchase_mode": "once",
-      "prerequisites": [{ "node_id": "meteor_radius_1", "required_rank": 1 }],
+      "prerequisites": [
+        {
+          "node_id": "meteor_radius_1",
+          "required_rank": 1
+        }
+      ],
       "hide_until_prerequisites_met": true,
       "cost": 22000,
       "max_rank": 1,
-      "effects": [{ "type": "add_meteor_radius", "value": 2.0 }]
+      "effects": [
+        {
+          "type": "add_meteor_radius",
+          "value": 2.0
+        }
+      ]
     },
     {
       "id": "manual_aftershock",
@@ -751,14 +1353,56 @@
       "category": "finale",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_hover_speed_5", "required_rank": 1 },
-        { "node_id": "manual_power_5", "required_rank": 1 },
-        { "node_id": "manual_5x", "required_rank": 1 }
+        {
+          "node_id": "manual_hover_speed_5",
+          "required_rank": 1
+        },
+        {
+          "node_id": "manual_power_5",
+          "required_rank": 1
+        },
+        {
+          "node_id": "manual_5x",
+          "required_rank": 1
+        }
       ],
       "hide_until_prerequisites_met": true,
       "cost": 20000,
       "max_rank": 1,
-      "effects": [{ "type": "set_manual_penetration_depth", "value": 2.0 }]
+      "effects": [
+        {
+          "type": "set_manual_penetration_depth",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_swarm",
+      "display_name": "Orb Swarm",
+      "description": "Finale capstone: add a third Orb Breaker after completing the split, speed and radius branches.",
+      "grid_x": 13,
+      "grid_y": 23,
+      "category": "finale",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "orb_breaker_radius_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 24000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_orb_breaker_count",
+          "value": 1.0
+        }
+      ]
     }
   ]
 }

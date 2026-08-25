@@ -100,6 +100,7 @@ expected_finale_ids = {
     "lightning_chain_2",
     "meteor_radius_2",
     "manual_aftershock",
+    "orb_breaker_swarm",
 }
 assert "events" in finale.get("visibleSkillCategories", [])
 assert set(finale.get("visibleSkillIds", [])) == expected_finale_ids, (
