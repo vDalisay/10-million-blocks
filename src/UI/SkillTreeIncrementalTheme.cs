@@ -48,7 +48,7 @@ internal static class SkillTreeIncrementalTheme
     public static SkillNodeVisualKind VisualKind(SkillNodeDefinition node)
     {
         if (node.SpecialCosts.Count > 0
-            || node.Effects.Any(effect => effect.Type is "unlock_miner" or "unlock_auto_cloud_charger"))
+            || node.Effects.Any(effect => effect.Type is "unlock_miner" or "unlock_auto_cloud_charger" or "unlock_radioactive_cloud"))
         {
             return SkillNodeVisualKind.Milestone;
         }
@@ -122,6 +122,7 @@ internal static class SkillTreeIconAtlas
         ["automation_unlock"] = 4,
         ["drill_hardened_bit"] = 5,
         ["drill_ore_bit"] = 6,
+        ["drill_gem_bit"] = 6,
         ["miner_speed_1"] = 7,
         ["miner_speed_2"] = 7,
         ["miner_speed_3"] = 7,
@@ -135,6 +136,7 @@ internal static class SkillTreeIconAtlas
         ["critical_yield_2"] = 17,
         ["pickaxe_unlock"] = 10,
         ["cloud_charger_unlock"] = 11,
+        ["radioactive_cloud_unlock"] = 11,
         ["lightning_frequency_1"] = 11,
         ["lightning_radius_1"] = 11,
         ["lightning_chain_1"] = 11,
