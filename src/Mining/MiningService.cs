@@ -55,10 +55,12 @@ public sealed class MiningService
 {
     private const int BombHitsRequired = 3;
     private const int BombBlastRadius = 2;
+    private const int DamageDisplayScale = 100;
 
     private readonly VirtualWorld _world;
     private readonly ContentDatabase _content;
     private readonly Dictionary<Vector3I, int> _bombHits = new();
+    private readonly Dictionary<Vector3I, double> _manualDamage = new();
     private int _currencyNotificationBatchDepth;
     private bool _currencyNotificationPending;
 
@@ -117,6 +119,60 @@ public sealed class MiningService
 
     public MiningResult TryMine(Vector3I voxel)
         => TryMine(voxel, MiningSource.Manual, requireExposed: true);
+
+    /// <summary>
+    /// Player-manual mining uses authored block hardness as health. This gives the skill tree a real
+    /// damage axis: early dirt still disappears immediately, while stone/ore/gems require repeated
+    /// actions until the corresponding Breaker Power upgrade catches up. Automation retains its own
+    /// material/rate rules and therefore does not inherit this manual damage gate.
+    /// </summary>
+    public MiningResult TryMineManual(Vector3I voxel, double damage)
+    {
+        BlockSample before = _world.SampleVoxel(voxel);
+        if (!before.Present || !before.Mineable)
+        {
+            _manualDamage.Remove(voxel);
+            return Failure(voxel, MiningSource.Manual);
+        }
+
+        // Unstable blocks deliberately keep their authored three-hit anticipation instead of being
+        // trivialised by late manual power. The detonation path still clears ordinary partial damage.
+        if (before.BlockId == "bomb")
+        {
+            return TryMine(voxel, before, MiningSource.Manual, requireExposed: true);
+        }
+
+        if (!_world.IsExposed(voxel, before))
+        {
+            return Failure(voxel, MiningSource.Manual);
+        }
+
+        BlockDefinition definition = _content.GetBlock(before.BlockId);
+        double hardness = Math.Max(0.01, definition.Hardness);
+        double applied = Math.Max(0.01, damage);
+        double accumulated = _manualDamage.GetValueOrDefault(voxel) + applied;
+        if (accumulated + 1e-9 < hardness)
+        {
+            _manualDamage[voxel] = accumulated;
+            var damaged = new MiningResult(
+                true,
+                voxel,
+                before.BlockId,
+                0L,
+                TotalMined,
+                Remaining,
+                MiningSource.Manual,
+                BlocksRemoved: 0L,
+                Removed: false,
+                DamageStage: Math.Clamp((int)Math.Ceiling(accumulated * DamageDisplayScale), 1, int.MaxValue),
+                DamageRequired: Math.Clamp((int)Math.Ceiling(hardness * DamageDisplayScale), 1, int.MaxValue));
+            BlockDamaged?.Invoke(damaged);
+            return damaged;
+        }
+
+        _manualDamage.Remove(voxel);
+        return TryMine(voxel, before, MiningSource.Manual, requireExposed: true);
+    }
 
     public MiningResult TryMine(Vector3I voxel, MiningSource source, bool requireExposed)
         => TryMine(voxel, _world.SampleVoxel(voxel), source, requireExposed);
@@ -181,6 +237,7 @@ public sealed class MiningService
             return Failure(voxel, source);
         }
 
+        _manualDamage.Remove(voxel);
         BlockDefinition definition = _content.GetBlock(mined.BlockId);
         long reward = definition.BaseValue;
         Currency = checked(Currency + reward);
@@ -231,6 +288,7 @@ public sealed class MiningService
             if (!_world.TryMine(candidate, requireExposed: false, out BlockSample mined)) continue;
 
             _bombHits.Remove(candidate);
+            _manualDamage.Remove(candidate);
             BlockDefinition definition = _content.GetBlock(mined.BlockId);
             long reward = definition.BaseValue;
             Currency = checked(Currency + reward);
@@ -271,6 +329,7 @@ public sealed class MiningService
     private MiningResult Detonate(Vector3I center, MiningSource source)
     {
         _bombHits.Remove(center);
+        _manualDamage.Remove(center);
         long totalReward = 0L;
         long removed = 0L;
         int radiusSquared = BombBlastRadius * BombBlastRadius;
@@ -288,6 +347,7 @@ public sealed class MiningService
             if (!_world.TryMine(candidate, requireExposed: false, out BlockSample mined)) continue;
 
             _bombHits.Remove(candidate);
+            _manualDamage.Remove(candidate);
             BlockDefinition definition = _content.GetBlock(mined.BlockId);
             long reward = definition.BaseValue;
             totalReward = checked(totalReward + reward);
