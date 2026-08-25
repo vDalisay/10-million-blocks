@@ -13,11 +13,6 @@ public partial class WorldEventController
     private SkillTreeService? _eventSkills;
     private Timer? _cloudChargerTimer;
 
-    /// <summary>
-    /// Connects player-bound event upgrades without making WorldEventController own progression state.
-    /// The charger only contributes presentation/gameplay input to the existing authoritative cloud
-    /// mechanic; ChargeCloud still decides when a strike fires and MiningService still owns removals.
-    /// </summary>
     public void AttachSkills(SkillTreeService skills)
     {
         ArgumentNullException.ThrowIfNull(skills);
@@ -35,10 +30,7 @@ public partial class WorldEventController
 
     private void RefreshCloudCharger()
     {
-        bool enabled = _cloudEnabled
-            && _eventSkills is not null
-            && _eventSkills.Derived.AutoCloudChargerUnlocked;
-
+        bool enabled = _cloudEnabled && _eventSkills is not null && _eventSkills.Derived.AutoCloudChargerUnlocked;
         if (!enabled)
         {
             _cloudChargerTimer?.Stop();
@@ -51,7 +43,6 @@ public partial class WorldEventController
             _cloudChargerTimer = new Timer
             {
                 Name = "AutomaticCloudCharger",
-                WaitTime = AutomaticCloudChargeIntervalSeconds,
                 OneShot = false,
                 Autostart = false,
             };
@@ -59,23 +50,24 @@ public partial class WorldEventController
             AddChild(_cloudChargerTimer);
         }
 
+        _cloudChargerTimer.WaitTime = EffectiveCloudChargeInterval();
+        _meteorCooldown = Math.Min(_meteorCooldown, EffectiveMeteorRespawnDelay());
         if (_cloudChargerTimer.IsStopped()) _cloudChargerTimer.Start();
         RefreshStatus();
     }
 
     private void OnAutomaticCloudCharge()
     {
-        if (_cloud is null
-            || _eventSkills is null
-            || !_eventSkills.Derived.AutoCloudChargerUnlocked
-            || !_cloudEnabled)
-        {
-            return;
-        }
-
+        if (_cloud is null || _eventSkills is null || !_eventSkills.Derived.AutoCloudChargerUnlocked || !_cloudEnabled) return;
         ChargeCloud();
         RequestPersistence();
     }
+
+    private double EffectiveCloudChargeInterval()
+        => AutomaticCloudChargeIntervalSeconds / Math.Max(0.1, _eventSkills?.Derived.CloudChargeRateMultiplier ?? 1.0);
+
+    private double EffectiveMeteorRespawnDelay()
+        => MeteorRespawnDelay / Math.Max(0.1, _eventSkills?.Derived.MeteorSpawnRateMultiplier ?? 1.0);
 
     private int EffectiveLightningRadius()
         => Math.Clamp(LightningRadius + (_eventSkills?.Derived.LightningRadiusBonus ?? 0), 1, 10);
@@ -83,11 +75,6 @@ public partial class WorldEventController
     private int EffectiveMeteorRadius()
         => Math.Clamp(MeteorRadius + (_eventSkills?.Derived.MeteorRadiusBonus ?? 0), 1, 12);
 
-    /// <summary>
-    /// Electricity upgrades are intentionally literal incremental-game payoffs: the first strike keeps
-    /// the existing crater mechanic, then purchased forks jump to nearby exposed terrain and repeat it.
-    /// Target selection is deterministic and bounded so saves/replays do not depend on random state.
-    /// </summary>
     private void ApplyLightning(Vector3I target)
     {
         int radius = EffectiveLightningRadius();
@@ -109,12 +96,7 @@ public partial class WorldEventController
         }
     }
 
-    private bool TryFindLightningFork(
-        Vector3I origin,
-        int craterRadius,
-        IReadOnlyList<Vector3I> used,
-        int forkIndex,
-        out Vector3I best)
+    private bool TryFindLightningFork(Vector3I origin, int craterRadius, IReadOnlyList<Vector3I> used, int forkIndex, out Vector3I best)
     {
         int minDistance = Math.Max(3, craterRadius + 2);
         int maxDistance = Math.Min(12, minDistance + 6);
@@ -128,7 +110,6 @@ public partial class WorldEventController
         {
             int manhattan = Math.Abs(x) + Math.Abs(y) + Math.Abs(z);
             if (manhattan < minDistance || manhattan > maxDistance) continue;
-
             Vector3I candidate = origin + new Vector3I(x, y, z);
             BlockSample sample = _world.SampleVoxel(candidate);
             if (!sample.Present || !sample.Mineable || !_world.IsExposed(candidate, sample)) continue;
@@ -137,11 +118,7 @@ public partial class WorldEventController
             foreach (Vector3I previous in used)
             {
                 Vector3I delta = candidate - previous;
-                if (delta.LengthSquared() <= minDistance * minDistance)
-                {
-                    overlaps = true;
-                    break;
-                }
+                if (delta.LengthSquared() <= minDistance * minDistance) { overlaps = true; break; }
             }
             if (overlaps) continue;
 
@@ -151,7 +128,6 @@ public partial class WorldEventController
             best = candidate;
             found = true;
         }
-
         return found;
     }
 
@@ -160,10 +136,8 @@ public partial class WorldEventController
         unchecked
         {
             uint value = (uint)_world.Profile.Seed ^ salt;
-            value ^= (uint)voxel.X * 0x85EBCA6Bu;
-            value = MixEventHash(value);
-            value ^= (uint)voxel.Y * 0xC2B2AE35u;
-            value = MixEventHash(value);
+            value ^= (uint)voxel.X * 0x85EBCA6Bu; value = MixEventHash(value);
+            value ^= (uint)voxel.Y * 0xC2B2AE35u; value = MixEventHash(value);
             value ^= (uint)voxel.Z * 0x27D4EB2Fu;
             return MixEventHash(value);
         }
@@ -173,10 +147,8 @@ public partial class WorldEventController
     {
         unchecked
         {
-            value ^= value >> 16;
-            value *= 0x7FEB352Du;
-            value ^= value >> 15;
-            value *= 0x846CA68Bu;
+            value ^= value >> 16; value *= 0x7FEB352Du;
+            value ^= value >> 15; value *= 0x846CA68Bu;
             value ^= value >> 16;
             return value;
         }
@@ -186,12 +158,14 @@ public partial class WorldEventController
     {
         if (_eventSkills is null) return string.Empty;
         SkillDerivedStats stats = _eventSkills.Derived;
-        string charger = stats.AutoCloudChargerUnlocked ? "   |   Cloud Charger: AUTO" : string.Empty;
+        string charger = stats.AutoCloudChargerUnlocked
+            ? $"   |   Cloud AUTO {EffectiveCloudChargeInterval():0.0}s"
+            : string.Empty;
         string power = stats.LightningRadiusBonus > 0 || stats.LightningChainCount > 0
             ? $"   |   Lightning R{EffectiveLightningRadius()} / forks {stats.LightningChainCount}"
             : string.Empty;
-        string meteor = stats.MeteorRadiusBonus > 0
-            ? $"   |   Meteor R{EffectiveMeteorRadius()}"
+        string meteor = stats.MeteorRadiusBonus > 0 || stats.MeteorSpawnRateMultiplier > 1.001
+            ? $"   |   Meteor R{EffectiveMeteorRadius()} / {EffectiveMeteorRespawnDelay():0}s"
             : string.Empty;
         return charger + power + meteor;
     }
