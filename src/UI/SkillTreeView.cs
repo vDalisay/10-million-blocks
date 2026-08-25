@@ -19,6 +19,7 @@ public partial class SkillTreeView : CanvasLayer
     private Label _resources = null!;
     private Label _specialResources = null!;
     private Label _nextUpgrade = null!;
+    private Label _controls = null!;
     private Label _feedback = null!;
     private PanelContainer _detailPanel = null!;
     private ColorRect _detailAccent = null!;
@@ -60,9 +61,9 @@ public partial class SkillTreeView : CanvasLayer
         _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_root);
 
-        var backdrop = new ColorRect
+        var backdrop = new SkillTreeSpaceBackdrop
         {
-            Color = SkillTreeIncrementalTheme.Paper,
+            Name = "ConstellationBackdrop",
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         backdrop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -74,12 +75,15 @@ public partial class SkillTreeView : CanvasLayer
         BuildBottomBar();
         BuildButtons();
         Refresh();
+        UpdateResponsiveBottomBar();
     }
 
     public override void _Process(double delta)
     {
         if (_refreshPending && IsOpen) Refresh();
         if (!IsOpen) return;
+
+        UpdateResponsiveBottomBar();
 
         float panSpeed = 560.0f * (float)Math.Max(0.0, delta);
         Vector2 pan = Vector2.Zero;
@@ -121,6 +125,7 @@ public partial class SkillTreeView : CanvasLayer
         _root.Visible = true;
         _manual.InputEnabled = false;
         Refresh();
+        UpdateResponsiveBottomBar();
 
         bool reducedMotion = GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true;
         if (reducedMotion)
@@ -132,7 +137,7 @@ public partial class SkillTreeView : CanvasLayer
         _root.Modulate = new Color(1, 1, 1, 0);
         _transition = CreateTween();
         _transition.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
-        _transition.TweenProperty(_root, "modulate:a", 1.0f, 0.12f);
+        _transition.TweenProperty(_root, "modulate:a", 1.0f, 0.16f);
 
         int order = 0;
         foreach (IncrementalSkillNodeButton button in _buttons.Values
@@ -141,11 +146,11 @@ public partial class SkillTreeView : CanvasLayer
                      .ThenBy(button => button.Position.X))
         {
             button.Modulate = new Color(1, 1, 1, 0);
-            button.Scale = Vector2.One * 0.80f;
+            button.Scale = Vector2.One * 0.72f;
             Tween nodeTween = CreateTween().SetParallel(true);
             nodeTween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Back);
-            nodeTween.TweenProperty(button, "scale", Vector2.One, 0.20f).SetDelay(order * 0.010f);
-            nodeTween.TweenProperty(button, "modulate:a", 1.0f, 0.12f).SetDelay(order * 0.010f);
+            nodeTween.TweenProperty(button, "scale", Vector2.One, 0.28f).SetDelay(order * 0.014f);
+            nodeTween.TweenProperty(button, "modulate:a", 1.0f, 0.16f).SetDelay(order * 0.014f);
             order++;
         }
     }
@@ -165,7 +170,7 @@ public partial class SkillTreeView : CanvasLayer
 
         _transition = CreateTween();
         _transition.SetEase(Tween.EaseType.In).SetTrans(Tween.TransitionType.Quad);
-        _transition.TweenProperty(_root, "modulate:a", 0.0f, 0.09f);
+        _transition.TweenProperty(_root, "modulate:a", 0.0f, 0.10f);
         _transition.TweenCallback(Callable.From(() =>
         {
             _root.Visible = false;
@@ -178,23 +183,38 @@ public partial class SkillTreeView : CanvasLayer
     {
         var title = new Label
         {
-            Text = "UPGRADES",
-            Position = new Vector2(24, 16),
-            Size = new Vector2(230, 34),
-            Modulate = SkillTreeIncrementalTheme.Ink,
+            Text = "UPGRADE CONSTELLATION",
+            Position = new Vector2(24, 14),
+            Size = new Vector2(420, 36),
+            Modulate = SkillTreeSpacePalette.Text,
         };
         title.AddThemeFontSizeOverride("font_size", 22);
         _root.AddChild(title);
 
         var hint = new Label
         {
-            Text = "PAN TREE  WASD / ARROWS / DRAG   ·   BUY UPGRADE  CLICK",
-            Position = new Vector2(24, 47),
-            Size = new Vector2(720, 24),
-            Modulate = SkillTreeIncrementalTheme.MutedInk,
+            Text = "Chart a route through the stars  ·  WASD / arrows / drag to pan  ·  click a node to buy",
+            Position = new Vector2(24, 46),
+            Size = new Vector2(880, 24),
+            Modulate = SkillTreeSpacePalette.TextMuted,
         };
         hint.AddThemeFontSizeOverride("font_size", 12);
         _root.AddChild(hint);
+
+        var world = new Label
+        {
+            Text = _profile.DisplayName.ToUpperInvariant(),
+            AnchorLeft = 1.0f,
+            AnchorRight = 1.0f,
+            OffsetLeft = -360.0f,
+            OffsetTop = 20.0f,
+            OffsetRight = -24.0f,
+            OffsetBottom = 48.0f,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Modulate = SkillTreeSpacePalette.TextFaint,
+        };
+        world.AddThemeFontSizeOverride("font_size", 11);
+        _root.AddChild(world);
     }
 
     private void BuildGraph()
@@ -206,7 +226,7 @@ public partial class SkillTreeView : CanvasLayer
             OffsetLeft = 0,
             OffsetTop = 72,
             OffsetRight = 0,
-            OffsetBottom = -78,
+            OffsetBottom = -86,
             MouseFilter = Control.MouseFilterEnum.Stop,
             HorizontalScrollMode = ScrollContainer.ScrollMode.ShowNever,
             VerticalScrollMode = ScrollContainer.ScrollMode.ShowNever,
@@ -228,13 +248,13 @@ public partial class SkillTreeView : CanvasLayer
         _detailPanel = new PanelContainer
         {
             Position = new Vector2(24, 84),
-            Size = new Vector2(360, 132),
+            Size = new Vector2(390, 148),
             MouseFilter = Control.MouseFilterEnum.Ignore,
             Visible = false,
             ZIndex = 40,
         };
-        _detailPanel.AddThemeStyleboxOverride("panel", SkillTreeIncrementalTheme.FlatBox(
-            SkillTreeIncrementalTheme.PaperBright, SkillTreeIncrementalTheme.Ink, 1, 2));
+        _detailPanel.AddThemeStyleboxOverride("panel", SkillTreeSpacePalette.Box(
+            new Color(0.055f, 0.095f, 0.17f, 0.97f), new Color("#344b70"), 12, 2));
         _root.AddChild(_detailPanel);
 
         var stack = new VBoxContainer();
@@ -242,30 +262,30 @@ public partial class SkillTreeView : CanvasLayer
 
         _detailAccent = new ColorRect
         {
-            Color = SkillTreeIncrementalTheme.Affordable,
-            CustomMinimumSize = new Vector2(0, 22),
+            Color = SkillTreeSpacePalette.Affordable,
+            CustomMinimumSize = new Vector2(0, 5),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         stack.AddChild(_detailAccent);
 
         var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 12);
-        margin.AddThemeConstantOverride("margin_right", 12);
-        margin.AddThemeConstantOverride("margin_top", 7);
-        margin.AddThemeConstantOverride("margin_bottom", 8);
+        margin.AddThemeConstantOverride("margin_left", 14);
+        margin.AddThemeConstantOverride("margin_right", 14);
+        margin.AddThemeConstantOverride("margin_top", 9);
+        margin.AddThemeConstantOverride("margin_bottom", 10);
         stack.AddChild(margin);
 
         var column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 2);
+        column.AddThemeConstantOverride("separation", 3);
         margin.AddChild(column);
 
         _detailTitle = new Label
         {
             Text = "UPGRADE",
             HorizontalAlignment = HorizontalAlignment.Center,
-            Modulate = SkillTreeIncrementalTheme.Ink,
+            Modulate = SkillTreeSpacePalette.Text,
         };
-        _detailTitle.AddThemeFontSizeOverride("font_size", 15);
+        _detailTitle.AddThemeFontSizeOverride("font_size", 16);
         column.AddChild(_detailTitle);
 
         _detailDescription = new Label
@@ -273,8 +293,8 @@ public partial class SkillTreeView : CanvasLayer
             Text = string.Empty,
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
-            CustomMinimumSize = new Vector2(330, 34),
-            Modulate = SkillTreeIncrementalTheme.MutedInk,
+            CustomMinimumSize = new Vector2(350, 42),
+            Modulate = SkillTreeSpacePalette.TextMuted,
         };
         _detailDescription.AddThemeFontSizeOverride("font_size", 11);
         column.AddChild(_detailDescription);
@@ -283,7 +303,7 @@ public partial class SkillTreeView : CanvasLayer
         {
             Text = string.Empty,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Modulate = SkillTreeIncrementalTheme.MutedInk,
+            Modulate = SkillTreeSpacePalette.TextFaint,
         };
         _detailRequirement.AddThemeFontSizeOverride("font_size", 10);
         column.AddChild(_detailRequirement);
@@ -292,7 +312,7 @@ public partial class SkillTreeView : CanvasLayer
         {
             Text = string.Empty,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Modulate = SkillTreeIncrementalTheme.Affordable,
+            Modulate = SkillTreeSpacePalette.Affordable,
         };
         _detailCost.AddThemeFontSizeOverride("font_size", 18);
         column.AddChild(_detailCost);
@@ -305,92 +325,114 @@ public partial class SkillTreeView : CanvasLayer
             AnchorTop = 1.0f,
             AnchorRight = 1.0f,
             AnchorBottom = 1.0f,
-            OffsetTop = -78,
+            OffsetTop = -86,
             MouseFilter = Control.MouseFilterEnum.Stop,
             ZIndex = 50,
         };
-        bar.AddThemeStyleboxOverride("panel", SkillTreeIncrementalTheme.FlatBox(
-            SkillTreeIncrementalTheme.BottomBar, SkillTreeIncrementalTheme.BottomBar, 0, 0));
+        bar.AddThemeStyleboxOverride("panel", SkillTreeSpacePalette.Box(
+            new Color(0.035f, 0.071f, 0.14f, 0.98f), new Color("#1c3154"), 0, 1));
         _root.AddChild(bar);
 
-        var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 20);
-        margin.AddThemeConstantOverride("margin_right", 20);
-        margin.AddThemeConstantOverride("margin_top", 10);
-        margin.AddThemeConstantOverride("margin_bottom", 10);
-        bar.AddChild(margin);
+        var content = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
+        content.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        bar.AddChild(content);
 
-        var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 15);
-        margin.AddChild(row);
+        var row = new HBoxContainer
+        {
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            OffsetLeft = 18.0f,
+            OffsetTop = 10.0f,
+            OffsetRight = -194.0f,
+            OffsetBottom = -10.0f,
+        };
+        row.AddThemeConstantOverride("separation", 14);
+        content.AddChild(row);
 
         _resources = new Label
         {
             Text = "0 RESOURCES",
-            CustomMinimumSize = new Vector2(230, 52),
+            CustomMinimumSize = new Vector2(210, 52),
             VerticalAlignment = VerticalAlignment.Center,
-            Modulate = new Color("#65bd80"),
+            Modulate = SkillTreeSpacePalette.Affordable,
         };
-        _resources.AddThemeFontSizeOverride("font_size", 25);
+        _resources.AddThemeFontSizeOverride("font_size", 24);
         row.AddChild(_resources);
 
         _specialResources = new Label
         {
             Text = string.Empty,
-            CustomMinimumSize = new Vector2(190, 52),
+            CustomMinimumSize = new Vector2(140, 52),
             VerticalAlignment = VerticalAlignment.Center,
-            Modulate = new Color(0.81f, 0.84f, 0.82f),
+            Modulate = new Color("#a9bbd1"),
         };
-        _specialResources.AddThemeFontSizeOverride("font_size", 12);
+        _specialResources.AddThemeFontSizeOverride("font_size", 11);
         row.AddChild(_specialResources);
 
         _nextUpgrade = new Label
         {
             Text = "NEXT",
-            CustomMinimumSize = new Vector2(250, 52),
+            CustomMinimumSize = new Vector2(220, 52),
             VerticalAlignment = VerticalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
-            Modulate = new Color("#f0d899"),
+            Modulate = new Color("#f3c75e"),
         };
-        _nextUpgrade.AddThemeFontSizeOverride("font_size", 12);
+        _nextUpgrade.AddThemeFontSizeOverride("font_size", 11);
         row.AddChild(_nextUpgrade);
 
-        var controls = new Label
+        _controls = new Label
         {
             Text = "WASD  PAN     LMB  DRAG     CLICK  BUY",
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Modulate = new Color(0.77f, 0.79f, 0.78f),
+            Modulate = SkillTreeSpacePalette.TextFaint,
         };
-        controls.AddThemeFontSizeOverride("font_size", 11);
-        row.AddChild(controls);
+        _controls.AddThemeFontSizeOverride("font_size", 10);
+        row.AddChild(_controls);
 
         _feedback = new Label
         {
             Text = string.Empty,
-            CustomMinimumSize = new Vector2(200, 52),
+            CustomMinimumSize = new Vector2(130, 52),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
-            Modulate = SkillTreeIncrementalTheme.BottomBarText,
+            Modulate = SkillTreeSpacePalette.Text,
         };
-        _feedback.AddThemeFontSizeOverride("font_size", 12);
+        _feedback.AddThemeFontSizeOverride("font_size", 11);
         row.AddChild(_feedback);
 
         var close = new Button
         {
             Text = "CONTINUE",
-            CustomMinimumSize = new Vector2(210, 50),
+            AnchorLeft = 1.0f,
+            AnchorRight = 1.0f,
+            AnchorTop = 0.5f,
+            AnchorBottom = 0.5f,
+            OffsetLeft = -176.0f,
+            OffsetTop = -26.0f,
+            OffsetRight = -18.0f,
+            OffsetBottom = 26.0f,
             FocusMode = Control.FocusModeEnum.None,
         };
-        close.AddThemeFontSizeOverride("font_size", 17);
-        close.AddThemeStyleboxOverride("normal", SkillTreeIncrementalTheme.FlatBox(new Color("#687f98"), new Color("#8798a9"), 1, 2));
-        close.AddThemeStyleboxOverride("hover", SkillTreeIncrementalTheme.FlatBox(new Color("#748ca6"), new Color("#a1afbd"), 1, 2));
-        close.AddThemeStyleboxOverride("pressed", SkillTreeIncrementalTheme.FlatBox(new Color("#5b6f84"), new Color("#8798a9"), 1, 2));
-        close.AddThemeColorOverride("font_color", Colors.White);
+        close.AddThemeFontSizeOverride("font_size", 15);
+        close.AddThemeStyleboxOverride("normal", SkillTreeSpacePalette.Box(new Color("#17385e"), new Color("#4c89c7"), 9, 2));
+        close.AddThemeStyleboxOverride("hover", SkillTreeSpacePalette.Box(new Color("#20507f"), new Color("#6fb9f3"), 9, 2));
+        close.AddThemeStyleboxOverride("pressed", SkillTreeSpacePalette.Box(new Color("#102c4c"), new Color("#4c89c7"), 9, 2));
+        close.AddThemeColorOverride("font_color", SkillTreeSpacePalette.Text);
         close.Pressed += Close;
-        row.AddChild(close);
+        content.AddChild(close);
+    }
+
+    private void UpdateResponsiveBottomBar()
+    {
+        if (_root is null || _controls is null) return;
+        float width = _root.Size.X;
+        _controls.Visible = width >= 1180.0f;
+        _nextUpgrade.Visible = width >= 920.0f;
+        _specialResources.CustomMinimumSize = new Vector2(width < 1080.0f ? 105.0f : 140.0f, 52.0f);
+        _resources.CustomMinimumSize = new Vector2(width < 1080.0f ? 175.0f : 210.0f, 52.0f);
     }
 
     private void BuildButtons()
@@ -404,6 +446,7 @@ public partial class SkillTreeView : CanvasLayer
                 Position = SkillGraphCanvas.NodePosition(node),
             };
             button.Initialize(node);
+            button.InstallSpaceFeedback(node);
             button.TooltipText = BuildTooltip(node);
             button.Hovered += _ => ShowDetails(node);
             string id = node.Id;
@@ -440,18 +483,18 @@ public partial class SkillTreeView : CanvasLayer
         bool prerequisites = _skills.PrerequisitesMet(node);
         long cost = checked(node.Cost * (rank + 1L));
 
-        _detailAccent.Color = SkillTreeIncrementalTheme.CategoryColor(node.Category);
+        _detailAccent.Color = SkillTreeSpacePalette.CategoryColor(node.Category);
         _detailTitle.Text = node.DisplayName.ToUpperInvariant();
         _detailDescription.Text = node.Description;
         _detailRequirement.Text = BuildRequirementLine(node, prerequisites);
         _detailCost.Text = maxed
             ? (node.MaxRank > 1 ? $"MAX RANK {rank}/{node.MaxRank}" : "OWNED")
-            : $"{FormatCost(node, cost).ToUpperInvariant()}";
+            : FormatCost(node, cost).ToUpperInvariant();
         _detailCost.Modulate = maxed
-            ? SkillTreeIncrementalTheme.Purchased
+            ? SkillTreeSpacePalette.Purchased
             : (_mining.Currency >= cost && _skills.SpecialCostsAffordable(node) && prerequisites
-                ? SkillTreeIncrementalTheme.Affordable
-                : SkillTreeIncrementalTheme.Locked);
+                ? SkillTreeSpacePalette.Affordable
+                : SkillTreeSpacePalette.TextFaint);
         _detailPanel.Visible = true;
         PositionDetailCard(node);
     }
@@ -460,16 +503,16 @@ public partial class SkillTreeView : CanvasLayer
     {
         if (!_buttons.TryGetValue(node.Id, out IncrementalSkillNodeButton? button)) return;
         Vector2 size = _detailPanel.Size;
-        Vector2 candidate = button.GlobalPosition + new Vector2(82, -28);
+        Vector2 candidate = button.GlobalPosition + new Vector2(84, -34);
         float maxX = Math.Max(12.0f, _root.Size.X - size.X - 12.0f);
-        float maxY = Math.Max(12.0f, _root.Size.Y - 78.0f - size.Y - 12.0f);
+        float maxY = Math.Max(12.0f, _root.Size.Y - 86.0f - size.Y - 12.0f);
 
         if (candidate.X + size.X > _root.Size.X - 12.0f)
-            candidate.X = button.GlobalPosition.X - size.X - 12.0f;
+            candidate.X = button.GlobalPosition.X - size.X - 14.0f;
 
         _detailPanel.Position = new Vector2(
             Mathf.Clamp(candidate.X, 12.0f, maxX),
-            Mathf.Clamp(candidate.Y, 12.0f, maxY));
+            Mathf.Clamp(candidate.Y, 76.0f, maxY));
     }
 
     private string BuildRequirementLine(SkillNodeDefinition node, bool requirementsMet)
@@ -492,9 +535,12 @@ public partial class SkillTreeView : CanvasLayer
         if (result.Success)
         {
             _feedback.Text = $"{node.DisplayName} upgraded.";
-            _feedback.Modulate = new Color("#91d7a7");
+            _feedback.Modulate = SkillTreeSpacePalette.Affordable;
             if (_buttons.TryGetValue(skillId, out IncrementalSkillNodeButton? button))
+            {
                 button.PlayPurchaseAnimation();
+                button.PlaySpacePurchaseBurst();
+            }
         }
         else
         {
@@ -506,7 +552,7 @@ public partial class SkillTreeView : CanvasLayer
                 SkillPurchaseFailure.MaxRank => "This upgrade is already complete.",
                 _ => "Upgrade could not be purchased.",
             };
-            _feedback.Modulate = new Color("#f1a28f");
+            _feedback.Modulate = SkillTreeSpacePalette.Warning;
         }
 
         _feedbackTimer = 2.0;
@@ -524,7 +570,7 @@ public partial class SkillTreeView : CanvasLayer
 
         _resources.Text = $"{_mining.Currency:N0}  RESOURCES";
         _specialResources.Text = _skills.SpecialResources.Balances.Count == 0
-            ? ""
+            ? string.Empty
             : string.Join("   ", _skills.SpecialResources.Balances
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => $"{DisplayResourceName(pair.Key)}  {pair.Value:N0}"));
@@ -562,6 +608,7 @@ public partial class SkillTreeView : CanvasLayer
             long cost = checked(node.Cost * (rank + 1L));
             bool affordable = _mining.Currency >= cost && _skills.SpecialCostsAffordable(node);
             button.ApplyState(rank, node.MaxRank, maxed, prerequisites, affordable, immediate: !IsOpen || !newlyRevealed);
+            button.ApplySpaceState(rank, node.MaxRank, maxed, prerequisites, affordable);
 
             if (newlyRevealed && IsOpen) button.PlayRevealAnimation();
             _previouslyRevealed.Add(id);
@@ -620,7 +667,7 @@ public partial class SkillGraphCanvas : Control
 
     public event Action<Vector2>? PanRequested;
 
-    private const float GridOriginX = 360.0f;
+    private const float GridOriginX = 300.0f;
     private const float GridOriginY = 120.0f;
     private const float GridStepX = 128.0f;
     private const float GridStepY = 94.0f;
@@ -670,14 +717,17 @@ public partial class SkillGraphCanvas : Control
                 if (!_profile.IsSkillVisible(sourceNode.Id, sourceNode.Category) || !_skills.IsRevealed(sourceNode)) continue;
 
                 bool requirementMet = _skills.GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank;
-                Color branch = SkillTreeIncrementalTheme.CategoryColor(node.Category);
-                Color lineColor = requirementMet ? branch : SkillTreeIncrementalTheme.Locked;
-                float lineWidth = requirementMet ? 4.5f : 4.0f;
+                Color branch = SkillTreeSpacePalette.CategoryColor(node.Category);
+                Color lineColor = requirementMet ? branch : SkillTreeSpacePalette.Locked;
+                float lineWidth = requirementMet ? 3.2f : 2.4f;
                 List<Vector2> points = BuildEdgePoints(sourceNode, node, prerequisite);
 
                 for (int i = 0; i < points.Count - 1; i++)
                 {
-                    DrawLine(points[i], points[i + 1], lineColor, lineWidth, false);
+                    Color glow = lineColor;
+                    glow.A = requirementMet ? 0.18f : 0.10f;
+                    DrawLine(points[i], points[i + 1], glow, lineWidth + 6.0f, true);
+                    DrawLine(points[i], points[i + 1], lineColor, lineWidth, true);
                     if (requirementMet && GraphicsSettingsRuntime.Current?.ReducedMotionEnabled != true)
                         DrawFlowDot(points[i], points[i + 1], branch, i * 0.17);
                 }
@@ -711,16 +761,28 @@ public partial class SkillGraphCanvas : Control
 
     private void DrawBackdropPattern()
     {
-        for (float x = 20; x < Size.X; x += 76)
-        for (float y = 18; y < Size.Y; y += 76)
-            DrawCircle(new Vector2(x, y), 1.1f, SkillTreeIncrementalTheme.PaperGrid);
+        Color small = new(0.35f, 0.52f, 0.76f, 0.13f);
+        Color bright = new(0.57f, 0.73f, 0.96f, 0.24f);
+        int index = 0;
+        for (float x = 24; x < Size.X; x += 82)
+        for (float y = 18; y < Size.Y; y += 82)
+        {
+            float ox = ((index * 37) % 29) - 14;
+            float oy = ((index * 61) % 31) - 15;
+            Vector2 p = new(x + ox, y + oy);
+            DrawCircle(p, index % 7 == 0 ? 1.45f : 0.85f, index % 7 == 0 ? bright : small);
+            index++;
+        }
     }
 
     private void DrawFlowDot(Vector2 from, Vector2 to, Color color, double offset)
     {
-        float t = (float)((_flowTime * 0.40 + offset) % 1.0);
+        float t = (float)((_flowTime * 0.34 + offset) % 1.0);
         Vector2 position = from.Lerp(to, t);
-        DrawCircle(position, 3.4f, color.Lightened(0.20f));
+        Color glow = color;
+        glow.A = 0.24f;
+        DrawCircle(position, 7.0f, glow);
+        DrawCircle(position, 2.7f, color.Lightened(0.30f));
     }
 
     public static Vector2 NodePosition(SkillNodeDefinition node)
