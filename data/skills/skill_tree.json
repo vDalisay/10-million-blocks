@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 14,
+  "content_version": 15,
   "nodes": [
     {
       "id": "hover_mining_unlock",
@@ -468,6 +468,20 @@
       "effects": [{ "type": "unlock_auto_cloud_charger" }]
     },
     {
+      "id": "radioactive_cloud_unlock",
+      "display_name": "Radioactive Clouds",
+      "description": "Clouds passively corrode a small radius-1 patch beneath their orbit every 6 seconds. This is a literal pseudo-idle destruction branch: it mines without consuming lightning charge.",
+      "grid_x": 10,
+      "grid_y": 16,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [{ "node_id": "cloud_charger_unlock", "required_rank": 1 }],
+      "hide_until_prerequisites_met": true,
+      "cost": 9000,
+      "max_rank": 1,
+      "effects": [{ "type": "unlock_radioactive_cloud" }]
+    },
+    {
       "id": "resource_density_2",
       "display_name": "Resource Density II",
       "description": "A deliberately chunky payout jump: another 50% multiplier to all ordinary resource income.",
@@ -500,6 +514,23 @@
       "cost": 8000,
       "max_rank": 1,
       "effects": [{ "type": "multiply_precious_resource_yield", "value": 2.0 }]
+    },
+    {
+      "id": "drill_gem_bit",
+      "display_name": "Gem-Cutting Bit",
+      "description": "Upgrade every Drill to cut special gem blocks instead of stopping at them. Bombs remain unsafe. This is the late material-density payoff after ordinary ore cutting.",
+      "grid_x": 5,
+      "grid_y": 19,
+      "category": "drill",
+      "purchase_mode": "once",
+      "prerequisites": [
+        { "node_id": "drill_ore_bit", "required_rank": 1 },
+        { "node_id": "precious_yield_1", "required_rank": 1 }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 12000,
+      "max_rank": 1,
+      "effects": [{ "type": "set_drill_material_tier", "value": 3.0 }]
     },
     {
       "id": "critical_yield_2",
