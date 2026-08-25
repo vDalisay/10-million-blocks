@@ -18,7 +18,7 @@ public partial class ManualMiningController
         UpdateHover(center, force: true);
         if (_hoveredVoxel is null || _hoverTargets.Count == 0) return 0;
 
-        int actions = MineManualTick(_hoverTargets, hoverMining: false);
+        int actions = MineManualTick(_hoverTargets, hoverMining: false, _hoverSurfaceNormal);
         if (actions > 0)
         {
             _highlight.PulseMine();
