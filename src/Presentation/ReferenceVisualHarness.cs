@@ -18,7 +18,7 @@ public partial class ReferenceVisualHarness : Node
     private Godot.Environment? _environment;
     private DirectionalLight3D? _keyLight;
     private DirectionalLight3D? _fillLight;
-    private string _visualPreset = "Final";
+    private string _visualPreset = VisualLookProfiles.Shipping;
 
     public void Initialize(OrbitCameraController camera)
     {
@@ -34,7 +34,7 @@ public partial class ReferenceVisualHarness : Node
         }
 
         ResolvePresentationNodes();
-        ApplyVisualPreset("Final");
+        ApplyVisualPreset(VisualLookProfiles.Shipping);
 
         var canvas = new CanvasLayer { Name = "ReferenceVisualHarnessCanvas", Layer = 20 };
         AddChild(canvas);
@@ -43,9 +43,9 @@ public partial class ReferenceVisualHarness : Node
         {
             OffsetLeft = 16.0f,
             OffsetTop = 16.0f,
-            OffsetRight = 724.0f,
+            OffsetRight = 810.0f,
             OffsetBottom = 108.0f,
-            TooltipText = "Reference A/B harness. Camera [1-3], look [4-7], capture [F6]. RMB orbit, MMB pan, wheel zoom.",
+            TooltipText = "Reference A/B harness. Camera [1-3], look [4-8], capture [F6]. RMB orbit, MMB pan, wheel zoom.",
         };
         canvas.AddChild(panel);
 
@@ -66,8 +66,8 @@ public partial class ReferenceVisualHarness : Node
 
         _status = new Label
         {
-            Text = "Camera: Medium · Look: Final",
-            CustomMinimumSize = new Vector2(232.0f, 0.0f),
+            Text = $"Camera: Medium · Look: {VisualLookProfiles.Shipping}",
+            CustomMinimumSize = new Vector2(250.0f, 0.0f),
         };
         cameraRow.AddChild(_status);
 
@@ -88,10 +88,11 @@ public partial class ReferenceVisualHarness : Node
             CustomMinimumSize = new Vector2(44.0f, 0.0f),
         });
 
-        AddLookPresetButton(lookRow, "Raw [4]", "Raw");
-        AddLookPresetButton(lookRow, "AO [5]", "AO");
-        AddLookPresetButton(lookRow, "Grade [6]", "Grade");
-        AddLookPresetButton(lookRow, "Final [7]", "Final");
+        AddLookPresetButton(lookRow, "Raw [4]", VisualLookProfiles.Raw);
+        AddLookPresetButton(lookRow, "Depth [5]", VisualLookProfiles.Depth);
+        AddLookPresetButton(lookRow, "Punchy [6]", VisualLookProfiles.Punchy);
+        AddLookPresetButton(lookRow, "Soft [7]", VisualLookProfiles.Soft);
+        AddLookPresetButton(lookRow, "Ship [8]", VisualLookProfiles.Shipping);
 
         var capture = new Button
         {
@@ -133,19 +134,23 @@ public partial class ReferenceVisualHarness : Node
                 GetViewport().SetInputAsHandled();
                 break;
             case Key.Key4:
-                ApplyVisualPreset("Raw");
+                ApplyVisualPreset(VisualLookProfiles.Raw);
                 GetViewport().SetInputAsHandled();
                 break;
             case Key.Key5:
-                ApplyVisualPreset("AO");
+                ApplyVisualPreset(VisualLookProfiles.Depth);
                 GetViewport().SetInputAsHandled();
                 break;
             case Key.Key6:
-                ApplyVisualPreset("Grade");
+                ApplyVisualPreset(VisualLookProfiles.Punchy);
                 GetViewport().SetInputAsHandled();
                 break;
             case Key.Key7:
-                ApplyVisualPreset("Final");
+                ApplyVisualPreset(VisualLookProfiles.Soft);
+                GetViewport().SetInputAsHandled();
+                break;
+            case Key.Key8:
+                ApplyVisualPreset(VisualLookProfiles.Shipping);
                 GetViewport().SetInputAsHandled();
                 break;
             case Key.F6:
@@ -173,45 +178,7 @@ public partial class ReferenceVisualHarness : Node
         if (_environment is null) return;
 
         _visualPreset = preset;
-
-        // Keep the actual authored key/fill arrangement fixed between presets. A/B comparisons isolate
-        // the post/ambient contribution instead of accidentally comparing two different light rigs.
-        if (_keyLight is not null) _keyLight.LightEnergy = 1.05f;
-        if (_fillLight is not null) _fillLight.LightEnergy = 0.45f;
-        _environment.AmbientLightEnergy = 0.42f;
-        _environment.TonemapWhite = 2.0f;
-
-        switch (preset)
-        {
-            case "Raw":
-                _environment.SsaoEnabled = false;
-                _environment.TonemapMode = Godot.Environment.ToneMapper.Linear;
-                _environment.GlowEnabled = false;
-                break;
-            case "AO":
-                _environment.SsaoEnabled = true;
-                _environment.SsaoRadius = 1.6f;
-                _environment.SsaoIntensity = 2.6f;
-                _environment.SsaoPower = 1.4f;
-                _environment.TonemapMode = Godot.Environment.ToneMapper.Linear;
-                _environment.GlowEnabled = false;
-                break;
-            case "Grade":
-                _environment.SsaoEnabled = false;
-                _environment.TonemapMode = Godot.Environment.ToneMapper.Filmic;
-                _environment.GlowEnabled = false;
-                break;
-            default:
-                _visualPreset = "Final";
-                _environment.SsaoEnabled = true;
-                _environment.SsaoRadius = 1.6f;
-                _environment.SsaoIntensity = 2.6f;
-                _environment.SsaoPower = 1.4f;
-                _environment.TonemapMode = Godot.Environment.ToneMapper.Filmic;
-                _environment.GlowEnabled = true;
-                _environment.GlowIntensity = 0.18f;
-                break;
-        }
+        VisualLookProfiles.Apply(preset, _environment, _keyLight, _fillLight);
     }
 
     private void CaptureScreenshot()
