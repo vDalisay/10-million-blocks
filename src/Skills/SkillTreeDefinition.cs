@@ -44,9 +44,6 @@ public sealed class SkillNodeDefinition
     public string PurchaseMode { get; set; } = "once"; // once | repeatable
     public List<SkillPrerequisiteDefinition> Prerequisites { get; set; } = new();
 
-    // Optional progressive-disclosure rule. World staging still decides whether a skill belongs in the
-    // current world's tree at all; this flag only decides whether that staged node is revealed before
-    // its authored prerequisite ranks have been reached.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HideUntilPrerequisitesMet { get; set; }
 
@@ -90,8 +87,10 @@ public sealed class SkillTreeCatalog
         "set_shovel_search_radius",
         "unlock_resource_filter",
         "unlock_auto_cloud_charger",
+        "multiply_cloud_charge_rate",
         "add_lightning_radius",
         "add_lightning_chain_count",
+        "multiply_meteor_spawn_rate",
         "add_meteor_radius",
     };
 
