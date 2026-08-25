@@ -57,6 +57,7 @@ known_effects = {
     "set_shovel_search_radius",
     "unlock_resource_filter",
     "unlock_auto_cloud_charger",
+    "unlock_radioactive_cloud",
     "multiply_cloud_charge_rate",
     "add_lightning_radius",
     "add_lightning_chain_count",
@@ -263,6 +264,7 @@ def effect_strings(skill_id: str, effect_type: str):
 
 assert effect_values("drill_hardened_bit", "set_drill_material_tier") == [1.0]
 assert effect_values("drill_ore_bit", "set_drill_material_tier") == [2.0]
+assert effect_values("drill_gem_bit", "set_drill_material_tier") == [3.0]
 assert effect_strings("manual_2x", "set_manual_footprint") == ["plus_3"]
 assert effect_strings("manual_3x", "set_manual_footprint") == ["square_3"]
 assert effect_strings("manual_5x", "set_manual_footprint") == ["square_5"]
@@ -275,12 +277,14 @@ assert effect_values("wide_bore_unlock", "set_miner_pattern_width") == [3.0]
 assert skills["axe_unlock"].get("category") == "forest" and skills["axe_unlock"].get("prerequisites", []) == []
 assert skills["cloud_charger_unlock"].get("category") == "events"
 assert any(effect.get("type") == "unlock_auto_cloud_charger" for effect in skills["cloud_charger_unlock"].get("effects", []))
+assert any(effect.get("type") == "unlock_radioactive_cloud" for effect in skills["radioactive_cloud_unlock"].get("effects", []))
+assert skills["radioactive_cloud_unlock"].get("prerequisites") == [{"node_id": "cloud_charger_unlock", "required_rank": 1}]
 assert skills["cloud_charger_unlock"].get("prerequisites") == [{"node_id": "pickaxe_unlock", "required_rank": 1}]
 assert effect_values("lightning_chain_1", "add_lightning_chain_count") == [1.0]
 assert effect_values("meteor_radius_2", "add_meteor_radius") == [2.0]
 assert effect_values("resource_density_1", "multiply_resource_yield") == [1.25]
 assert effect_values("resource_density_2", "multiply_resource_yield") == [1.5]
 assert effect_values("precious_yield_1", "multiply_precious_resource_yield") == [2.0]
-assert len(skills) >= 40, "expanded incremental tree should retain many small individual purchases"
+assert len(skills) >= 47, "expanded incremental tree should retain many small individual purchases"
 
 print(f"content validation passed: {len(blocks)} blocks, {len(miners)} miners, {len(skills)} skills, {len(worlds)} worlds")
