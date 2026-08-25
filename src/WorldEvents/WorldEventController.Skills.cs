@@ -12,6 +12,7 @@ public partial class WorldEventController
     private const double AutomaticCloudChargeIntervalSeconds = 3.0;
     private const double RadioactiveCloudPulseIntervalSeconds = 6.0;
     private const int RadioactiveCloudRadius = 1;
+    private const int RadioactiveSurfaceSearchDepth = 128;
 
     private SkillTreeService? _eventSkills;
     private Timer? _cloudChargerTimer;
@@ -94,11 +95,35 @@ public partial class WorldEventController
     private void OnRadioactiveCloudPulse()
     {
         if (_cloud is null || _eventSkills is null || !_eventSkills.Derived.RadioactiveCloudUnlocked || !_cloudEnabled) return;
-        if (!TrySurfaceUnder(_cloud.GlobalPosition, out Vector3I target)) return;
+        if (!TryCurrentSurfaceUnder(_cloud.GlobalPosition, out Vector3I target)) return;
 
         ApplyCrater(target, RadioactiveCloudRadius);
         SpawnFlash(_view.VoxelToWorld(target), new Color(0.42f, 1.0f, 0.48f), 2.4f);
         RequestPersistence();
+    }
+
+    /// <summary>
+    /// The generation source knows the original outer shell, while passive clouds need the current
+    /// excavation front. Start from the authored outer surface and walk inward along that face until an
+    /// authoritative present voxel is found. This keeps radioactive idle mining advancing instead of
+    /// repeatedly pulsing a coordinate that an earlier cloud pass already removed.
+    /// </summary>
+    private bool TryCurrentSurfaceUnder(Vector3 worldPosition, out Vector3I voxel)
+    {
+        voxel = default;
+        if (!TrySurfaceUnder(worldPosition, out Vector3I originalSurface)) return false;
+
+        Vector3I outward = DominantNormal(originalSurface);
+        for (int depth = 0; depth < RadioactiveSurfaceSearchDepth; depth++)
+        {
+            Vector3I candidate = originalSurface - outward * depth;
+            BlockSample sample = _world.SampleVoxel(candidate);
+            if (!sample.Present || !sample.Mineable) continue;
+            voxel = candidate;
+            return true;
+        }
+
+        return false;
     }
 
     private double EffectiveCloudChargeInterval()
