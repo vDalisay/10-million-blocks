@@ -115,7 +115,7 @@ public partial class MinerSimulationService
         BlockDefinition block = _mining.GetBlockDefinition(blockId);
         if (block.Tags.Contains("gem", StringComparer.Ordinal))
         {
-            return $"blocked by {blockId}; clear the gem with Rock Breaker/manual mining";
+            return $"blocked by {blockId}; clear it manually/Rock Breaker or buy Gem-Cutting Bit once revealed";
         }
         if (block.Tags.Contains("bomb", StringComparer.Ordinal))
         {
@@ -300,6 +300,7 @@ public partial class MinerSimulationService
         if (block.Tags.Contains("bomb", StringComparer.Ordinal)) return false;
         if (blockId == _world.Profile.StoneBlock) return true;
         if (_skills.Derived.DrillMaterialTier >= 1 && blockId == _world.Profile.DarkStoneBlock) return true;
+        if (_skills.Derived.DrillMaterialTier >= 3 && block.Tags.Contains("gem", StringComparer.Ordinal)) return true;
         if (_skills.Derived.DrillMaterialTier >= 2
             && block.Tags.Contains("ore", StringComparer.Ordinal)
             && !block.Tags.Contains("gem", StringComparer.Ordinal))
