@@ -831,26 +831,6 @@ replace_once(
         _button.AddThemeFontSizeOverride("font_size", 9);
         _button.AddThemeColorOverride("font_color", new Color("#f3c17a"));
         _button.AddThemeColorOverride("font_hover_color", new Color("#ffe0aa"));''')
-replace_once(
-    path,
-    '''        string detail = selected is null
-            ? "automation stopped"
-            : $"{selected.DefinitionId}: {_miners.DescribeStop(selected)}";
-        _button.Text = count == 1
-            ? $"AUTOMATION STOPPED\n{detail}  ·  Click to focus/select"
-            : $"{count} AUTOMATIONS NEED ATTENTION\n{detail}  ·  Click to cycle/focus";''',
-    '''        string code = selected?.DefinitionId switch
-        {
-            "line_miner" => "DRL",
-            "shovel_miner" => "SHV",
-            "pickaxe_miner" => "RBK",
-            "axe_miner" => "CUT",
-            _ => "AUTO",
-        };
-        _button.Text = count == 1
-            ? $"ATTENTION  //  {code} STOPPED  //  CLICK TO FOCUS"
-            : $"ATTENTION  {count}  //  {code} + OTHERS  //  CLICK TO CYCLE";''')
-
 # Add a status note to implementation docs.
 status_path = ROOT / "docs/IMPLEMENTATION_STATUS.md"
 status = status_path.read_text(encoding="utf-8")
