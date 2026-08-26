@@ -232,7 +232,7 @@ public partial class GameRoot : Node3D
         _sessionRoot.AddChild(_manualMining);
 
         _resourceCollection = new ResourceCollectionField { Name = "ResourceCollectionField" };
-        _resourceCollection.Initialize(_world, _mining, _skills, _camera, _manualMining);
+        _resourceCollection.Initialize(_world, _mining, _skills, _camera, _manualMining, _assets);
         if (savedWorld is not null) _resourceCollection.RestoreSnapshot(savedWorld.PendingPickups);
         _resourceCollection.PendingChanged += OnPendingCollectionChanged;
         _sessionRoot.AddChild(_resourceCollection);

@@ -15,8 +15,8 @@ internal static class SkillTreeSpacePalette
 {
     public static readonly Color Backdrop = new("#070d1c");
     public static readonly Color BackdropDeep = new("#030712");
-    public static readonly Color Panel = new("#101a2f");
-    public static readonly Color PanelRaised = new("#15233d");
+    public static readonly Color Panel = new("#0b1424");
+    public static readonly Color PanelRaised = new("#111d30");
     public static readonly Color Grid = new("#1c2a46");
     public static readonly Color Text = new("#e7f1ff");
     public static readonly Color TextMuted = new("#8ea4be");
@@ -30,16 +30,16 @@ internal static class SkillTreeSpacePalette
 
     private static readonly Dictionary<string, Color> CategoryColors = new(StringComparer.Ordinal)
     {
-        ["manual"] = new Color("#52dcc8"),
-        ["automation"] = new Color("#55a9ff"),
-        ["drill"] = new Color("#7e83ff"),
-        ["patterns"] = new Color("#c978ff"),
-        ["resources"] = new Color("#f3c75e"),
-        ["tools"] = new Color("#ff8872"),
-        ["events"] = new Color("#a979ff"),
-        ["forest"] = new Color("#76d58a"),
-        ["shovel"] = new Color("#ffad62"),
-        ["finale"] = new Color("#ff78b7"),
+        ["manual"] = new Color("#68c7b9"),
+        ["automation"] = new Color("#6d9fc8"),
+        ["drill"] = new Color("#858fc0"),
+        ["patterns"] = new Color("#9d86b9"),
+        ["resources"] = new Color("#c3a563"),
+        ["tools"] = new Color("#bd8274"),
+        ["events"] = new Color("#9a82b7"),
+        ["forest"] = new Color("#7dad87"),
+        ["shovel"] = new Color("#bd8a5d"),
+        ["finale"] = new Color("#b7809d"),
     };
 
     public static Color CategoryColor(string category)
@@ -150,13 +150,22 @@ internal partial class SkillNodeSpaceAura : Control
     public override void _Draw()
     {
         Vector2 center = Size * 0.5f;
-        float radius = MathF.Min(Size.X, Size.Y) * 0.43f;
+        float radius = MathF.Min(Size.X, Size.Y) * 0.45f;
         Color outer = RingColor;
-        outer.A *= 0.42f;
+        outer.A *= 0.20f;
         Color inner = RingColor;
-        inner.A *= 0.72f;
-        DrawArc(center, radius, 0, Mathf.Tau, 48, outer, 5.0f, true);
-        DrawArc(center, MathF.Max(1.0f, radius - 4.0f), 0, Mathf.Tau, 48, inner, 1.2f, true);
+        inner.A *= 0.38f;
+        DrawArc(center, radius, 0, Mathf.Tau, 64, outer, 2.2f, true);
+        DrawArc(center, MathF.Max(1.0f, radius - 3.0f), 0, Mathf.Tau, 64, inner, 0.85f, true);
+
+        Color tick = RingColor;
+        tick.A *= 0.30f;
+        for (int i = 0; i < 4; i++)
+        {
+            float angle = i * Mathf.Pi * 0.5f;
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            DrawLine(center + direction * (radius - 1.5f), center + direction * (radius + 2.5f), tick, 1.0f, true);
+        }
     }
 }
 
@@ -173,10 +182,12 @@ public partial class IncrementalSkillNodeButton
         _spaceFeedbackInstalled = true;
         _categoryColor = SkillTreeSpacePalette.CategoryColor(node.Category);
 
-        // Center the atlas cell itself rather than relying on each glyph's old hand-authored inset.
-        _icon.Position = new Vector2(11, 11);
-        _icon.Size = new Vector2(48, 48);
-        _icon.PivotOffset = new Vector2(24, 24);
+        // Center the atlas cell, then apply a small optical correction for asymmetric glyph art.
+        const float iconSize = 44.0f;
+        Vector2 opticalOffset = SkillTreeIconAtlas.OpticalOffsetForSkill(node.Id);
+        _icon.Position = new Vector2((70.0f - iconSize) * 0.5f, (70.0f - iconSize) * 0.5f) + opticalOffset;
+        _icon.Size = new Vector2(iconSize, iconSize);
+        _icon.PivotOffset = new Vector2(iconSize * 0.5f, iconSize * 0.5f);
         _icon.Scale = Vector2.One;
         _icon.Rotation = 0.0f;
 
@@ -186,9 +197,9 @@ public partial class IncrementalSkillNodeButton
 
         _spaceAura = new SkillNodeSpaceAura
         {
-            Position = new Vector2(-5, -5),
-            Size = new Vector2(80, 80),
-            PivotOffset = new Vector2(40, 40),
+            Position = new Vector2(-3, -3),
+            Size = new Vector2(76, 76),
+            PivotOffset = new Vector2(38, 38),
             MouseFilter = MouseFilterEnum.Ignore,
             RingColor = _categoryColor,
             Modulate = new Color(1, 1, 1, 0.08f),
@@ -205,37 +216,39 @@ public partial class IncrementalSkillNodeButton
         Color fill;
         Color border;
         Color icon;
-        int radius = _visualKind == SkillNodeVisualKind.Stat ? 35 : (_visualKind == SkillNodeVisualKind.Milestone ? 16 : 10);
-        int borderWidth = _visualKind == SkillNodeVisualKind.Milestone ? 3 : 2;
+        int radius = _visualKind == SkillNodeVisualKind.Stat ? 28 : (_visualKind == SkillNodeVisualKind.Milestone ? 9 : 7);
+        int borderWidth = 1;
 
         if (maxed)
         {
-            fill = _categoryColor.Darkened(0.44f);
-            border = _categoryColor.Lightened(0.16f);
-            icon = SkillTreeSpacePalette.Text;
+            fill = new Color(0.045f, 0.085f, 0.13f, 0.98f);
+            border = _categoryColor.Lightened(0.10f);
+            icon = new Color(0.86f, 0.91f, 0.95f);
         }
         else if (!requirementsMet)
         {
-            fill = SkillTreeSpacePalette.LockedDark;
-            border = SkillTreeSpacePalette.Locked;
+            fill = new Color(0.040f, 0.065f, 0.10f, 0.96f);
+            border = SkillTreeSpacePalette.Locked.Darkened(0.08f);
             icon = SkillTreeSpacePalette.TextFaint;
         }
         else
         {
-            fill = affordable ? _categoryColor.Darkened(0.57f) : SkillTreeSpacePalette.PanelRaised;
-            border = affordable ? _categoryColor.Lightened(0.08f) : _categoryColor.Darkened(0.28f);
-            icon = affordable ? SkillTreeSpacePalette.Text : SkillTreeSpacePalette.TextMuted;
+            fill = affordable
+                ? new Color(0.050f, 0.090f, 0.14f, 0.97f)
+                : new Color(0.050f, 0.075f, 0.115f, 0.96f);
+            border = affordable ? _categoryColor : _categoryColor.Darkened(0.38f);
+            icon = affordable ? new Color(0.88f, 0.93f, 0.97f) : SkillTreeSpacePalette.TextMuted;
         }
 
         if (_recommended && !maxed && requirementsMet)
         {
-            border = _categoryColor.Lightened(0.24f);
-            borderWidth += 1;
+            border = _categoryColor.Lightened(0.17f);
+            borderWidth = 2;
         }
 
         AddThemeStyleboxOverride("normal", SkillTreeSpacePalette.Box(fill, border, radius, borderWidth));
-        AddThemeStyleboxOverride("hover", SkillTreeSpacePalette.Box(fill.Lightened(0.08f), border.Lightened(0.16f), radius, borderWidth + 1));
-        AddThemeStyleboxOverride("pressed", SkillTreeSpacePalette.Box(fill.Darkened(0.08f), border, radius, borderWidth + 1));
+        AddThemeStyleboxOverride("hover", SkillTreeSpacePalette.Box(fill.Lightened(0.035f), border.Lightened(0.08f), radius, borderWidth + 1));
+        AddThemeStyleboxOverride("pressed", SkillTreeSpacePalette.Box(fill.Darkened(0.035f), border, radius, borderWidth + 1));
         AddThemeStyleboxOverride("disabled", SkillTreeSpacePalette.Box(fill, border, radius, borderWidth));
 
         _icon.SelfModulate = icon;
@@ -244,10 +257,10 @@ public partial class IncrementalSkillNodeButton
         _lockGlyph.QueueRedraw();
         if (_spaceAura is not null)
         {
-            _spaceAura.RingColor = maxed ? _categoryColor.Lightened(0.18f) : _categoryColor;
+            _spaceAura.RingColor = maxed ? _categoryColor.Lightened(0.12f) : _categoryColor;
             _spaceAura.QueueRedraw();
             if (!IsHovered())
-                _spaceAura.Modulate = new Color(1, 1, 1, maxed ? 0.20f : affordable && requirementsMet ? 0.16f : 0.06f);
+                _spaceAura.Modulate = new Color(1, 1, 1, maxed ? 0.12f : affordable && requirementsMet ? 0.09f : 0.025f);
         }
     }
 
@@ -256,51 +269,47 @@ public partial class IncrementalSkillNodeButton
         if (_spaceAura is null) return;
         if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
         {
-            _spaceAura.Modulate = new Color(1, 1, 1, 0.22f);
+            _spaceAura.Modulate = new Color(1, 1, 1, 0.15f);
             return;
         }
 
         _spacePurchaseTween?.Kill();
         _spaceHoverTween?.Kill();
         _spaceAura.Scale = Vector2.One;
-        _spaceAura.Modulate = Colors.White;
+        _spaceAura.Modulate = new Color(1, 1, 1, 0.55f);
         _icon.Rotation = 0.0f;
         _icon.Scale = Vector2.One;
 
         _spacePurchaseTween = CreateTween();
         _spacePurchaseTween.SetParallel(true);
-        _spacePurchaseTween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Back);
-        _spacePurchaseTween.TweenProperty(_spaceAura, "scale", Vector2.One * 1.75f, 0.38f);
-        _spacePurchaseTween.TweenProperty(_spaceAura, "modulate:a", 0.0f, 0.42f);
-        _spacePurchaseTween.TweenProperty(_icon, "scale", Vector2.One * 1.20f, 0.13f);
-        _spacePurchaseTween.TweenProperty(_icon, "rotation", 0.18f, 0.12f);
-        _spacePurchaseTween.Chain().SetParallel(true);
-        _spacePurchaseTween.TweenProperty(_icon, "scale", Vector2.One, 0.20f);
-        _spacePurchaseTween.TweenProperty(_icon, "rotation", 0.0f, 0.20f);
+        _spacePurchaseTween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
+        _spacePurchaseTween.TweenProperty(_spaceAura, "scale", Vector2.One * 1.32f, 0.30f);
+        _spacePurchaseTween.TweenProperty(_spaceAura, "modulate:a", 0.0f, 0.34f);
+        _spacePurchaseTween.TweenProperty(_icon, "scale", Vector2.One * 1.075f, 0.12f);
+        _spacePurchaseTween.Chain().TweenProperty(_icon, "scale", Vector2.One, 0.15f);
         _spacePurchaseTween.TweenCallback(Callable.From(() => SetSpaceHover(IsHovered())));
     }
 
     private void SetSpaceHover(bool hovered)
     {
         if (_spaceAura is null || _icon is null) return;
-        float auraAlpha = hovered ? 0.66f : (_purchased ? 0.20f : _affordable && _requirementsMet ? 0.16f : 0.06f);
-        Vector2 iconScale = hovered ? Vector2.One * 1.12f : Vector2.One;
-        float iconRotation = hovered ? -0.055f : 0.0f;
+        float auraAlpha = hovered ? 0.26f : (_purchased ? 0.12f : _affordable && _requirementsMet ? 0.09f : 0.025f);
+        Vector2 iconScale = hovered ? Vector2.One * 1.045f : Vector2.One;
 
         if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
         {
             _spaceAura.Modulate = new Color(1, 1, 1, auraAlpha);
             _icon.Scale = iconScale;
-            _icon.Rotation = iconRotation;
+            _icon.Rotation = 0.0f;
             return;
         }
 
         _spaceHoverTween?.Kill();
         _spaceHoverTween = CreateTween().SetParallel(true);
         _spaceHoverTween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Quad);
-        _spaceHoverTween.TweenProperty(_spaceAura, "modulate:a", auraAlpha, 0.12f);
-        _spaceHoverTween.TweenProperty(_spaceAura, "scale", hovered ? Vector2.One * 1.08f : Vector2.One, 0.14f);
-        _spaceHoverTween.TweenProperty(_icon, "scale", iconScale, 0.12f);
-        _spaceHoverTween.TweenProperty(_icon, "rotation", iconRotation, 0.14f);
+        _spaceHoverTween.TweenProperty(_spaceAura, "modulate:a", auraAlpha, 0.13f);
+        _spaceHoverTween.TweenProperty(_spaceAura, "scale", hovered ? Vector2.One * 1.025f : Vector2.One, 0.15f);
+        _spaceHoverTween.TweenProperty(_icon, "scale", iconScale, 0.13f);
+        _spaceHoverTween.TweenProperty(_icon, "rotation", 0.0f, 0.10f);
     }
 }

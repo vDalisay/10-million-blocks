@@ -266,6 +266,6 @@ No additional one-million performance benchmark is required for this progression
 ## Hover resource collection pass
 
 - Manual and live automation mining now leave ordinary-resource pickups in-world until hovered; special resources retain their direct authoritative path.
-- Pickup presentation is data-only and rendered through fixed-capacity 8x8x8 MultiMesh buckets; hover interaction queries only buckets along the cursor ray.
+- Pickup presentation is data-only and rendered through fixed-capacity 8x8x8 spatial buckets split by real block visual; each MultiMesh reuses the mined block mesh/material, new drops pop outward before settling into a bucket-level hover bob, and hover interaction queries only cells along the cursor ray.
 - Collector Reach/Pull upgrades expand radius and throughput, Personal Auto-Collect removes manual pickup friction later, and Automation Logistics separately enables live-automation auto-collection.
 - Pending pickups persist in world saves and final completion waits until the last deferred reward is collected.

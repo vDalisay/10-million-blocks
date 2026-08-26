@@ -254,7 +254,7 @@ public partial class SkillTreeView : CanvasLayer
             ZIndex = 40,
         };
         _detailPanel.AddThemeStyleboxOverride("panel", SkillTreeSpacePalette.Box(
-            new Color(0.055f, 0.095f, 0.17f, 0.97f), new Color("#344b70"), 12, 2));
+            new Color(0.035f, 0.065f, 0.115f, 0.97f), new Color("#31445f"), 7, 1));
         _root.AddChild(_detailPanel);
 
         var stack = new VBoxContainer();
@@ -719,14 +719,14 @@ public partial class SkillGraphCanvas : Control
                 bool requirementMet = _skills.GetRank(prerequisite.NodeId) >= prerequisite.RequiredRank;
                 Color branch = SkillTreeSpacePalette.CategoryColor(node.Category);
                 Color lineColor = requirementMet ? branch : SkillTreeSpacePalette.Locked;
-                float lineWidth = requirementMet ? 3.2f : 2.4f;
+                float lineWidth = requirementMet ? 1.85f : 1.25f;
                 List<Vector2> points = BuildEdgePoints(sourceNode, node, prerequisite);
 
                 for (int i = 0; i < points.Count - 1; i++)
                 {
                     Color glow = lineColor;
-                    glow.A = requirementMet ? 0.18f : 0.10f;
-                    DrawLine(points[i], points[i + 1], glow, lineWidth + 6.0f, true);
+                    glow.A = requirementMet ? 0.09f : 0.045f;
+                    DrawLine(points[i], points[i + 1], glow, lineWidth + 3.0f, true);
                     DrawLine(points[i], points[i + 1], lineColor, lineWidth, true);
                     if (requirementMet && GraphicsSettingsRuntime.Current?.ReducedMotionEnabled != true)
                         DrawFlowDot(points[i], points[i + 1], branch, i * 0.17);
@@ -777,12 +777,12 @@ public partial class SkillGraphCanvas : Control
 
     private void DrawFlowDot(Vector2 from, Vector2 to, Color color, double offset)
     {
-        float t = (float)((_flowTime * 0.34 + offset) % 1.0);
+        float t = (float)((_flowTime * 0.22 + offset) % 1.0);
         Vector2 position = from.Lerp(to, t);
         Color glow = color;
-        glow.A = 0.24f;
-        DrawCircle(position, 7.0f, glow);
-        DrawCircle(position, 2.7f, color.Lightened(0.30f));
+        glow.A = 0.13f;
+        DrawCircle(position, 3.8f, glow);
+        DrawCircle(position, 1.45f, color.Lightened(0.22f));
     }
 
     public static Vector2 NodePosition(SkillNodeDefinition node)

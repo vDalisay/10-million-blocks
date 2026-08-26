@@ -177,6 +177,32 @@ internal static class SkillTreeIconAtlas
         ["shovel_search_upgrade"] = 17,
     };
 
+    private static readonly Dictionary<int, Vector2> OpticalOffsets = new()
+    {
+        [0] = new Vector2(-2.0f, 2.0f),
+        [2] = new Vector2(-3.0f, 4.0f),
+        [6] = new Vector2(0.5f, 1.0f),
+        [7] = new Vector2(1.0f, 0.0f),
+        [9] = new Vector2(-2.5f, 2.0f),
+        [10] = new Vector2(1.0f, -2.0f),
+        [11] = new Vector2(0.0f, -2.0f),
+        [12] = new Vector2(-2.0f, 0.0f),
+        [13] = new Vector2(4.0f, 0.0f),
+        [14] = new Vector2(1.0f, 0.0f),
+        [16] = new Vector2(-2.0f, 0.0f),
+        [17] = new Vector2(-2.0f, 0.0f),
+        [19] = new Vector2(0.0f, -3.0f),
+        [20] = new Vector2(2.0f, 2.0f),
+        [21] = new Vector2(2.0f, 0.0f),
+        [22] = new Vector2(-2.5f, 0.0f),
+    };
+
+    public static Vector2 OpticalOffsetForSkill(string skillId)
+    {
+        int index = Indices.GetValueOrDefault(skillId, 4);
+        return OpticalOffsets.GetValueOrDefault(index, Vector2.Zero);
+    }
+
     public static Texture2D? ForSkill(string skillId)
     {
         _sheet ??= ResourceLoader.Load<Texture2D>(SheetPath);
@@ -286,10 +312,10 @@ public partial class IncrementalSkillNodeButton : Button
         _recommendBadge.AddThemeFontSizeOverride("font_size", 10);
         AddChild(_recommendBadge);
 
-        MouseEntered += () => { Hovered?.Invoke(this); AnimateScale(1.11f, 0.08f); };
-        MouseExited += () => AnimateScale(1.0f, 0.10f);
-        ButtonDown += () => AnimateScale(0.92f, 0.045f);
-        ButtonUp += () => AnimateScale(IsHovered() ? 1.11f : 1.0f, 0.09f);
+        MouseEntered += () => { Hovered?.Invoke(this); AnimateScale(1.045f, 0.09f); };
+        MouseExited += () => AnimateScale(1.0f, 0.11f);
+        ButtonDown += () => AnimateScale(0.97f, 0.05f);
+        ButtonUp += () => AnimateScale(IsHovered() ? 1.045f : 1.0f, 0.10f);
 
         _initialized = true;
         ApplyState(0, 1, false, false, false, immediate: true);
@@ -307,8 +333,8 @@ public partial class IncrementalSkillNodeButton : Button
         _time += delta;
         if ((_affordable || _recommended) && _requirementsMet && !_purchased && !Disabled)
         {
-            float amplitude = _recommended ? 0.030f : 0.014f;
-            float frequency = _recommended ? 3.8f : 3.1f;
+            float amplitude = _recommended ? 0.011f : 0.005f;
+            float frequency = _recommended ? 2.2f : 1.8f;
             float pulse = 1.0f + amplitude * (float)Math.Sin(_time * frequency);
             if (!IsHovered()) Scale = _baseScale * pulse;
         }
@@ -395,8 +421,8 @@ public partial class IncrementalSkillNodeButton : Button
         if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true) return;
         Tween tween = CreateTween();
         tween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Back);
-        tween.TweenProperty(this, "scale", Vector2.One * 1.27f, 0.10f);
-        tween.TweenProperty(this, "scale", Vector2.One * 0.96f, 0.08f);
+        tween.TweenProperty(this, "scale", Vector2.One * 1.10f, 0.11f);
+        tween.TweenProperty(this, "scale", Vector2.One * 0.985f, 0.08f);
         tween.TweenProperty(this, "scale", Vector2.One, 0.16f);
     }
 

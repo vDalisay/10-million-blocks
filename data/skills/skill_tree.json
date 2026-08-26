@@ -1,11 +1,11 @@
 {
   "schema_version": 2,
-  "content_version": 18,
+  "content_version": 19,
   "nodes": [
     {
       "id": "collection_reach_1",
       "display_name": "Collector Reach I",
-      "description": "Increase the hover pickup field from 0.32 to 0.50 block widths so floating resources are easier to catch without precise pixel-perfect aiming.",
+      "description": "Double the initial hover pickup field to a full 1.0 block width so nearby miniature drops are easy to sweep up.",
       "grid_x": -2,
       "grid_y": 0,
       "category": "manual",
@@ -16,7 +16,7 @@
       "effects": [
         {
           "type": "set_collection_radius_blocks",
-          "value": 0.5
+          "value": 1.0
         }
       ]
     },
@@ -47,7 +47,7 @@
     {
       "id": "collection_reach_2",
       "display_name": "Collector Reach II",
-      "description": "Expand the hover pickup field again, from 0.50 to 0.80 block widths.",
+      "description": "Expand the hover pickup field again, from 1.0 to 1.6 block widths for broad cluster collection.",
       "grid_x": -2,
       "grid_y": 4,
       "category": "manual",
@@ -64,7 +64,7 @@
       "effects": [
         {
           "type": "set_collection_radius_blocks",
-          "value": 0.8
+          "value": 1.6
         }
       ]
     },
