@@ -71,8 +71,9 @@ public partial class IncrementalFeedbackView : CanvasLayer
     private ResourceCollectionField _collection = null!;
 
     private Control _root = null!;
-    private HBoxContainer _counterBar = null!;
-    private HBoxContainer _specialRow = null!;
+    private Control _counterBar = null!;
+    private VBoxContainer _resourceRail = null!;
+    private VBoxContainer _specialRow = null!;
     private CounterChip _blocksChip = null!;
     private CounterChip _resourcesChip = null!;
 
@@ -156,76 +157,140 @@ public partial class IncrementalFeedbackView : CanvasLayer
         _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_root);
 
-        _counterBar = new HBoxContainer
+        // The mined total is intentionally isolated in the upper-left. Incremental games make the
+        // primary number the strongest piece of hierarchy; the world itself stays visually central.
+        _counterBar = new Control
         {
-            AnchorLeft = 0.5f,
-            AnchorRight = 0.5f,
-            OffsetLeft = -310.0f,
+            AnchorLeft = 0.0f,
+            AnchorTop = 0.0f,
+            AnchorRight = 0.0f,
+            AnchorBottom = 0.0f,
+            OffsetLeft = 14.0f,
             OffsetTop = 14.0f,
-            OffsetRight = 310.0f,
-            OffsetBottom = 66.0f,
-            Alignment = BoxContainer.AlignmentMode.Center,
+            OffsetRight = 242.0f,
+            OffsetBottom = 96.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        _counterBar.AddThemeConstantOverride("separation", 8);
         _root.AddChild(_counterBar);
 
-        _blocksChip = BuildCounterChip("BLOCKS MINED", "0", 178.0f);
-        _resourcesChip = BuildCounterChip("RESOURCES", "0", 154.0f);
+        _blocksChip = BuildCounterChip("BLOCKS MINED", "0", 228.0f);
+        _blocksChip.Root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _counterBar.AddChild(_blocksChip.Root);
-        _counterBar.AddChild(_resourcesChip.Root);
 
-        _specialRow = new HBoxContainer
+        // Resource buckets live on the opposite side, echoing the reference idlers without inventing
+        // additional currencies. Ordinary resources are one bucket; the three existing gem inventories
+        // are persistent individual buckets and remain visible at zero so the player can read the system.
+        _resourceRail = new VBoxContainer
         {
-            Alignment = BoxContainer.AlignmentMode.Center,
+            AnchorLeft = 1.0f,
+            AnchorTop = 0.0f,
+            AnchorRight = 1.0f,
+            AnchorBottom = 0.0f,
+            OffsetLeft = -176.0f,
+            OffsetTop = 72.0f,
+            OffsetRight = -14.0f,
+            OffsetBottom = 370.0f,
+            Alignment = BoxContainer.AlignmentMode.Begin,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _resourceRail.AddThemeConstantOverride("separation", 6);
+        _root.AddChild(_resourceRail);
+
+        var resourceHeader = new Label
+        {
+            Text = "RESOURCE LEDGER",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        resourceHeader.AddThemeFontSizeOverride("font_size", 10);
+        resourceHeader.AddThemeColorOverride("font_color", new Color("#6d8796"));
+        _resourceRail.AddChild(resourceHeader);
+
+        _resourcesChip = BuildCounterChip("RESOURCES", "0", 162.0f);
+        _resourceRail.AddChild(_resourcesChip.Root);
+
+        _specialRow = new VBoxContainer
+        {
+            Alignment = BoxContainer.AlignmentMode.Begin,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         _specialRow.AddThemeConstantOverride("separation", 6);
-        _counterBar.AddChild(_specialRow);
+        _resourceRail.AddChild(_specialRow);
 
-        foreach ((string resourceId, long amount) in _specialResources.Balances)
+        EnsureSpecialChip("gem_red");
+        EnsureSpecialChip("gem_blue");
+        EnsureSpecialChip("gem_green");
+        foreach ((string resourceId, _) in _specialResources.Balances)
         {
-            if (amount > 0) EnsureSpecialChip(resourceId);
+            EnsureSpecialChip(resourceId);
         }
     }
 
     private CounterChip BuildCounterChip(string caption, string value, float width)
     {
+        bool primary = string.Equals(caption, "BLOCKS MINED", StringComparison.Ordinal);
+        Color accent = primary ? new Color("#71ded0") : new Color("#e7b45c");
         var panel = new PanelContainer
         {
-            CustomMinimumSize = new Vector2(width, 50.0f),
+            CustomMinimumSize = new Vector2(width, primary ? 82.0f : 58.0f),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
+        panel.AddThemeStyleboxOverride("panel", RetroPanel(accent, primary ? 0.78f : 0.72f));
+
         var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-        margin.AddThemeConstantOverride("margin_left", 10);
-        margin.AddThemeConstantOverride("margin_right", 10);
-        margin.AddThemeConstantOverride("margin_top", 5);
-        margin.AddThemeConstantOverride("margin_bottom", 5);
+        margin.AddThemeConstantOverride("margin_left", primary ? 14 : 10);
+        margin.AddThemeConstantOverride("margin_right", primary ? 14 : 10);
+        margin.AddThemeConstantOverride("margin_top", primary ? 8 : 6);
+        margin.AddThemeConstantOverride("margin_bottom", primary ? 8 : 6);
         panel.AddChild(margin);
 
         var column = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-        column.AddThemeConstantOverride("separation", 0);
+        column.AddThemeConstantOverride("separation", primary ? 1 : 0);
         margin.AddChild(column);
 
         var captionLabel = new Label
         {
             Text = caption,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        captionLabel.AddThemeFontSizeOverride("font_size", 11);
+        captionLabel.AddThemeFontSizeOverride("font_size", primary ? 11 : 10);
+        captionLabel.AddThemeColorOverride("font_color", new Color(accent, 0.82f));
         column.AddChild(captionLabel);
 
         var valueLabel = new Label
         {
             Text = value,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        valueLabel.AddThemeFontSizeOverride("font_size", 20);
+        valueLabel.AddThemeFontSizeOverride("font_size", primary ? 31 : 20);
+        valueLabel.AddThemeColorOverride("font_color", primary ? new Color("#effffd") : new Color("#fff4d5"));
+        valueLabel.AddThemeConstantOverride("outline_size", 3);
+        valueLabel.AddThemeColorOverride("font_outline_color", new Color(0.0f, 0.04f, 0.06f, 0.9f));
         column.AddChild(valueLabel);
 
         return new CounterChip { Root = panel, Caption = captionLabel, Value = valueLabel };
+    }
+
+    private static StyleBoxFlat RetroPanel(Color accent, float opacity)
+    {
+        var style = new StyleBoxFlat
+        {
+            BgColor = new Color(0.008f, 0.022f, 0.036f, opacity),
+            BorderColor = new Color(accent, 0.58f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 2,
+            CornerRadiusTopRight = 2,
+            CornerRadiusBottomLeft = 2,
+            CornerRadiusBottomRight = 2,
+            ShadowColor = new Color(0, 0, 0, 0.30f),
+            ShadowSize = 5,
+            ShadowOffset = new Vector2(0, 2),
+        };
+        return style;
     }
 
     private CounterChip EnsureSpecialChip(string resourceId)
@@ -233,33 +298,71 @@ public partial class IncrementalFeedbackView : CanvasLayer
         if (_specialChips.TryGetValue(resourceId, out CounterChip? existing)) return existing;
 
         BlockDefinition definition = _mining.GetBlockDefinition(resourceId);
-        CounterChip chip = BuildCounterChip(definition.DisplayName.ToUpperInvariant(), "0", 136.0f);
-
-        var row = new HBoxContainer
+        Color accent = resourceId switch
         {
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-            Alignment = BoxContainer.AlignmentMode.Center,
+            "gem_red" => new Color("#f06a61"),
+            "gem_blue" => new Color("#55b8ec"),
+            "gem_green" => new Color("#54d79a"),
+            _ => new Color("#9eb8c5"),
         };
-        row.AddThemeConstantOverride("separation", 2);
+
+        var panel = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(162.0f, 54.0f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        panel.AddThemeStyleboxOverride("panel", RetroPanel(accent, 0.68f));
+
+        var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        margin.AddThemeConstantOverride("margin_left", 7);
+        margin.AddThemeConstantOverride("margin_right", 9);
+        margin.AddThemeConstantOverride("margin_top", 5);
+        margin.AddThemeConstantOverride("margin_bottom", 5);
+        panel.AddChild(margin);
+
+        var row = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        row.AddThemeConstantOverride("separation", 7);
+        margin.AddChild(row);
 
         var icon = new TextureRect
         {
             Texture = GetPreviewTexture(resourceId),
-            CustomMinimumSize = new Vector2(26, 26),
+            CustomMinimumSize = new Vector2(34, 34),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             MouseFilter = Control.MouseFilterEnum.Ignore,
+            Modulate = new Color(1, 1, 1, 0.92f),
         };
         row.AddChild(icon);
 
-        VBoxContainer? column = FindFirstVBox(chip.Root);
-        column?.AddChild(row);
-        if (column is not null)
+        var column = new VBoxContainer
         {
-            column.MoveChild(row, column.GetChildCount() - 1);
-        }
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        column.AddThemeConstantOverride("separation", -2);
+        row.AddChild(column);
 
-        _specialRow.AddChild(chip.Root);
+        var caption = new Label
+        {
+            Text = definition.DisplayName.ToUpperInvariant(),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        caption.AddThemeFontSizeOverride("font_size", 9);
+        caption.AddThemeColorOverride("font_color", new Color(accent, 0.86f));
+        column.AddChild(caption);
+
+        var value = new Label
+        {
+            Text = "0",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        value.AddThemeFontSizeOverride("font_size", 19);
+        value.AddThemeColorOverride("font_color", new Color("#edf7f7"));
+        column.AddChild(value);
+
+        var chip = new CounterChip { Root = panel, Caption = caption, Value = value };
+        _specialRow.AddChild(panel);
         _specialChips.Add(resourceId, chip);
         return chip;
     }
@@ -322,9 +425,10 @@ public partial class IncrementalFeedbackView : CanvasLayer
             }
             else
             {
+                Control destination = result.Reward > 0 ? _resourcesChip.Root : _blocksChip.Root;
                 QueuePickup(
                     result.BlockId,
-                    _blocksChip.Root,
+                    destination,
                     result.BlocksRemoved,
                     result.Reward,
                     source,
@@ -355,9 +459,10 @@ public partial class IncrementalFeedbackView : CanvasLayer
         _counterRefreshPending = true;
         Pulse(_blocksChip.Root, strong: collected.BlocksRemoved > 1);
         if (collected.Amount > 0) Pulse(_resourcesChip.Root, strong: collected.Amount > 1);
+        Control destination = collected.Amount > 0 ? _resourcesChip.Root : _blocksChip.Root;
         QueuePickup(
             collected.BlockId,
-            _blocksChip.Root,
+            destination,
             Math.Max(1L, collected.BlocksRemoved),
             Math.Max(0L, collected.Amount),
             collected.ScreenPosition,
@@ -388,8 +493,11 @@ public partial class IncrementalFeedbackView : CanvasLayer
     {
         _counterRefreshPending = false;
         if (_blocksChip is null || _resourcesChip is null) return;
-        _blocksChip.Value.Text =
-            $"{IncrementalNumberFormatter.Format(_mining.TotalMined)} / {IncrementalNumberFormatter.Format(_world.InitialMineableBlocks)}";
+        double percent = _world.InitialMineableBlocks <= 0
+            ? 100.0
+            : Math.Clamp(_mining.TotalMined * 100.0 / _world.InitialMineableBlocks, 0.0, 100.0);
+        _blocksChip.Caption.Text = $"BLOCKS MINED  //  {percent:0.0}% OF {IncrementalNumberFormatter.Format(_world.InitialMineableBlocks)}";
+        _blocksChip.Value.Text = IncrementalNumberFormatter.Format(_mining.TotalMined);
         _resourcesChip.Value.Text = IncrementalNumberFormatter.Format(_mining.Currency);
         RefreshSpecialCounters();
     }

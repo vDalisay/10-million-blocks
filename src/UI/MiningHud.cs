@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using TenMillionBlocks.Automation;
 using TenMillionBlocks.Mining;
@@ -115,10 +116,11 @@ public partial class MiningHud : CanvasLayer
             AnchorTop = 1.0f,
             AnchorBottom = 1.0f,
             OffsetLeft = 16.0f,
-            OffsetTop = -94.0f,
+            OffsetTop = -220.0f,
             OffsetRight = 690.0f,
-            OffsetBottom = -16.0f,
+            OffsetBottom = -54.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
+            Visible = false,
         };
         root.AddChild(_panel);
 
@@ -171,6 +173,7 @@ public partial class MiningHud : CanvasLayer
         _automationToggle.Pressed += ToggleAutomationMenu;
         _automationToggle.Visible = _world.Profile.AutomationAvailable;
         root.AddChild(_automationToggle);
+        BuildRetroHud(root);
 
         _placementHint = new Label
         {
@@ -285,7 +288,7 @@ public partial class MiningHud : CanvasLayer
 
         _detailsVisible = !_detailsVisible;
         _details.Visible = _detailsVisible;
-        _panel.OffsetTop = _detailsVisible ? -222.0f : -94.0f;
+        _panel.Visible = _detailsVisible;
         if (_detailsVisible) RefreshDetails();
         GetViewport().SetInputAsHandled();
     }
@@ -509,6 +512,7 @@ public partial class MiningHud : CanvasLayer
         _feedback.Text = message;
         _feedback.Visible = true;
         _feedbackTime = duration;
+        ShowRetroEvent(message, duration);
     }
 
     private void ShowAutomationFeedback(string message)
@@ -608,6 +612,8 @@ public partial class MiningHud : CanvasLayer
                     : "LMB: mine the highlighted block";
             }
         }
+
+        RefreshRetroHud();
 
         // The expensive four-card prerequisite/cost refresh is irrelevant while its drawer is hidden.
         // Opening the drawer refreshes it immediately, and while open it tracks the same coalesced tick.
