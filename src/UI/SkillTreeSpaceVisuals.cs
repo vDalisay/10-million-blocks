@@ -236,7 +236,7 @@ public partial class IncrementalSkillNodeButton
 
         // Center the atlas cell, then apply a small optical correction for asymmetric glyph art.
         const float iconSize = 42.0f;
-        Vector2 opticalOffset = SkillTreeIconAtlas.OpticalOffsetForSkill(node.Id);
+        Vector2 opticalOffset = SkillTreeIconAtlas.OpticalOffsetForSkill(node.Id, iconSize);
         _icon.Position = new Vector2((70.0f - iconSize) * 0.5f, (70.0f - iconSize) * 0.5f) + opticalOffset;
         _icon.Size = new Vector2(iconSize, iconSize);
         _icon.PivotOffset = new Vector2(iconSize * 0.5f, iconSize * 0.5f);

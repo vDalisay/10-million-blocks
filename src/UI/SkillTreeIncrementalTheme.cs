@@ -206,10 +206,11 @@ internal static class SkillTreeIconAtlas
         [23] = new Vector2(0.5f, 0.5f),
     };
 
-    public static Vector2 OpticalOffsetForSkill(string skillId)
+    public static Vector2 OpticalOffsetForSkill(string skillId, float renderedSize = 64.0f)
     {
         int index = Indices.GetValueOrDefault(skillId, 4);
-        return OpticalOffsets.GetValueOrDefault(index, Vector2.Zero);
+        Vector2 sourceOffset = OpticalOffsets.GetValueOrDefault(index, Vector2.Zero);
+        return sourceOffset * (renderedSize / CellSize);
     }
 
     public static Texture2D? ForSkill(string skillId)
