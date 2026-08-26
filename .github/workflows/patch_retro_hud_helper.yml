@@ -1,0 +1,31 @@
+name: Patch retro HUD helper
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - tools/patch_retro_hud_helper.py
+      - .github/workflows/patch_retro_hud_helper.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/future-world-progression
+          fetch-depth: 0
+      - run: python3 tools/patch_retro_hud_helper.py
+      - name: Commit fixed helper
+        run: |
+          rm tools/patch_retro_hud_helper.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix retro HUD implementation helper"
+          git push origin HEAD:codex/future-world-progression
