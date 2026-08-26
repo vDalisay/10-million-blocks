@@ -140,7 +140,6 @@ text = replace_once(
 
 text = text.replace("        bucket.CrtMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;\n", "")
 
-# Replace complete bucket creation method up to RemoveBucket.
 pattern = re.compile(r"    private RenderBucket GetOrCreateBucket\(Vector3I cell, string blockId\)\n    \{.*?\n    private void RemoveBucket\(RenderBucket bucket\)\n    \{", re.S)
 replacement = r'''    private RenderBucket GetOrCreateBucket(Vector3I cell, string blockId)
     {
@@ -204,7 +203,7 @@ replacement = r'''    private RenderBucket GetOrCreateBucket(Vector3I cell, stri
 
     private void RemoveBucket(RenderBucket bucket)
     {'''
-text, count = pattern.subn(replacement, text, count=1)
+text, count = pattern.subn(lambda _: replacement, text, count=1)
 if count != 1:
     raise RuntimeError("could not replace GetOrCreateBucket")
 
@@ -229,7 +228,6 @@ text = replace_once(
     "    }",
     "WriteVisual")
 
-# Replace suction method through CollectPickup.
 pattern = re.compile(r"    private void AdvanceSuction\(\n.*?\n    private void CollectPickup\(int id, Vector2 screenPosition, bool notify\)\n    \{", re.S)
 replacement = r'''    private void AdvanceSuction(
         float delta,
@@ -265,8 +263,6 @@ replacement = r'''    private void AdvanceSuction(
                 Vector3 closestOnCursorRay = rayOrigin + rayDirection * rangeAlong;
                 float liveRange = position.DistanceTo(closestOnCursorRay);
 
-                // Leaving the field no longer kills velocity in one frame. The pickup is released with
-                // the velocity it had at that instant, then AdvanceReleasedMomentum damps it rapidly.
                 if (rawAlong < 0.0f || rawAlong > maxDistance || liveRange > collectorRadius * 1.02f)
                 {
                     pickup.Sucking = false;
@@ -344,11 +340,10 @@ replacement = r'''    private void AdvanceSuction(
 
     private void CollectPickup(int id, Vector2 screenPosition, bool notify)
     {'''
-text, count = pattern.subn(replacement, text, count=1)
+text, count = pattern.subn(lambda _: replacement, text, count=1)
 if count != 1:
     raise RuntimeError("could not replace AdvanceSuction")
 
-# Replace obsolete CRT shell builder with per-block pickup material.
 pattern = re.compile(r"    private static ShaderMaterial BuildCrtMaterial\(\)\n    \{.*?\n    \}\n\n    private Vector2 PickupScatter", re.S)
 replacement = r'''    private ShaderMaterial GetPickupMaterial(string blockId)
     {
@@ -393,11 +388,10 @@ replacement = r'''    private ShaderMaterial GetPickupMaterial(string blockId)
     }
 
     private Vector2 PickupScatter'''
-text, count = pattern.subn(replacement, text, count=1)
+text, count = pattern.subn(lambda _: replacement, text, count=1)
 if count != 1:
     raise RuntimeError("could not replace BuildCrtMaterial")
 
-# Stale comments from the permanent-capture version.
 text = text.replace(
     "        // Collection is a live cursor field, not a permanent capture. A pickup accelerates toward\n"
     "        // the cursor only while it remains inside the current collector radius; moving the cursor away\n"
