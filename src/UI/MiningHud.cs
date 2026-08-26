@@ -297,16 +297,17 @@ public partial class MiningHud : CanvasLayer
     {
         _automationDrawer = new PanelContainer
         {
-            AnchorLeft = 1.0f,
-            AnchorRight = 1.0f,
+            AnchorLeft = 0.0f,
+            AnchorRight = 0.0f,
             AnchorTop = 0.0f,
             AnchorBottom = 1.0f,
             OffsetLeft = -AutomationDrawerWidth,
-            OffsetTop = 72.0f,
-            OffsetRight = -16.0f,
-            OffsetBottom = -16.0f,
+            OffsetTop = 116.0f,
+            OffsetRight = 0.0f,
+            OffsetBottom = -58.0f,
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
+        _automationDrawer.AddThemeStyleboxOverride("panel", RetroHudPanel(new Color("#5fd8cf"), 0.94f));
         root.AddChild(_automationDrawer);
 
         var margin = new MarginContainer();
@@ -325,7 +326,8 @@ public partial class MiningHud : CanvasLayer
         var title = new Label { Text = "AUTOMATION", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         title.AddThemeFontSizeOverride("font_size", 22);
         header.AddChild(title);
-        var close = new Button { Text = "Close", CustomMinimumSize = new Vector2(64.0f, 32.0f) };
+        var close = new Button { Text = "CLOSE", CustomMinimumSize = new Vector2(64.0f, 32.0f) };
+        ApplyRetroButton(close, new Color("#5fd8cf"));
         close.Pressed += CloseAutomationMenu;
         header.AddChild(close);
         column.AddChild(header);
@@ -370,9 +372,10 @@ public partial class MiningHud : CanvasLayer
     {
         var card = new PanelContainer
         {
-            CustomMinimumSize = new Vector2(0.0f, 132.0f),
+            CustomMinimumSize = new Vector2(0.0f, 124.0f),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
+        card.AddThemeStyleboxOverride("panel", RetroHudPanel(new Color("#55788a"), 0.72f));
         list.AddChild(card);
 
         var margin = new MarginContainer();
@@ -400,6 +403,7 @@ public partial class MiningHud : CanvasLayer
         column.AddChild(status);
 
         var action = new Button { CustomMinimumSize = new Vector2(0.0f, 34.0f) };
+        ApplyRetroButton(action, new Color("#5fd8cf"));
         string id = minerId;
         action.Pressed += () => OnAutomationAction(id);
         column.AddChild(action);
@@ -483,8 +487,8 @@ public partial class MiningHud : CanvasLayer
         _automationToggle.Text = open ? "CLOSE AUTOMATION" : "AUTOMATION [A]";
         RefreshAutomationMenu();
 
-        float targetLeft = open ? -AutomationDrawerWidth : 0.0f;
-        float targetRight = open ? -16.0f : AutomationDrawerWidth;
+        float targetLeft = open ? 14.0f : -AutomationDrawerWidth;
+        float targetRight = open ? 14.0f + AutomationDrawerWidth : 0.0f;
         _automationTween?.Kill();
         if (immediate)
         {

@@ -437,9 +437,9 @@ public partial class IncrementalFeedbackView : CanvasLayer
             }
         }
 
-        // Special-resource inventory remains authoritative/direct, so its own chip still celebrates at
-        // discovery time. The ordinary BLOCKS MINED flight for the same gem waits for collection.
-        if (special)
+        // The inventory itself remains authoritative/direct, but presentation now waits for the same
+        // physical collection beat as ordinary resources. Direct/world-event sources still celebrate now.
+        if (special && !deferredCollectionSource)
         {
             CounterChip specialChip = EnsureSpecialChip(result.BlockId);
             Pulse(specialChip.Root, strong: true);
@@ -451,6 +451,10 @@ public partial class IncrementalFeedbackView : CanvasLayer
                 source,
                 hasSource,
                 special: true);
+        }
+        else if (special)
+        {
+            _ = EnsureSpecialChip(result.BlockId);
         }
     }
 
@@ -468,6 +472,21 @@ public partial class IncrementalFeedbackView : CanvasLayer
             collected.ScreenPosition,
             hasSource: true,
             special: false);
+
+        BlockDefinition definition = _mining.GetBlockDefinition(collected.BlockId);
+        if (definition.Tags.Contains("gem", StringComparer.Ordinal))
+        {
+            CounterChip specialChip = EnsureSpecialChip(collected.BlockId);
+            Pulse(specialChip.Root, strong: true);
+            QueuePickup(
+                collected.BlockId,
+                specialChip.Root,
+                1L,
+                0L,
+                collected.ScreenPosition,
+                hasSource: true,
+                special: true);
+        }
     }
 
     private void OnBulkMined(BulkMiningResult result)
