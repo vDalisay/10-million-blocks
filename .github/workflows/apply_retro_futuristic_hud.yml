@@ -48,3 +48,5 @@ jobs:
           git add -A
           git commit -m "Overhaul gameplay HUD with retro futuristic rails"
           git push origin HEAD:codex/future-world-progression
+
+# retry after helper-anchor fix
