@@ -1,0 +1,1 @@
+global using ResourceCollectionField = TenMillionBlocks.Collection.ResourceCollectionField;

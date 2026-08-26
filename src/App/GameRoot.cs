@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Automation;
 using TenMillionBlocks.Automation.MiningPatterns;
-using TenMillionBlocks.Collection;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Diagnostics;
 using TenMillionBlocks.Economy;
@@ -45,194 +44,162 @@ public partial class GameRoot : Node3D
     private MinerSimulationService? _miners;
     private MinerPlacementController? _placement;
     private SkillTreeView? _skillTree;
-    private WorldBrowserView? _worldBrowser;
-    private ReplayRecorder? _replayRecorder;
-    private ReplayPlaybackController? _replayPlayback;
-    private MainMenuView? _mainMenu;
-    private PauseMenuView? _pauseMenu;
-    private DemoCompleteView? _demoCompleteView;
-    private TutorialOverlay? _tutorialOverlay;
-    private PhaseQTelemetry? _phaseQTelemetry;
+    private PerformanceHud? _performanceHud;
+    private StressBenchmarkController? _stressBenchmark;
     private WorldEventController? _worldEvents;
-    private GameFlowState _flowState = GameFlowState.MainMenu;
-    private string _activeWorldId = string.Empty;
-    private string _replayReturnWorldId = string.Empty;
+    private ReplayRecorder? _replayRecorder;
+    private ReplayPlayer? _replayPlayer;
+    private ReplayView? _replayView;
     private string _replayPath = string.Empty;
-    private bool _sessionPersists;
-    private bool _completionShown;
-    private bool _debugPreview;
-    private bool _pendingNextWorld;
-    private bool _pendingReplayExit;
-    private bool _pendingReplayRestore;
-    private int _manualBlocksThisWorld;
-    private int _automationBlocksThisWorld;
-    private long _worldResourcesEarned;
-    private bool _autosaveDirty;
-    private double _autosaveCooldown;
 
-    private enum GameFlowState
-    {
-        MainMenu,
-        World,
-        Browser,
-        Replay,
-        DemoComplete,
-    }
+    private long _manualBlocksThisWorld;
+    private long _automatedBlocksThisWorld;
+    private bool _completionShown;
+    private bool _autosaveDirty;
+    private double _autosaveTimer;
+    private long _loadedSaveTimestamp;
+    private bool _sessionPersists = true;
 
     public override void _Ready()
     {
-        _content = ContentDatabase.LoadDefault();
-        _assets = new BlockAssetRegistry(_content);
-        _worlds = WorldCatalog.LoadDefault(_content);
-        _minerCatalog = MinerCatalog.LoadDefault(_content);
-        _skillCatalog = SkillTreeCatalog.LoadDefault(_content);
-        _patterns = MiningPatternRegistry.CreateDefault();
-        _progression = new WorldProgressionService(_worlds);
-        _saveService = new SaveService();
-        _save = _saveService.LoadOrCreate();
-        _saveService.MigrateLegacyTutorialCurrency(_save, _worlds.SteamDemoWorldIds);
-        _specialResources = new SpecialResourceInventory(_save);
-
-        BuildPersistentPresentation();
-        BuildMainMenu();
-        ShowMainMenu();
+        try
+        {
+            LoadContentAndState();
+            AddLightingAndEnvironment();
+            BuildPersistentPresentation();
+            BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: true, persistSession: true);
+            GD.Print("Gameplay ready. LMB mines; RMB/MMB/wheel control the camera. World-specific systems appear when available. Debug: [F8] stress world, [F9] performance HUD, [F7] stress benchmark.");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"Failed to initialize 10 Million Blocks gameplay slice:\n{exception}");
+            ShowFatalError(exception.Message);
+        }
     }
 
     public override void _Process(double delta)
     {
-        if (!_autosaveDirty || _saveService is null || !_sessionPersists || _flowState != GameFlowState.World)
-            return;
-
-        _autosaveCooldown -= Math.Max(0.0, delta);
-        if (_autosaveCooldown > 0.0) return;
-
-        CaptureCurrentSession();
-        _saveService.Save(_save);
-        _autosaveDirty = false;
-        _autosaveCooldown = 1.0;
+        if (!_autosaveDirty || _world is null) return;
+        _autosaveTimer += delta;
+        if (_autosaveTimer >= 10.0) TrySaveCurrentSession();
     }
 
-    public override void _UnhandledInput(InputEvent @event)
+    public override void _UnhandledKeyInput(InputEvent @event)
     {
         if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
 
-        if (key.Keycode == Key.F1 && _flowState == GameFlowState.World)
+        if (key.Keycode == Key.F10 && OS.IsDebugBuild() && _sessionPersists && !_completionShown && _world is not null)
         {
-            _tutorialOverlay?.RecallLastMessage();
+            ShowCompletion(debugPreview: true);
             GetViewport().SetInputAsHandled();
             return;
         }
 
-        if (key.Keycode == Key.F9 && OS.IsDebugBuild() && _flowState == GameFlowState.World)
+        if (key.Keycode == Key.F8 && OS.IsDebugBuild() && _sessionPersists && _world is not null)
         {
-            ShowDebugDiagnostics();
+            if (_world.Profile.Id == "stress_1000")
+            {
+                BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false, persistSession: true);
+                GD.Print("Returned from stress profile to authored progression world.");
+            }
+            else
+            {
+                BuildWorldSession(_worlds.Get("stress_1000"), applyOfflineProgress: false, persistSession: false);
+                GD.Print("Loaded stress_1000. [F9] metrics, [F7] 20-second automated benchmark, [F8] return.");
+            }
             GetViewport().SetInputAsHandled();
-            return;
         }
+    }
 
-        if (key.Keycode == Key.F11 && OS.IsDebugBuild() && _flowState == GameFlowState.World)
-        {
-            DumpDebugDiagnostics();
-            GetViewport().SetInputAsHandled();
-            return;
-        }
+    private void LoadContentAndState()
+    {
+        _content = ContentDatabase.Load();
+        _assets = new BlockAssetRegistry(_content);
+        _assets.ValidateAndPreload();
 
-        if (key.Keycode != Key.Escape) return;
-        switch (_flowState)
-        {
-            case GameFlowState.World:
-                TogglePauseMenu();
-                break;
-            case GameFlowState.Browser:
-                HideWorldBrowser();
-                break;
-            case GameFlowState.Replay:
-                ExitReplay();
-                break;
-            case GameFlowState.DemoComplete:
-                ShowWorldBrowserFromDemoComplete();
-                break;
-        }
-        GetViewport().SetInputAsHandled();
+        _worlds = WorldCatalog.Load();
+        WorldSelfTest.Run(_worlds);
+        _minerCatalog = MinerCatalog.Load();
+        _skillCatalog = SkillTreeCatalog.Load();
+        _patterns = new MiningPatternRegistry();
+        ContentCrossValidator.Validate(_minerCatalog, _patterns, _skillCatalog);
+
+        _progression = WorldProgressionService.Load(_worlds);
+        _saveService = new SaveService();
+        _save = _saveService.LoadOrCreate(_worlds);
+        _loadedSaveTimestamp = _save.SavedAtUnixSeconds;
+        _progression.RestoreWorld(_save.CurrentWorldId);
+        _save.UnlockedWorldIds.Add(_progression.CurrentWorldId);
+
+        _specialResources = new SpecialResourceInventory();
+        _specialResources.Restore(_save.SpecialResources);
+        _specialResources.Changed += MarkAutosaveDirty;
     }
 
     private void BuildPersistentPresentation()
     {
+        _clouds = new CloudField { Name = "SpacePresentation" };
+        AddChild(_clouds);
+
         _camera = new OrbitCameraController { Name = "OrbitCamera" };
         AddChild(_camera);
 
-        _clouds = new CloudField { Name = "CloudField" };
-        _clouds.Initialize(_camera);
-        AddChild(_clouds);
+        var harness = new ReferenceVisualHarness { Name = "ReferenceVisualHarness" };
+        harness.Initialize(_camera);
+        AddChild(harness);
 
         _completionView = new WorldCompleteView { Name = "WorldCompleteView" };
-        _completionView.NextRequested += OnCompletionNextRequested;
-        _completionView.BrowseRequested += OnCompletionBrowseRequested;
+        _completionView.ContinueRequested += OnContinueRequested;
+        _completionView.ReplayRequested += OnReplayRequested;
         AddChild(_completionView);
-    }
-
-    private void BuildMainMenu()
-    {
-        _mainMenu = new MainMenuView { Name = "MainMenu" };
-        _mainMenu.ContinueRequested += StartOrContinueGame;
-        _mainMenu.NewGameRequested += StartNewGame;
-        _mainMenu.WorldBrowserRequested += ShowWorldBrowserFromMainMenu;
-        _mainMenu.SettingsRequested += ShowSettingsFromMainMenu;
-        _mainMenu.ClearSaveRequested += ClearSaveData;
-        AddChild(_mainMenu);
-    }
-
-    private void StartOrContinueGame()
-    {
-        string worldId = ResolveContinueWorldId();
-        BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: true, persistSession: true);
-    }
-
-    private void StartNewGame()
-    {
-        BuildWorldSession(_worlds.Get(_worlds.SteamDemoWorldIds[0]), applyOfflineProgress: false, persistSession: true);
     }
 
     private void BuildWorldSession(WorldProfile profile, bool applyOfflineProgress, bool persistSession)
     {
+        if (_sessionPersists) CaptureCurrentSession();
         TearDownWorldSession();
-        _flowState = GameFlowState.World;
         _sessionPersists = persistSession;
+        _completionView.HideCompletion();
         _completionShown = false;
-        _pendingNextWorld = false;
-        _debugPreview = false;
-        _activeWorldId = profile.Id;
-        _manualBlocksThisWorld = 0;
-        _automationBlocksThisWorld = 0;
-        _worldResourcesEarned = 0;
-        _autosaveDirty = false;
-        _autosaveCooldown = 1.0;
-
-        WorldSaveData? savedWorld = persistSession ? _save.Worlds.GetValueOrDefault(profile.Id) : null;
-        WorldGenerationResult generated = WorldGenerator.Generate(profile, _content);
-        _world = new VirtualWorld(profile, generated, _content, savedWorld?.MinedChunks);
-        if (savedWorld is not null)
-        {
-            _world.State.RestoreExhaustedRegions(savedWorld.ExhaustedRegions);
-            if (savedWorld.InitialMineableBlockCount <= 0) savedWorld.InitialMineableBlockCount = _world.InitialMineableBlocks;
-        }
+        ConfigureWorldPresentation(profile);
 
         _sessionRoot = new Node3D { Name = $"WorldSession_{profile.Id}" };
         AddChild(_sessionRoot);
 
+        _world = new VirtualWorld(profile);
+        long blockCount = _world.InitializeMineableBlockCount();
+        GD.Print($"World '{profile.Id}' contains {blockCount:N0} authoritative logical mineable blocks across {_world.TotalLogicalRegionCount:N0} addressable regions.");
+
+        WorldSaveData? savedWorld = null;
+        if (persistSession && _save.Worlds.TryGetValue(profile.Id, out WorldSaveData? existing))
+        {
+            if (existing.WorldVersion != profile.WorldVersion || existing.GenerationVersion != profile.GenerationVersion)
+            {
+                throw new InvalidOperationException(
+                    $"Save world '{profile.Id}' uses world/generation version {existing.WorldVersion}/{existing.GenerationVersion}; " +
+                    $"this build requires {profile.WorldVersion}/{profile.GenerationVersion}. Reset or migrate the save explicitly.");
+            }
+
+            savedWorld = existing;
+            _world.State.RestoreSnapshot(existing.MinedChunks, existing.ExhaustedRegions);
+            _manualBlocksThisWorld = existing.ManualBlocksMined;
+            _automatedBlocksThisWorld = existing.AutomatedBlocksMined;
+        }
+        else
+        {
+            _manualBlocksThisWorld = 0;
+            _automatedBlocksThisWorld = 0;
+        }
+
         _worldView = new WorldView { Name = "WorldView" };
-        _worldView.Initialize(_world, _assets, _camera);
         _sessionRoot.AddChild(_worldView);
+        _worldView.Initialize(_assets, _world, _camera);
 
-        _skills = new SkillTreeService(_skillCatalog, _save, persistSession);
-        _specialResources.BindSkills(_skills);
-        if (persistSession) _skills.Changed += MarkAutosaveDirty;
-
-        _mining = new MiningService(_world, _content, _skills, _specialResources);
+        _mining = new MiningService(_world, _content, _specialResources);
         long startingCurrency = persistSession
-            ? (profile.UsePersistentMainCurrency
-                ? _save.PersistentMainCurrency
-                : savedWorld?.Currency ?? 0L)
+            ? profile.UsesTutorialLocalWallet
+                ? savedWorld?.TutorialLocalCurrency ?? 0L
+                : _save.PersistentMainCurrency
             : 0L;
         _mining.RestoreCurrency(startingCurrency);
         // BlockMined is attached after ResourceCollectionField so deferred rewards exist before
@@ -240,8 +207,24 @@ public partial class GameRoot : Node3D
         _mining.BulkMined += OnBulkMined;
         _mining.CurrencyChanged += _ => MarkAutosaveDirty();
 
-        _camera.ConfigureForWorld(_world);
-        _clouds.ConfigureForWorld(_world.Profile);
+        if (persistSession)
+        {
+            _replayPath = string.IsNullOrWhiteSpace(savedWorld?.ReplayFile) ? ReplayPath(profile) : savedWorld!.ReplayFile;
+            string replayAbsolute = ProjectSettings.GlobalizePath(_replayPath);
+            _replayRecorder = new ReplayRecorder(
+                _world,
+                _mining,
+                System.IO.File.Exists(replayAbsolute) ? replayAbsolute : null);
+        }
+        else
+        {
+            _replayPath = string.Empty;
+            _replayRecorder = null;
+        }
+
+        _skills = new SkillTreeService(_skillCatalog, _mining, _specialResources);
+        if (persistSession) _skills.RestoreRanks(_save.SkillRanks);
+        _skills.Changed += MarkAutosaveDirty;
 
         _manualMining = new ManualMiningController { Name = "ManualMining" };
         _manualMining.Initialize(_world, _camera, _worldView, _mining, _skills);
@@ -259,13 +242,21 @@ public partial class GameRoot : Node3D
         _miners.Initialize(_world, _mining, _worldView, _minerCatalog, _patterns, _skills);
         _sessionRoot.AddChild(_miners);
         if (savedWorld is not null) _miners.RestoreSnapshot(savedWorld.Miners);
+        _miners.Changed += MarkAutosaveDirty;
 
         _placement = new MinerPlacementController { Name = "MinerPlacement" };
-        _placement.Initialize(_world, _camera, _worldView, _mining, _skills, _miners, _manualMining);
-        _placement.Changed += MarkAutosaveDirty;
+        _placement.Initialize(_manualMining, _miners);
+        _placement.InputEnabled = profile.AutomationAvailable;
         _sessionRoot.AddChild(_placement);
 
-        var hud = new HudView { Name = "Hud" };
+        if (profile.SkillTreeAvailable)
+        {
+            _skillTree = new SkillTreeView { Name = "SkillTreeView" };
+            _skillTree.Initialize(_skills, _mining, _manualMining, _specialResources);
+            _sessionRoot.AddChild(_skillTree);
+        }
+
+        var hud = new MiningHud { Name = "MiningHud" };
         hud.Initialize(_world, _mining, _worldView, _skills, _miners, _manualMining, _placement);
         _sessionRoot.AddChild(hud);
 
@@ -275,54 +266,46 @@ public partial class GameRoot : Node3D
         incrementalFeedback.Initialize(_world, _worldView, _mining, _specialResources, _assets);
         _sessionRoot.AddChild(incrementalFeedback);
 
-        _skillTree = new SkillTreeView { Name = "SkillTree" };
-        _skillTree.Initialize(_skills, _mining, _specialResources, _skillCatalog, _manualMining, _placement);
-        _skillTree.Closed += OnSkillTreeClosed;
-        _skillTree.SkillPurchased += MarkAutosaveDirty;
-        _sessionRoot.AddChild(_skillTree);
-
-        _worldBrowser = new WorldBrowserView { Name = "WorldBrowser" };
-        _worldBrowser.Initialize(_worlds, _save);
-        _worldBrowser.WorldSelected += OnWorldSelected;
-        _worldBrowser.ReplaySelected += OnReplaySelected;
-        _worldBrowser.Closed += HideWorldBrowser;
-        _sessionRoot.AddChild(_worldBrowser);
-
-        _pauseMenu = new PauseMenuView { Name = "PauseMenu" };
-        _pauseMenu.ResumeRequested += ResumeFromPause;
-        _pauseMenu.SaveAndMenuRequested += SaveAndReturnToMainMenu;
-        _sessionRoot.AddChild(_pauseMenu);
-
-        _tutorialOverlay = new TutorialOverlay { Name = "TutorialOverlay" };
-        _tutorialOverlay.Initialize(profile.Id, _save, persistSession);
-        _sessionRoot.AddChild(_tutorialOverlay);
-
-        _phaseQTelemetry = new PhaseQTelemetry(profile.Id, _save, persistSession);
-        _phaseQTelemetry.Attach(_mining, _miners, _skills, _placement);
-
-        _worldEvents = new WorldEventController { Name = "WorldEvents" };
-        _worldEvents.Initialize(_world, _mining, _worldView, _skills, _specialResources, _tutorialOverlay, _save, persistSession);
-        _worldEvents.PersistentStateChanged += MarkAutosaveDirty;
-        _sessionRoot.AddChild(_worldEvents);
-
-        _replayRecorder = persistSession ? new ReplayRecorder(profile, _world) : null;
-        if (_replayRecorder is not null) _replayRecorder.Attach(_mining, _skills, _miners, _worldEvents);
-
-        if (applyOfflineProgress && persistSession && savedWorld is not null)
+        if (profile.AutomationAvailable)
         {
-            ApplyOfflineProgress(savedWorld);
+            var automationAttention = new AutomationAttentionView { Name = "AutomationAttentionView" };
+            automationAttention.Initialize(_miners, _worldView);
+            _sessionRoot.AddChild(automationAttention);
         }
 
-        if (persistSession)
+        if (persistSession && IsActiveWorldEventProfile(profile))
         {
-            _save.LastWorldId = profile.Id;
-            if (!_save.Worlds.TryGetValue(profile.Id, out WorldSaveData? worldSave))
+            _worldEvents = new WorldEventController { Name = "WorldEventController" };
+            _worldEvents.Initialize(_world, _worldView, _mining, _camera, cloudEnabled: true, meteorEnabled: true);
+            _worldEvents.AttachSkills(_skills);
+            _worldEvents.PersistentStateChanged += MarkAutosaveDirty;
+            _sessionRoot.AddChild(_worldEvents);
+            if (savedWorld?.WorldEvents is WorldEventSnapshot eventSnapshot)
             {
-                worldSave = new WorldSaveData();
-                _save.Worlds[profile.Id] = worldSave;
+                _worldEvents.RestoreSnapshot(eventSnapshot);
             }
-            if (worldSave.InitialMineableBlockCount <= 0) worldSave.InitialMineableBlockCount = _world.InitialMineableBlocks;
-            _saveService.Save(_save);
+        }
+
+        _performanceHud = new PerformanceHud { Name = "PerformanceHud" };
+        _performanceHud.Initialize(_world, _worldView, _camera);
+        _sessionRoot.AddChild(_performanceHud);
+
+        _stressBenchmark = new StressBenchmarkController { Name = "StressBenchmark" };
+        _stressBenchmark.Initialize(_world, _worldView, _mining, _camera);
+        _sessionRoot.AddChild(_stressBenchmark);
+
+        ApplyDefaultCameraPreset(profile);
+
+        if (profile.AutomationAvailable && persistSession && applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
+        {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            double elapsed = Math.Max(0L, now - _loadedSaveTimestamp);
+            long offlineMined = _miners.ApplyOfflineProgress(elapsed);
+            if (offlineMined > 0)
+            {
+                GD.Print($"Applied {offlineMined:N0} exact offline mining operations after {elapsed:0} seconds away.");
+                MarkAutosaveDirty();
+            }
         }
 
         if (persistSession
@@ -336,59 +319,37 @@ public partial class GameRoot : Node3D
     private void BuildReplaySession(WorldProfile profile, ReplayData replay)
     {
         TearDownWorldSession();
-        _flowState = GameFlowState.Replay;
         _sessionPersists = false;
-        _activeWorldId = profile.Id;
+        _completionView.HideCompletion();
         _completionShown = false;
+        ConfigureWorldPresentation(profile);
 
-        WorldGenerationResult generated = WorldGenerator.Generate(profile, _content);
-        _world = new VirtualWorld(profile, generated, _content);
         _sessionRoot = new Node3D { Name = $"ReplaySession_{profile.Id}" };
         AddChild(_sessionRoot);
-
-        _worldView = new WorldView { Name = "WorldView" };
-        _worldView.Initialize(_world, _assets, _camera);
+        _world = new VirtualWorld(profile);
+        _world.InitializeMineableBlockCount();
+        _worldView = new WorldView { Name = "ReplayWorldView" };
         _sessionRoot.AddChild(_worldView);
+        _worldView.Initialize(_assets, _world, _camera);
 
-        _skills = new SkillTreeService(_skillCatalog, _save, persistPurchases: false);
-        _specialResources.BindSkills(_skills);
-        _mining = new MiningService(_world, _content, _skills, _specialResources);
-        _mining.RestoreCurrency(0L);
-        _camera.ConfigureForWorld(_world);
-        _clouds.ConfigureForWorld(_world.Profile);
+        _replayPlayer = new ReplayPlayer { Name = "ReplayPlayer" };
+        _replayPlayer.Initialize(_world, _worldView, replay);
+        _sessionRoot.AddChild(_replayPlayer);
 
-        _manualMining = new ManualMiningController { Name = "ManualMining" };
-        _manualMining.Initialize(_world, _camera, _worldView, _mining, _skills);
-        _manualMining.InputEnabled = false;
-        _sessionRoot.AddChild(_manualMining);
-
-        _miners = new MinerSimulationService { Name = "MinerSimulation" };
-        _miners.Initialize(_world, _mining, _worldView, _minerCatalog, _patterns, _skills);
-        _sessionRoot.AddChild(_miners);
-
-        var replayHud = new ReplayHudView { Name = "ReplayHud" };
-        replayHud.ExitRequested += ExitReplay;
-        _sessionRoot.AddChild(replayHud);
-
-        _replayPlayback = new ReplayPlaybackController();
-        _replayPlayback.Initialize(replay, _mining, _skills, _miners);
-        _replayPlayback.Completed += ExitReplay;
-        _sessionRoot.AddChild(_replayPlayback);
+        _replayView = new ReplayView { Name = "ReplayView" };
+        _replayView.Initialize(_replayPlayer, profile);
+        _replayView.ExitRequested += OnReplayExitRequested;
+        _sessionRoot.AddChild(_replayView);
+        ApplyDefaultCameraPreset(profile);
+        GD.Print($"Replay viewer opened for '{profile.Id}' with {replay.Events.Count:N0} recorded removals.");
     }
 
     private void TearDownWorldSession()
     {
-        if (_phaseQTelemetry is not null) _phaseQTelemetry.Flush();
-        _phaseQTelemetry = null;
-        if (_skillTree is not null) _skillTree.Closed -= OnSkillTreeClosed;
-        if (_worldBrowser is not null)
-        {
-            _worldBrowser.WorldSelected -= OnWorldSelected;
-            _worldBrowser.ReplaySelected -= OnReplaySelected;
-            _worldBrowser.Closed -= HideWorldBrowser;
-        }
-        if (_placement is not null) _placement.Changed -= MarkAutosaveDirty;
-        if (_skills is not null) _skills.Changed -= MarkAutosaveDirty;
+        _replayRecorder?.Dispose();
+        _replayRecorder = null;
+        _replayPlayer = null;
+        _replayView = null;
         if (_worldEvents is not null) _worldEvents.PersistentStateChanged -= MarkAutosaveDirty;
         _worldEvents = null;
         _replayPath = string.Empty;
@@ -407,16 +368,15 @@ public partial class GameRoot : Node3D
         _miners = null;
         _placement = null;
         _skillTree = null;
-        _worldBrowser = null;
-        _pauseMenu = null;
-        _tutorialOverlay = null;
-        _replayRecorder = null;
-        _replayPlayback = null;
+        _performanceHud = null;
+        _stressBenchmark = null;
+        _autosaveDirty = false;
+        _autosaveTimer = 0.0;
     }
 
     private void OnBlockMined(MiningResult result)
     {
-        if (result.Source == MiningSource.Automated) _automationBlocksThisWorld++;
+        if (result.Source is MiningSource.Automated or MiningSource.Offline) _automatedBlocksThisWorld++;
         else if (result.Source == MiningSource.Manual) _manualBlocksThisWorld++;
 
         MarkAutosaveDirty();
@@ -431,114 +391,162 @@ public partial class GameRoot : Node3D
 
     private void OnBulkMined(BulkMiningResult result)
     {
-        if (result.Source == MiningSource.Automated) _automationBlocksThisWorld += result.Removed;
-        else if (result.Source == MiningSource.Manual) _manualBlocksThisWorld += result.Removed;
+        if (result.Source is MiningSource.Automated or MiningSource.Offline)
+        {
+            _automatedBlocksThisWorld = checked(_automatedBlocksThisWorld + result.BlocksMined);
+        }
+        _worldView?.MarkRegionDirty(result.Region);
         MarkAutosaveDirty();
-    }
-
-    private void MarkAutosaveDirty()
-    {
-        if (!_sessionPersists) return;
-        _autosaveDirty = true;
-        _autosaveCooldown = Math.Min(_autosaveCooldown, 0.25);
+        if (_sessionPersists && result.Remaining == 0 && !_completionShown) ShowCompletion(debugPreview: false);
     }
 
     private void ShowCompletion(bool debugPreview)
     {
-        if (_world is null || _mining is null || _completionView is null) return;
+        if (!_sessionPersists || _world is null || _mining is null || _manualMining is null || _miners is null || _placement is null) return;
+
         _completionShown = true;
-        _debugPreview = debugPreview;
-        CaptureCurrentSession();
-        if (_sessionPersists)
+        _skillTree?.Close();
+        _manualMining.InputEnabled = false;
+        _placement.InputEnabled = false;
+        _miners.ProcessMode = ProcessModeEnum.Disabled;
+        if (_worldEvents is not null) _worldEvents.ProcessMode = ProcessModeEnum.Disabled;
+
+        WorldProfile? next = _progression.NextProfile();
+        _completionView.ShowCompletion(
+            _world.Profile,
+            next,
+            _mining.TotalMined,
+            _mining.Currency,
+            _manualBlocksThisWorld,
+            _automatedBlocksThisWorld,
+            replayAvailable: !debugPreview && ReplayAvailableForCurrentWorld());
+
+        if (debugPreview)
         {
-            _progression.MarkWorldCompleted(_save, _world.Profile.Id);
+            GD.Print("DEBUG: showing completion-flow preview without marking the world cleared. Continue still tests the next-world transition.");
+        }
+        else
+        {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            _save.CompletedWorldIds.Add(_world.Profile.Id);
+            if (next is not null) _save.UnlockedWorldIds.Add(next.Id);
+            if (_save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? existing))
+            {
+                existing.Completed = true;
+                if (existing.CompletedUnixSeconds <= 0) existing.CompletedUnixSeconds = now;
+            }
+            CaptureCurrentSession();
+            TrySaveCurrentSession(captureFirst: false);
+        }
+    }
+
+    private void OnContinueRequested()
+    {
+        if (!_sessionPersists || _world is null) return;
+        CaptureCurrentSession();
+
+        if (!_progression.Advance())
+        {
+            _save.CurrentWorldId = _progression.CurrentWorldId;
             _saveService.Save(_save);
+            _completionView.HideCompletion();
+            GD.Print("Steam demo progression complete.");
+            return;
         }
 
-        bool demoFinale = _world.Profile.Id == _worlds.SteamDemoWorldIds[^1];
-        _completionView.ShowCompletion(_world.Profile, _mining.Currency, demoFinale, debugPreview);
-        SetWorldInputEnabled(false);
+        _save.CurrentWorldId = _progression.CurrentWorldId;
+        _save.UnlockedWorldIds.Add(_progression.CurrentWorldId);
+        _saveService.Save(_save);
+        BuildWorldSession(_progression.CurrentProfile(), applyOfflineProgress: false, persistSession: true);
+        MarkAutosaveDirty();
     }
 
-    private void HideCompletion()
+    private void OnReplayRequested()
     {
-        _completionView.HideCompletion();
-        _completionShown = false;
-        SetWorldInputEnabled(true);
+        if (!_sessionPersists || _world is null || !_save.CompletedWorldIds.Contains(_world.Profile.Id)) return;
+
+        string worldId = _world.Profile.Id;
+        CaptureCurrentSession();
+        TrySaveCurrentSession(captureFirst: false);
+
+        if (!_save.Worlds.TryGetValue(worldId, out WorldSaveData? savedWorld) || string.IsNullOrWhiteSpace(savedWorld.ReplayFile))
+        {
+            GD.PushWarning($"Completed world '{worldId}' has no replay file.");
+            return;
+        }
+
+        string absolute = ProjectSettings.GlobalizePath(savedWorld.ReplayFile);
+        if (!System.IO.File.Exists(absolute))
+        {
+            GD.PushWarning($"Replay file is missing for '{worldId}': {savedWorld.ReplayFile}");
+            return;
+        }
+
+        _replayReturnWorldId = worldId;
+        ReplayData replay = ReplayBinaryCodec.Read(absolute);
+        BuildReplaySession(_worlds.Get(worldId), replay);
     }
 
-    private void OnCompletionNextRequested()
+    private void OnReplayExitRequested()
     {
         if (_world is null) return;
-        if (_debugPreview)
-        {
-            HideCompletion();
-            return;
-        }
 
-        if (_world.Profile.Id == _worlds.SteamDemoWorldIds[^1])
-        {
-            ShowDemoComplete();
-            return;
-        }
+        string replayWorldId = _world.Profile.Id;
+        string returnWorldId = string.IsNullOrWhiteSpace(_replayReturnWorldId)
+            ? replayWorldId
+            : _replayReturnWorldId;
+        _replayReturnWorldId = string.Empty;
 
-        string? next = _progression.GetNextWorldId(_world.Profile.Id);
-        if (string.IsNullOrWhiteSpace(next))
-        {
-            ShowWorldBrowserFromWorld();
-            return;
-        }
-
-        BuildWorldSession(_worlds.Get(next), applyOfflineProgress: true, persistSession: true);
-    }
-
-    private void OnCompletionBrowseRequested()
-    {
-        ShowWorldBrowserFromWorld();
-    }
-
-    private void TogglePauseMenu()
-    {
-        if (_pauseMenu is null) return;
-        if (_pauseMenu.Visible)
-        {
-            ResumeFromPause();
-            return;
-        }
-
-        _pauseMenu.ShowPause();
-        SetWorldInputEnabled(false);
-    }
-
-    private void ResumeFromPause()
-    {
-        _pauseMenu?.HidePause();
-        SetWorldInputEnabled(true);
-    }
-
-    private void SaveAndReturnToMainMenu()
-    {
-        CaptureCurrentSession();
+        _progression.RestoreWorld(returnWorldId);
+        _save.CurrentWorldId = returnWorldId;
         _saveService.Save(_save);
-        _autosaveDirty = false;
-        ShowMainMenu();
+        BuildWorldSession(_worlds.Get(returnWorldId), applyOfflineProgress: false, persistSession: true);
     }
 
     private void CaptureCurrentSession()
     {
-        if (!_sessionPersists || _world is null || _mining is null || _skills is null || _miners is null) return;
+        if (!_sessionPersists || _world is null || _mining is null || _skills is null || _miners is null || _manualMining is null) return;
 
-        _save.PersistentMainCurrency = _mining.Currency;
-        WorldSaveData? previous = _save.Worlds.GetValueOrDefault(_world.Profile.Id);
+        _save.SpecialResources = _specialResources.CreateSnapshot();
+        _save.CurrentWorldId = _progression.CurrentWorldId;
+        _save.UnlockedWorldIds.Add(_world.Profile.Id);
+
+        _save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? previous);
+        long tutorialLocalCurrency = previous?.TutorialLocalCurrency ?? 0L;
+        if (_world.Profile.UsesTutorialLocalWallet) tutorialLocalCurrency = _mining.Currency;
+        else _save.PersistentMainCurrency = _mining.Currency;
+
+        var skillRanks = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach ((string id, int rank) in _skills.Ranks) skillRanks[id] = rank;
+        _save.SkillRanks = skillRanks;
+
+        bool completed = _save.CompletedWorldIds.Contains(_world.Profile.Id) || (previous?.Completed ?? false);
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long started = previous?.FirstStartedUnixSeconds > 0 ? previous.FirstStartedUnixSeconds : now;
+        long completedAt = previous?.CompletedUnixSeconds ?? 0L;
+        if (completed && completedAt <= 0) completedAt = now;
+
+        string replayFile = _replayPath;
+        if (_replayRecorder is not null && !string.IsNullOrWhiteSpace(_replayPath))
+        {
+            replayFile = _replayRecorder.FlushToUserPath(_replayPath);
+        }
+
         _save.Worlds[_world.Profile.Id] = new WorldSaveData
         {
-            Currency = _world.Profile.UsePersistentMainCurrency ? previous?.Currency ?? 0L : _mining.Currency,
-            InitialMineableBlockCount = previous?.InitialMineableBlockCount > 0
-                ? previous.InitialMineableBlockCount
-                : _world.InitialMineableBlocks,
-            Completed = previous?.Completed ?? false,
-            HoverMiningEnabled = _manualMining?.HoverMiningEnabled ?? previous?.HoverMiningEnabled ?? false,
-            LastPlayedUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            WorldId = _world.Profile.Id,
+            WorldVersion = _world.Profile.WorldVersion,
+            GenerationVersion = _world.Profile.GenerationVersion,
+            InitialMineableBlocks = _world.InitialMineableBlocks,
+            TutorialLocalCurrency = tutorialLocalCurrency,
+            ManualBlocksMined = _manualBlocksThisWorld,
+            AutomatedBlocksMined = _automatedBlocksThisWorld,
+            HoverMiningEnabled = _manualMining.HoverMiningEnabled,
+            Completed = completed,
+            FirstStartedUnixSeconds = started,
+            CompletedUnixSeconds = completedAt,
+            ReplayFile = replayFile,
+            WorldEvents = _worldEvents?.CreateSnapshot() ?? previous?.WorldEvents,
             MinedChunks = _world.State.CreateSnapshot(),
             ExhaustedRegions = _world.State.CreateExhaustedRegionSnapshot(),
             Miners = _miners.CreateSnapshot(),
@@ -546,166 +554,119 @@ public partial class GameRoot : Node3D
         };
     }
 
-    private string ResolveContinueWorldId()
+    private bool ReplayAvailableForCurrentWorld()
     {
-        if (_save.DemoCompleted) return _worlds.SteamDemoWorldIds[^1];
-        if (!string.IsNullOrWhiteSpace(_save.LastWorldId) && _worlds.Contains(_save.LastWorldId)) return _save.LastWorldId;
-        return _worlds.SteamDemoWorldIds[0];
+        if (_world is null) return false;
+        if (_replayRecorder is not null && _replayRecorder.EventCount > 0) return true;
+        if (!_save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? saved) || string.IsNullOrWhiteSpace(saved.ReplayFile)) return false;
+        return System.IO.File.Exists(ProjectSettings.GlobalizePath(saved.ReplayFile));
     }
 
-    private void ClearSaveData()
+    private static bool IsActiveWorldEventProfile(WorldProfile profile)
+        => profile.Id is "reference_lakes" or "reference_ridges";
+
+    private void ConfigureWorldPresentation(WorldProfile profile)
     {
-        _saveService.Delete();
-        _save = _saveService.LoadOrCreate();
-        _specialResources = new SpecialResourceInventory(_save);
-        _mainMenu?.Refresh(_save, _worlds);
+        float worldExtent = profile.BlockSpacing * (
+            profile.BaseRadius + profile.TerrainAmplitude + profile.DetailAmplitude + MathF.Max(0.0f, profile.SeaLevelOffset));
+        _clouds.Visible = !profile.UsesSingleBlockGenerator && !profile.UsesSolidCubeGenerator;
+        _clouds.SetWorldExtent(worldExtent);
+        _camera.ConfigureWorldExtent(worldExtent, profile.UsesFullSurfaceRenderer);
     }
 
-    private void ShowMainMenu()
+    private void ApplyDefaultCameraPreset(WorldProfile profile)
     {
-        TearDownWorldSession();
-        _flowState = GameFlowState.MainMenu;
-        _completionView.HideCompletion();
-        _demoCompleteView?.HideScreen();
-        _mainMenu?.Refresh(_save, _worlds);
-        _mainMenu?.ShowMenu();
-        _clouds.Visible = true;
+        _camera.ApplyPreset(
+            profile.UsesSingleBlockGenerator || profile.UsesSolidCubeGenerator
+                ? OrbitCameraController.NearPreset
+                : OrbitCameraController.MediumPreset,
+            immediate: true);
     }
 
-    private void ShowSettingsFromMainMenu()
+    private void MarkAutosaveDirty()
     {
-        SettingsView.ShowStandalone(this, _save, _saveService);
+        if (_sessionPersists) _autosaveDirty = true;
     }
 
-    private void ShowWorldBrowserFromMainMenu()
+    private void TrySaveCurrentSession(bool captureFirst = true)
     {
-        string previewWorld = ResolveContinueWorldId();
-        BuildWorldSession(_worlds.Get(previewWorld), applyOfflineProgress: false, persistSession: false);
-        ShowWorldBrowserInternal(returnState: GameFlowState.MainMenu);
-    }
-
-    private void ShowWorldBrowserFromWorld()
-    {
-        ShowWorldBrowserInternal(returnState: GameFlowState.World);
-    }
-
-    private void ShowWorldBrowserInternal(GameFlowState returnState)
-    {
-        if (_worldBrowser is null) return;
-        _flowState = GameFlowState.Browser;
-        _worldBrowser.SetReturnState(returnState.ToString());
-        _worldBrowser.Refresh(_save, _worlds);
-        _worldBrowser.ShowBrowser();
-        SetWorldInputEnabled(false);
-    }
-
-    private void HideWorldBrowser()
-    {
-        if (_worldBrowser is null) return;
-        GameFlowState returnState = Enum.TryParse(_worldBrowser.ReturnState, out GameFlowState parsed)
-            ? parsed
-            : GameFlowState.World;
-        _worldBrowser.HideBrowser();
-
-        if (returnState == GameFlowState.MainMenu)
+        try
         {
-            ShowMainMenu();
-            return;
+            if (captureFirst) CaptureCurrentSession();
+            _saveService.Save(_save);
+            _autosaveDirty = false;
+            _autosaveTimer = 0.0;
         }
-
-        _flowState = GameFlowState.World;
-        SetWorldInputEnabled(true);
-    }
-
-    private void OnWorldSelected(string worldId, bool replay)
-    {
-        if (replay)
+        catch (Exception exception)
         {
-            ReplayData? data = ReplayStore.LoadLatest(worldId);
-            if (data is null) return;
-            _replayReturnWorldId = _activeWorldId;
-            BuildReplaySession(_worlds.Get(worldId), data);
-            return;
+            _autosaveTimer = 0.0;
+            GD.PushError($"Autosave failed: {exception}");
         }
-
-        CaptureCurrentSession();
-        _saveService.Save(_save);
-        BuildWorldSession(_worlds.Get(worldId), applyOfflineProgress: true, persistSession: true);
     }
 
-    private void OnReplaySelected(string worldId)
-    {
-        ReplayData? data = ReplayStore.LoadLatest(worldId);
-        if (data is null) return;
-        _replayReturnWorldId = _activeWorldId;
-        BuildReplaySession(_worlds.Get(worldId), data);
-    }
+    private static string ReplayPath(WorldProfile profile)
+        => $"user://replays/{profile.Id}_v{profile.WorldVersion}_g{profile.GenerationVersion}.cmbr";
 
-    private void ExitReplay()
+    private void AddLightingAndEnvironment()
     {
-        if (_flowState != GameFlowState.Replay) return;
-        string returnWorld = !string.IsNullOrWhiteSpace(_replayReturnWorldId) && _worlds.Contains(_replayReturnWorldId)
-            ? _replayReturnWorldId
-            : ResolveContinueWorldId();
-        _replayReturnWorldId = string.Empty;
-        BuildWorldSession(_worlds.Get(returnWorld), applyOfflineProgress: true, persistSession: true);
-    }
+        RenderingServer.SetDefaultClearColor(new Color(0.003f, 0.008f, 0.025f));
 
-    private void ShowDemoComplete()
-    {
-        CaptureCurrentSession();
-        _save.DemoCompleted = true;
-        _saveService.Save(_save);
-        _flowState = GameFlowState.DemoComplete;
-        TearDownWorldSession();
-
-        _demoCompleteView ??= new DemoCompleteView { Name = "DemoCompleteView" };
-        if (_demoCompleteView.GetParent() is null)
+        var environment = new Godot.Environment
         {
-            _demoCompleteView.BrowseRequested += ShowWorldBrowserFromDemoComplete;
-            _demoCompleteView.MainMenuRequested += ShowMainMenu;
-            AddChild(_demoCompleteView);
-        }
-        _demoCompleteView.ShowScreen();
+            BackgroundMode = Godot.Environment.BGMode.Color,
+            BackgroundColor = new Color(0.003f, 0.008f, 0.025f, 1.0f),
+            AmbientLightSource = Godot.Environment.AmbientSource.Color,
+            AmbientLightColor = new Color(0.74f, 0.78f, 0.84f, 1.0f),
+            AmbientLightEnergy = 0.42f,
+            ReflectedLightSource = Godot.Environment.ReflectionSource.Disabled,
+            TonemapMode = Godot.Environment.ToneMapper.Filmic,
+            TonemapWhite = 2.0f,
+            SsaoEnabled = true,
+            SsaoRadius = 1.6f,
+            SsaoIntensity = 2.6f,
+            SsaoPower = 1.4f,
+        };
+        AddChild(new WorldEnvironment { Name = "WorldEnvironment", Environment = environment });
+
+        AddChild(new DirectionalLight3D
+        {
+            Name = "KeyLight",
+            RotationDegrees = new Vector3(-52.0f, -34.0f, 0.0f),
+            LightColor = new Color(1.0f, 0.98f, 0.94f),
+            LightEnergy = 1.05f,
+            LightSpecular = 0.0f,
+            ShadowEnabled = true,
+            DirectionalShadowMaxDistance = 140.0f,
+            ShadowBlur = 1.4f,
+        });
+
+        AddChild(new DirectionalLight3D
+        {
+            Name = "FillLight",
+            RotationDegrees = new Vector3(24.0f, 146.0f, 0.0f),
+            LightColor = new Color(0.72f, 0.82f, 1.0f),
+            LightEnergy = 0.45f,
+            LightSpecular = 0.0f,
+            ShadowEnabled = false,
+        });
     }
 
-    private void ShowWorldBrowserFromDemoComplete()
+    private void ShowFatalError(string message)
     {
-        _demoCompleteView?.HideScreen();
-        BuildWorldSession(_worlds.Get(_worlds.SteamDemoWorldIds[^1]), applyOfflineProgress: false, persistSession: false);
-        ShowWorldBrowserInternal(GameFlowState.DemoComplete);
-    }
-
-    private void SetWorldInputEnabled(bool enabled)
-    {
-        if (_manualMining is not null) _manualMining.InputEnabled = enabled;
-        if (_placement is not null) _placement.InputEnabled = enabled;
-        if (_skillTree is not null) _skillTree.InputEnabled = enabled;
-    }
-
-    private void ShowDebugDiagnostics()
-    {
-        if (_world is null || _worldView is null || _miners is null) return;
-        DebugDiagnostics.ShowOverlay(this, _world, _worldView, _miners);
-    }
-
-    private void DumpDebugDiagnostics()
-    {
-        if (_world is null || _worldView is null || _miners is null) return;
-        DebugDiagnostics.Dump(_world, _worldView, _miners);
-    }
-
-    private void ApplyOfflineProgress(WorldSaveData savedWorld)
-    {
-        if (_miners is null || _mining is null) return;
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        long elapsed = Math.Max(0L, now - savedWorld.LastPlayedUnixSeconds);
-        if (elapsed <= 0) return;
-        _miners.ApplyOfflineProgress(TimeSpan.FromSeconds(elapsed));
-    }
-
-    private void OnSkillTreeClosed()
-    {
-        SetWorldInputEnabled(true);
+        var canvas = new CanvasLayer { Layer = 100 };
+        AddChild(canvas);
+        var panel = new PanelContainer
+        {
+            OffsetLeft = 32.0f,
+            OffsetTop = 32.0f,
+            OffsetRight = 760.0f,
+            OffsetBottom = 190.0f,
+        };
+        canvas.AddChild(panel);
+        panel.AddChild(new Label
+        {
+            Text = "Startup validation failed\n\n" + message,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+        });
     }
 }
