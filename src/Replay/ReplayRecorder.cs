@@ -48,10 +48,24 @@ public sealed class ReplayRecorder : IDisposable
             ReplayData existing = ReplayBinaryCodec.Read(existingAbsolutePath);
             ValidateExisting(existing.Header);
             _events.EnsureCapacity(existing.Events.Count + 256);
-            _events.AddRange(existing.Events);
-            _tickOffset = existing.Events.Count == 0
+            var seenIndices = new HashSet<long>(existing.Events.Count);
+            foreach (ReplayRemovalEvent item in existing.Events)
+            {
+                if (seenIndices.Add(item.LinearIndex)
+                    && _world.State.IsMined(FromLinearIndex(item.LinearIndex)))
+                {
+                    _events.Add(item);
+                }
+            }
+            if (_events.Count != _world.State.MinedVoxelCount)
+            {
+                GD.PushWarning(
+                    $"Replay for '{_world.Profile.Id}' is incomplete: save has {_world.State.MinedVoxelCount:N0} mined voxels " +
+                    $"but replay contains {_events.Count:N0}. Recording will continue from the available history.");
+            }
+            _tickOffset = _events.Count == 0
                 ? 0u
-                : checked(existing.Events[^1].Tick + 1u);
+                : checked(_events[^1].Tick + 1u);
         }
 
         _mining.BlockMined += OnBlockMined;

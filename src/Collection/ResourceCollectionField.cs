@@ -284,10 +284,19 @@ public partial class ResourceCollectionField : Node3D
         }
     }
 
-    private void OnSkillsChanged()
+    public void CollectAllPending()
     {
-        bool collectManual = _skills.Derived.ManualAutoCollectUnlocked;
-        bool collectAutomation = _skills.Derived.AutomationAutoCollectUnlocked;
+        CollectPending(collectManual: true, collectAutomation: true);
+        System.Diagnostics.Debug.Assert(PendingCount == 0 && PendingAmount == 0, "End-of-world collection must clear every pickup.");
+    }
+
+    private void OnSkillsChanged()
+        => CollectPending(
+            _skills.Derived.ManualAutoCollectUnlocked,
+            _skills.Derived.AutomationAutoCollectUnlocked);
+
+    private void CollectPending(bool collectManual, bool collectAutomation)
+    {
         if (!collectManual && !collectAutomation) return;
 
         _sweepIds.Clear();

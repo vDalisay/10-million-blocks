@@ -308,12 +308,7 @@ public partial class GameRoot : Node3D
             }
         }
 
-        if (persistSession
-            && _world.RemainingMineableBlocks == 0
-            && (_resourceCollection?.PendingCount ?? 0) == 0)
-        {
-            ShowCompletion(debugPreview: false);
-        }
+        TryCompleteWorld();
     }
 
     private void BuildReplaySession(WorldProfile profile, ReplayData replay)
@@ -380,13 +375,7 @@ public partial class GameRoot : Node3D
         else if (result.Source == MiningSource.Manual) _manualBlocksThisWorld++;
 
         MarkAutosaveDirty();
-        if (_sessionPersists
-            && result.Remaining == 0
-            && (_resourceCollection?.PendingCount ?? 0) == 0
-            && !_completionShown)
-        {
-            ShowCompletion(debugPreview: false);
-        }
+        if (result.Remaining == 0) TryCompleteWorld();
     }
 
     private void OnBulkMined(BulkMiningResult result)
@@ -397,7 +386,7 @@ public partial class GameRoot : Node3D
         }
         _worldView?.MarkRegionDirty(result.Region);
         MarkAutosaveDirty();
-        if (_sessionPersists && result.Remaining == 0 && !_completionShown) ShowCompletion(debugPreview: false);
+        if (result.Remaining == 0) TryCompleteWorld();
     }
 
     private void ShowCompletion(bool debugPreview)

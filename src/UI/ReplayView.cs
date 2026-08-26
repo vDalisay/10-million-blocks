@@ -64,7 +64,7 @@ public partial class ReplayView : CanvasLayer
         title.AddThemeFontSizeOverride("font_size", 20);
         column.AddChild(title);
 
-        _status = new Label();
+        _status = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         column.AddChild(_status);
 
         var transport = new HBoxContainer();
@@ -172,7 +172,10 @@ public partial class ReplayView : CanvasLayer
             : _player.IsPlaying ? "Playing" : "Paused";
         _status.Text =
             $"{state}  |  {_player.Speed:0}x  |  {_player.CurrentSeconds:0.0}s / {_player.DurationSeconds:0.0}s  |  " +
-            $"{_player.AppliedEventCount:N0}/{_player.EventCount:N0} removals";
+            $"{_player.AppliedEventCount:N0}/{_player.EventCount:N0} removals" +
+            (_player.SkippedEventCount > 0
+                ? $"\nINCOMPLETE REPLAY — {_player.SkippedEventCount:N0} events missing or skipped. Playback continues."
+                : string.Empty);
         _playPause.Text = _player.IsPlaying ? "Pause [Space]" : (_player.IsFinished ? "Replay [Space]" : "Play [Space]");
         if (_speedSlider is not null)
         {

@@ -36,6 +36,7 @@ public partial class ReplayPlayer : Node
     public double Speed { get; private set; } = 1.0;
     public int AppliedEventCount => _cursor;
     public int EventCount => _data?.Events.Count ?? 0;
+    public int SkippedEventCount { get; private set; }
     public double CurrentSeconds => _data is null ? 0.0 : _sequenceSeconds;
     public double DurationSeconds
         => _data is null || _data.Events.Count <= 1
@@ -129,6 +130,10 @@ public partial class ReplayPlayer : Node
         _sequenceSeconds = 0.0;
         _eventAccumulator = 0.0;
         _finishedRaised = false;
+        SkippedEventCount = checked((int)Math.Clamp(
+            _data.Header.FinalMinedCount - _data.Events.Count,
+            0L,
+            int.MaxValue));
         IsPlaying = autoplay && _data.Events.Count > 0;
 
         // A replay is a compact visualization of the run rather than a recording of player inactivity.
@@ -157,14 +162,16 @@ public partial class ReplayPlayer : Node
             var sample = _world.SampleVoxel(voxel);
             if (!sample.Present)
             {
-                throw new InvalidOperationException(
-                    $"Replay event {_cursor:N0} targets missing/already-removed voxel {voxel} in '{_world.Profile.Id}'.");
+                _cursor++;
+                SkippedEventCount++;
+                continue;
             }
 
             if (!_world.State.MarkMined(voxel))
             {
-                throw new InvalidOperationException(
-                    $"Replay event {_cursor:N0} duplicates voxel {voxel} in '{_world.Profile.Id}'.");
+                _cursor++;
+                SkippedEventCount++;
+                continue;
             }
 
             _changedVoxels.Add(voxel);
