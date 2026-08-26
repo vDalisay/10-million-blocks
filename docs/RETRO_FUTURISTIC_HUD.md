@@ -27,7 +27,9 @@ Current short codes:
 - `RBK` — Rock Breaker
 - `CUT` — Forest Cutter
 
-Each row may show `LOCKED`, `READY`, `RUNNING`, `STOP`, or `DONE` state plus the world-local unit count. Clicking a row opens/focuses the existing automation drawer for that class. Stopped automation uses the compact Attention control beneath the rail rather than a large floating warning over the world.
+Each row may show `LOCKED`, `READY`, `LIVE`, `FAULT`, or `DONE` state plus the world-local unit count. Clicking a row opens/focuses the existing automation drawer for that class. Stopped automation uses the compact fault control beneath the rail rather than a large floating warning over the world.
+
+The automation drawer is part of the same visual system as the rail: `AUTO// DEPLOYMENT BUS`, coded unit names (`DRL // DRILL`, etc.), bracketed module chrome and instrument-style actions. Opening it must not revert to conventional modal/card styling.
 
 ## Anti-generic rule
 
@@ -36,16 +38,22 @@ A dark rectangle with a one-pixel neon outline is not, by itself, the visual ide
 ## Visual language
 
 - Deep navy/black translucent glass rather than opaque gray boxes.
-- One-pixel borders with restrained cyan, amber, blue, green or violet accents.
+- Broken bracket corners and asymmetric rails rather than full outlines on every surface.
+- Registration dots/ticks, restrained scan-lines and segmented meters provide the retro-future hardware texture.
 - Near-square corners; avoid large pill buttons and exaggerated rounded cards.
 - Large numeric readouts, small uppercase labels, compact system-like status copy.
-- No decorative chrome that does not communicate state.
+- Terse console identifiers such as `MINE CORE`, `STORAGE BUS`, `AUTO BUS`, `SECTOR`, `REM`, `CLR`, `LIVE`, and `FAULT` are preferred over verbose dashboard headings.
+- No decorative chrome that does not communicate grouping, state or instrumentation.
 - Accent color communicates category/status; it should not fill entire large panels.
 - Animation should reinforce collection, state changes or attention, not continuously move the HUD.
 
+## Hover mining control
+
+Hover Mining is a gameplay instrument, not a detached stock button. Its persistent lower-right control uses the same bracket/scan-line treatment and reads `HVR// STANDBY [CLICK: ARM]` or `HVR// ACTIVE [CLICK: DISARM]` so its state feels integrated with the console language.
+
 ## Debug overlays
 
-The reference visual A/B harness remains debug-only and is centered along the top so it does not obscure the upper-left mined counter or the right resource ledger during local visual testing.
+The reference visual A/B harness remains debug-only and is centered along the top so it does not obscure the upper-left mined counter or the right resource ledger during local visual testing. Because it appears in art-review screenshots, it also uses the same restrained instrument chrome instead of stock Godot buttons.
 
 ## Future additions
 
