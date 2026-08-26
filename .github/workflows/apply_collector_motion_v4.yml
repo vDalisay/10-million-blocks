@@ -1,0 +1,50 @@
+name: Apply collector motion v4
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - tools/apply_collector_motion_v4.py
+      - .github/workflows/apply_collector_motion_v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/future-world-progression
+          fetch-depth: 0
+
+      - name: Apply collector motion v4
+        run: python3 tools/apply_collector_motion_v4.py
+
+      - name: Validate content
+        run: |
+          python3 tools/validate_content.py
+          python3 tools/validate_progression_contracts.py
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore TenMillionBlocks.csproj
+
+      - name: Build patched tree
+        run: dotnet build TenMillionBlocks.csproj --configuration Release --no-restore
+
+      - name: Commit implementation
+        run: |
+          rm tools/apply_collector_motion_v4.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Refine collector easing, pickup shader and cursor pop"
+          git push origin HEAD:codex/future-world-progression
