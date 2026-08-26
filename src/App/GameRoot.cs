@@ -202,7 +202,8 @@ public partial class GameRoot : Node3D
                 : _save.PersistentMainCurrency
             : 0L;
         _mining.RestoreCurrency(startingCurrency);
-        _mining.BlockMined += OnBlockMined;
+        // BlockMined is attached after ResourceCollectionField so deferred rewards exist before
+        // completion/stat observers see the removal.
         _mining.BulkMined += OnBulkMined;
         _mining.CurrencyChanged += _ => MarkAutosaveDirty();
 
@@ -230,6 +231,13 @@ public partial class GameRoot : Node3D
         if (savedWorld is not null) _manualMining.RestoreHoverMiningEnabled(savedWorld.HoverMiningEnabled);
         _sessionRoot.AddChild(_manualMining);
 
+        _resourceCollection = new ResourceCollectionField { Name = "ResourceCollectionField" };
+        _resourceCollection.Initialize(_world, _mining, _skills, _camera, _manualMining);
+        if (savedWorld is not null) _resourceCollection.RestoreSnapshot(savedWorld.PendingPickups);
+        _resourceCollection.PendingChanged += OnPendingCollectionChanged;
+        _sessionRoot.AddChild(_resourceCollection);
+        _mining.BlockMined += OnBlockMined;
+
         _miners = new MinerSimulationService { Name = "MinerSimulation" };
         _miners.Initialize(_world, _mining, _worldView, _minerCatalog, _patterns, _skills);
         _sessionRoot.AddChild(_miners);
@@ -252,8 +260,8 @@ public partial class GameRoot : Node3D
         hud.Initialize(_world, _mining, _worldView, _skills, _miners, _manualMining, _placement);
         _sessionRoot.AddChild(hud);
 
-        // Incremental-game feedback is a pure observer: state/currency/replay have already been
-        // committed by MiningService before any pickup model, number or counter pulse is emitted.
+        // Incremental-game feedback remains presentation-only. ResourceCollectionField has already
+        // decided whether ordinary manual/live-automation rewards are banked or deferred pickups.
         var incrementalFeedback = new IncrementalFeedbackView { Name = "IncrementalFeedbackView" };
         incrementalFeedback.Initialize(_world, _worldView, _mining, _specialResources, _assets);
         _sessionRoot.AddChild(incrementalFeedback);
@@ -300,7 +308,12 @@ public partial class GameRoot : Node3D
             }
         }
 
-        if (persistSession && _world.RemainingMineableBlocks == 0) ShowCompletion(debugPreview: false);
+        if (persistSession
+            && _world.RemainingMineableBlocks == 0
+            && (_resourceCollection?.PendingCount ?? 0) == 0)
+        {
+            ShowCompletion(debugPreview: false);
+        }
     }
 
     private void BuildReplaySession(WorldProfile profile, ReplayData replay)
@@ -340,6 +353,7 @@ public partial class GameRoot : Node3D
         if (_worldEvents is not null) _worldEvents.PersistentStateChanged -= MarkAutosaveDirty;
         _worldEvents = null;
         _replayPath = string.Empty;
+        if (_resourceCollection is not null) _resourceCollection.PendingChanged -= OnPendingCollectionChanged;
 
         if (_sessionRoot is null) return;
         RemoveChild(_sessionRoot);
@@ -350,6 +364,7 @@ public partial class GameRoot : Node3D
         _mining = null;
         _skills = null;
         _manualMining = null;
+        _resourceCollection = null;
         _miners = null;
         _placement = null;
         _skillTree = null;
@@ -365,7 +380,13 @@ public partial class GameRoot : Node3D
         else if (result.Source == MiningSource.Manual) _manualBlocksThisWorld++;
 
         MarkAutosaveDirty();
-        if (_sessionPersists && result.Remaining == 0 && !_completionShown) ShowCompletion(debugPreview: false);
+        if (_sessionPersists
+            && result.Remaining == 0
+            && (_resourceCollection?.PendingCount ?? 0) == 0
+            && !_completionShown)
+        {
+            ShowCompletion(debugPreview: false);
+        }
     }
 
     private void OnBulkMined(BulkMiningResult result)
@@ -529,6 +550,7 @@ public partial class GameRoot : Node3D
             MinedChunks = _world.State.CreateSnapshot(),
             ExhaustedRegions = _world.State.CreateExhaustedRegionSnapshot(),
             Miners = _miners.CreateSnapshot(),
+            PendingPickups = _resourceCollection?.CreateSnapshot() ?? previous?.PendingPickups ?? new(),
         };
     }
 

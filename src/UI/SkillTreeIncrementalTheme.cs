@@ -53,7 +53,9 @@ internal static class SkillTreeIncrementalTheme
                 "unlock_auto_cloud_charger" or
                 "unlock_radioactive_cloud" or
                 "unlock_orb_breaker" or
-                "add_orb_breaker_count"))
+                "add_orb_breaker_count" or
+                "unlock_manual_auto_collect" or
+                "unlock_automation_auto_collect"))
         {
             return SkillNodeVisualKind.Milestone;
         }
@@ -62,6 +64,8 @@ internal static class SkillTreeIncrementalTheme
                 "multiply_manual_mining_rate" or
                 "set_manual_mining_power" or
                 "set_manual_footprint" or
+                "set_collection_radius_blocks" or
+                "multiply_collection_rate" or
                 "multiply_resource_yield" or
                 "multiply_precious_resource_yield" or
                 "add_critical_yield_chance" or
@@ -125,6 +129,12 @@ internal static class SkillTreeIconAtlas
         ["manual_power_4"] = 10,
         ["manual_power_5"] = 10,
         ["manual_aftershock"] = 23,
+        ["collection_reach_1"] = 9,
+        ["collection_rate_1"] = 9,
+        ["collection_reach_2"] = 9,
+        ["collection_rate_2"] = 9,
+        ["collection_auto_manual"] = 9,
+        ["collection_auto_automation"] = 9,
         ["automation_unlock"] = 4,
         ["drill_hardened_bit"] = 5,
         ["drill_ore_bit"] = 6,

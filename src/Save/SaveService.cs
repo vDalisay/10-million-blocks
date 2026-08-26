@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Godot;
 using TenMillionBlocks.Automation;
+using TenMillionBlocks.Collection;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.World.Storage;
 using TenMillionBlocks.WorldEvents;
@@ -31,6 +32,7 @@ public sealed class WorldSaveData
     public List<MinedChunkSnapshot> MinedChunks { get; set; } = new();
     public List<ExhaustedRegionSnapshot> ExhaustedRegions { get; set; } = new();
     public List<MinerSnapshot> Miners { get; set; } = new();
+    public List<ResourcePickupSnapshot> PendingPickups { get; set; } = new();
 }
 
 public sealed class GameSaveData
@@ -211,6 +213,7 @@ public sealed class SaveService
             world.MinedChunks ??= new List<MinedChunkSnapshot>();
             world.ExhaustedRegions ??= new List<ExhaustedRegionSnapshot>();
             world.Miners ??= new List<MinerSnapshot>();
+            world.PendingPickups ??= new List<ResourcePickupSnapshot>();
             if (world.Completed) data.CompletedWorldIds.Add(world.WorldId);
         }
 

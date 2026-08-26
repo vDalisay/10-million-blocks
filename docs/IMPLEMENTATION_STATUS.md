@@ -261,3 +261,11 @@ Automated/static work is now at the point where further confidence primarily req
 10. Verify Revisit resumes actual state, Replay remains read-only, Esc pause/save-return behaves correctly, and the 50³ final clear exposes the dedicated demo-complete/browse flow.
 
 No additional one-million performance benchmark is required for this progression checkpoint unless a regression is observed there.
+
+
+## Hover resource collection pass
+
+- Manual and live automation mining now leave ordinary-resource pickups in-world until hovered; special resources retain their direct authoritative path.
+- Pickup presentation is data-only and rendered through fixed-capacity 8x8x8 MultiMesh buckets; hover interaction queries only buckets along the cursor ray.
+- Collector Reach/Pull upgrades expand radius and throughput, Personal Auto-Collect removes manual pickup friction later, and Automation Logistics separately enables live-automation auto-collection.
+- Pending pickups persist in world saves and final completion waits until the last deferred reward is collected.

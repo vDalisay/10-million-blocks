@@ -1,7 +1,155 @@
 {
   "schema_version": 2,
-  "content_version": 17,
+  "content_version": 18,
   "nodes": [
+    {
+      "id": "collection_reach_1",
+      "display_name": "Collector Reach I",
+      "description": "Increase the hover pickup field from 0.32 to 0.50 block widths so floating resources are easier to catch without precise pixel-perfect aiming.",
+      "grid_x": -2,
+      "grid_y": 0,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [],
+      "cost": 5,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_collection_radius_blocks",
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "collection_rate_1",
+      "display_name": "Collector Pull I",
+      "description": "Pull hovered resource pickups 75% faster. Dense clusters are collected more quickly while the cursor passes over them.",
+      "grid_x": -2,
+      "grid_y": 2,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_reach_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 12,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_collection_rate",
+          "value": 1.75
+        }
+      ]
+    },
+    {
+      "id": "collection_reach_2",
+      "display_name": "Collector Reach II",
+      "description": "Expand the hover pickup field again, from 0.50 to 0.80 block widths.",
+      "grid_x": -2,
+      "grid_y": 4,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_rate_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 45,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_collection_radius_blocks",
+          "value": 0.8
+        }
+      ]
+    },
+    {
+      "id": "collection_rate_2",
+      "display_name": "Collector Pull II",
+      "description": "Double collection throughput again. Hovering a resource cluster now vacuums many pickups per second.",
+      "grid_x": -2,
+      "grid_y": 6,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_reach_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "hover_mining_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 120,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_collection_rate",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "collection_auto_manual",
+      "display_name": "Personal Auto-Collect",
+      "description": "Manual and Hover Mining rewards bank themselves immediately. Existing manual pickups are collected when this upgrade is purchased.",
+      "grid_x": -2,
+      "grid_y": 8,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_rate_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "manual_hover_speed_3",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 900,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_manual_auto_collect"
+        }
+      ]
+    },
+    {
+      "id": "collection_auto_automation",
+      "display_name": "Automation Logistics",
+      "description": "Live automation rewards bank themselves immediately instead of leaving pickups behind. Existing automation pickups are collected on purchase.",
+      "grid_x": 9,
+      "grid_y": 5,
+      "category": "automation",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 2200,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_automation_auto_collect"
+        }
+      ]
+    },
     {
       "id": "hover_mining_unlock",
       "display_name": "Hover Mining",

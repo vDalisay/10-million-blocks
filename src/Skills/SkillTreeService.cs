@@ -15,6 +15,11 @@ public sealed class SkillDerivedStats
     public double ManualMiningPower { get; internal set; } = 1.0;
     public int ManualPenetrationDepth { get; internal set; } = 1;
 
+    public double CollectionRadiusBlocks { get; internal set; } = 0.32;
+    public double CollectionRatePerSecond { get; internal set; } = 8.0;
+    public bool ManualAutoCollectUnlocked { get; internal set; }
+    public bool AutomationAutoCollectUnlocked { get; internal set; }
+
     public double ResourceYieldMultiplier { get; internal set; } = 1.0;
     public double PreciousResourceYieldMultiplier { get; internal set; } = 1.0;
     public double CriticalYieldChance { get; internal set; }
@@ -207,6 +212,10 @@ public sealed class SkillTreeService
             case "set_manual_penetration_depth": stats.ManualPenetrationDepth = Math.Max(stats.ManualPenetrationDepth, Math.Max(1, (int)Math.Round(effect.Value))); break;
             case "set_manual_footprint": stats.ManualFootprint = ManualMiningFootprint.Parse(effect.StringValue); break;
             case "unlock_hover_mining": stats.HoverMiningUnlocked = true; break;
+            case "set_collection_radius_blocks": stats.CollectionRadiusBlocks = Math.Max(stats.CollectionRadiusBlocks, Math.Max(0.05, effect.Value)); break;
+            case "multiply_collection_rate": stats.CollectionRatePerSecond *= Math.Max(0.05, effect.Value); break;
+            case "unlock_manual_auto_collect": stats.ManualAutoCollectUnlocked = true; break;
+            case "unlock_automation_auto_collect": stats.AutomationAutoCollectUnlocked = true; break;
             case "multiply_resource_yield": stats.ResourceYieldMultiplier *= Math.Max(0.01, effect.Value); break;
             case "multiply_precious_resource_yield": stats.PreciousResourceYieldMultiplier *= Math.Max(0.01, effect.Value); break;
             case "add_critical_yield_chance": stats.CriticalYieldChance = Math.Clamp(stats.CriticalYieldChance + Math.Max(0.0, effect.Value), 0.0, 0.75); break;
