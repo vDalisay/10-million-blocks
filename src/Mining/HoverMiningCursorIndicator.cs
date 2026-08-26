@@ -6,7 +6,7 @@ namespace TenMillionBlocks.Mining;
 
 /// <summary>
 /// Screen-space cursor feedback. The hover-mining ring follows mining cadence, while collection emits a
-/// short independent pop at the pointer even when Hover Mining itself is disabled.
+/// short independent cursor pop at the pointer even when Hover Mining itself is disabled.
 /// </summary>
 public partial class HoverMiningCursorIndicator : Control
 {
@@ -80,22 +80,42 @@ public partial class HoverMiningCursorIndicator : Control
 
         if (_collectionPulse > 0.0f)
         {
-            float age = 1.0f - _collectionPulse;
-            float bump = MathF.Sin(age * MathF.PI);
-            float radius = 7.5f * (1.0f + bump * 0.42f) + age * 2.0f;
-            float alpha = 0.72f * _collectionPulse;
-            var color = new Color(0.76f, 1.0f, 0.93f, alpha);
-            DrawArc(Vector2.Zero, radius, 0.0f, Tau, 28, color, 2.2f, true);
-
-            float tickInner = radius + 2.0f;
-            float tickOuter = tickInner + 3.5f * (0.65f + bump * 0.35f);
-            for (int i = 0; i < 4; i++)
-            {
-                float angle = i * MathF.PI * 0.5f;
-                Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
-                DrawLine(direction * tickInner, direction * tickOuter, color, 1.6f, true);
-            }
+            DrawCollectionCursorPop();
         }
+    }
+
+    private void DrawCollectionCursorPop()
+    {
+        float age = 1.0f - _collectionPulse;
+        float bump = MathF.Sin(age * MathF.PI);
+        float scale = 1.0f + bump * 0.22f;
+        float alpha = 0.76f * _collectionPulse;
+
+        // This translucent cursor silhouette is anchored at the real OS cursor hotspot. During the
+        // ~0.2 second collection beat it expands and settles, making the pointer itself read as popping
+        // without permanently replacing the player's platform cursor.
+        Vector2[] cursor =
+        [
+            new Vector2(0.0f, 0.0f),
+            new Vector2(1.2f, 14.8f),
+            new Vector2(4.8f, 10.8f),
+            new Vector2(8.2f, 17.3f),
+            new Vector2(10.5f, 16.0f),
+            new Vector2(7.0f, 9.6f),
+            new Vector2(12.4f, 9.0f),
+        ];
+        for (int i = 0; i < cursor.Length; i++) cursor[i] *= scale;
+
+        DrawColoredPolygon(cursor, new Color(0.91f, 1.0f, 0.98f, alpha * 0.58f));
+        Color outline = new(0.01f, 0.025f, 0.03f, alpha * 0.72f);
+        for (int i = 0; i < cursor.Length; i++)
+        {
+            DrawLine(cursor[i], cursor[(i + 1) % cursor.Length], outline, 1.4f, true);
+        }
+
+        float ringRadius = 8.0f * (1.0f + bump * 0.30f) + age * 2.0f;
+        var ringColor = new Color(0.76f, 1.0f, 0.93f, alpha * 0.58f);
+        DrawArc(Vector2.Zero, ringRadius, 0.0f, Tau, 28, ringColor, 1.7f, true);
     }
 
     public void SetState(
