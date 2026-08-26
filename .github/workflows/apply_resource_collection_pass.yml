@@ -1,0 +1,38 @@
+name: Apply resource collection pass
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - tools/apply_resource_collection_pass.py
+      - .github/workflows/apply_resource_collection_pass.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out implementation branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/future-world-progression
+          fetch-depth: 0
+
+      - name: Apply resource collection pass
+        run: python tools/apply_resource_collection_pass.py
+
+      - name: Validate authored content
+        run: python tools/validate_content.py
+
+      - name: Commit implementation
+        run: |
+          rm tools/apply_resource_collection_pass.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add hover resource collection progression"
+          git push origin HEAD:codex/future-world-progression
