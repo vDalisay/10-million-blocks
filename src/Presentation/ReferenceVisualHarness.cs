@@ -41,10 +41,12 @@ public partial class ReferenceVisualHarness : Node
 
         var panel = new PanelContainer
         {
-            OffsetLeft = 16.0f,
-            OffsetTop = 16.0f,
-            OffsetRight = 810.0f,
-            OffsetBottom = 108.0f,
+            AnchorLeft = 0.5f,
+            AnchorRight = 0.5f,
+            OffsetLeft = -380.0f,
+            OffsetTop = 14.0f,
+            OffsetRight = 380.0f,
+            OffsetBottom = 106.0f,
             TooltipText = "Reference A/B harness. Camera [1-3], look [4-8], capture [F6]. RMB orbit, MMB pan, wheel zoom.",
         };
         canvas.AddChild(panel);
