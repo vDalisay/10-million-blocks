@@ -98,7 +98,6 @@ replace_once(
     {
         RetroHudChrome.SkinButton(button, accent);
     }''')
-# Header button gets its own bracket overlay after it is styled.
 replace_once(
     path,
     '        ApplyRetroButton(_automationToggle, new Color("#5fd8cf"));',
@@ -178,6 +177,7 @@ replace_once(
 # a stock Godot rectangle/button cluster while evaluating the shipping HUD.
 # ---------------------------------------------------------------------------
 path = "src/Presentation/ReferenceVisualHarness.cs"
+replace_once(path, "using TenMillionBlocks.World.Rendering;", "using TenMillionBlocks.UI;\nusing TenMillionBlocks.World.Rendering;")
 replace_once(
     path,
     '        canvas.AddChild(panel);',
