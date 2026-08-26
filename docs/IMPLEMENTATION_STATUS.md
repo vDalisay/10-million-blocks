@@ -44,7 +44,7 @@ Implemented:
 - world browser separating **Revisit** from **Replay**;
 - replay exit restores the world that was active before the replay was opened;
 - persistent player-level special-resource event subscriptions are detached when old skill-tree views leave the scene;
-- distinct `STEAM DEMO COMPLETE` flow after the 50³ finale.
+- distinct `STEAM DEMO COMPLETE` flow after the 50³ finale, now with a dedicated dark-space finale panel, full 1³→50³ route marker, source breakdown and restrained entrance motion.
 
 The startup main menu now distinguishes **START GAME** from **CONTINUE** and provides presentation settings plus a confirmation-gated **CLEAR SAVE DATA** action. Clearing progression removes current/legacy development saves, temp files and replay history while keeping presentation preferences.
 
