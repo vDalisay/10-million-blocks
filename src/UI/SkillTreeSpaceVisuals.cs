@@ -237,7 +237,10 @@ public partial class IncrementalSkillNodeButton
         // Center the atlas cell, then apply a small optical correction for asymmetric glyph art.
         const float iconSize = 42.0f;
         Vector2 opticalOffset = SkillTreeIconAtlas.OpticalOffsetForSkill(node.Id, iconSize);
-        _icon.Position = new Vector2((70.0f - iconSize) * 0.5f, (70.0f - iconSize) * 0.5f) + opticalOffset;
+        Vector2 globalCenterCorrection = new(-4.0f, -4.0f);
+        _icon.Position = new Vector2((70.0f - iconSize) * 0.5f, (70.0f - iconSize) * 0.5f)
+            + opticalOffset
+            + globalCenterCorrection;
         _icon.Size = new Vector2(iconSize, iconSize);
         _icon.PivotOffset = new Vector2(iconSize * 0.5f, iconSize * 0.5f);
         _icon.Scale = Vector2.One;
@@ -249,8 +252,8 @@ public partial class IncrementalSkillNodeButton
 
         _starPlate = new SkillNodeStarPlate
         {
-            Position = Vector2.Zero,
-            Size = new Vector2(70, 70),
+            Position = new Vector2(-6, -6),
+            Size = new Vector2(82, 82),
             MouseFilter = MouseFilterEnum.Ignore,
         };
         AddChild(_starPlate);
@@ -258,9 +261,9 @@ public partial class IncrementalSkillNodeButton
 
         _spaceAura = new SkillNodeSpaceAura
         {
-            Position = new Vector2(-4, -4),
-            Size = new Vector2(78, 78),
-            PivotOffset = new Vector2(39, 39),
+            Position = new Vector2(-10, -10),
+            Size = new Vector2(90, 90),
+            PivotOffset = new Vector2(45, 45),
             MouseFilter = MouseFilterEnum.Ignore,
             RingColor = _categoryColor,
             Modulate = new Color(1, 1, 1, 0.08f),

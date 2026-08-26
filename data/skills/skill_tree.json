@@ -47,7 +47,7 @@
     {
       "id": "collection_reach_2",
       "display_name": "Collector Reach II",
-      "description": "Expand the collector field to a full 5 block widths from the cursor before the final instant-collection upgrade.",
+      "description": "Expand the collector field to a 5-block-wide diameter (2.5 blocks from the cursor center) before the final instant-collection upgrade.",
       "grid_x": -2,
       "grid_y": 4,
       "category": "manual",
@@ -64,7 +64,7 @@
       "effects": [
         {
           "type": "set_collection_radius_blocks",
-          "value": 5.0
+          "value": 2.5
         }
       ]
     },

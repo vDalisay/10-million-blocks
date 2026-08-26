@@ -43,7 +43,8 @@ public partial class ResourceCollectionField : Node3D
     private const int BucketVoxelSize = 8;
     private const int BucketCapacity = BucketVoxelSize * BucketVoxelSize * BucketVoxelSize;
     private const float PickupScale = 0.30f;
-    private const float OutlineScale = 1.085f;
+    private const float OutlineScale = 1.045f;
+    private const float CrtScale = 1.012f;
     private const float SpawnDuration = 0.48f;
     private const float CursorTouchPixels = 15.0f;
 
@@ -74,6 +75,8 @@ public partial class ResourceCollectionField : Node3D
         public MultiMesh MultiMesh = null!;
         public MultiMeshInstance3D OutlineNode = null!;
         public MultiMesh OutlineMultiMesh = null!;
+        public MultiMeshInstance3D CrtNode = null!;
+        public MultiMesh CrtMultiMesh = null!;
         public float BobPhase;
         public List<int> PickupIds { get; } = new(BucketCapacity);
     }
@@ -85,6 +88,7 @@ public partial class ResourceCollectionField : Node3D
     private ManualMiningController _manual = null!;
     private BlockAssetRegistry _assets = null!;
     private StandardMaterial3D _outlineMaterial = null!;
+    private ShaderMaterial _crtMaterial = null!;
     private float _spacing;
     private int _nextId = 1;
     private long _pendingAmount;
@@ -123,6 +127,7 @@ public partial class ResourceCollectionField : Node3D
         _assets = assets ?? throw new ArgumentNullException(nameof(assets));
         _spacing = Math.Max(0.01f, world.Profile.BlockSpacing);
         _outlineMaterial = BuildOutlineMaterial();
+        _crtMaterial = BuildCrtMaterial();
         BuildHint();
 
         // GameRoot intentionally attaches its BlockMined observer after this one. That guarantees a
@@ -151,9 +156,9 @@ public partial class ResourceCollectionField : Node3D
         Vector3 rayDirection = camera.ProjectRayNormal(mouse).Normalized();
         float maxDistance = _world.GetWorldBounds().Size.Length() * 2.5f;
 
-        // A pickup must first be visible/reachable from the cursor ray. Once it enters the collector
-        // field it becomes captured by the cursor and keeps following it until contact, instead of
-        // disappearing at the edge of the radius.
+        // Collection is a live cursor field, not a permanent capture. A pickup accelerates toward
+        // the cursor only while it remains inside the current collector radius; moving the cursor away
+        // releases it immediately so reach upgrades have a clear, bounded footprint.
         if (VoxelRaycaster.TryRaycast(_world, camera, mouse, maxDistance, out Vector3I hitVoxel, out _))
         {
             Vector3 hitPosition = (Vector3)hitVoxel * _spacing;
@@ -214,7 +219,7 @@ public partial class ResourceCollectionField : Node3D
         if (snapshot is null) return;
         foreach (ResourcePickupSnapshot item in snapshot)
         {
-            if (item.Amount <= 0 || string.IsNullOrWhiteSpace(item.BlockId)) continue;
+            if (item.Amount < 0 || string.IsNullOrWhiteSpace(item.BlockId)) continue;
             AddPickup(
                 new Vector3I(item.X, item.Y, item.Z),
                 item.BlockId,
@@ -229,7 +234,7 @@ public partial class ResourceCollectionField : Node3D
 
     private void OnBlockMined(MiningResult result)
     {
-        if (!result.Success || !result.Removed || result.Reward <= 0) return;
+        if (!result.Success || !result.Removed) return;
         bool automated = result.Source == MiningSource.Automated;
         bool manual = result.Source == MiningSource.Manual;
         if (!manual && !automated) return;
@@ -239,24 +244,29 @@ public partial class ResourceCollectionField : Node3D
             : _skills.Derived.AutomationAutoCollectUnlocked;
         if (autoCollect)
         {
+            Vector2 source = ProjectCollectionSource(result.Voxel, manual);
+            _manual.PulseCollectionCursor(source);
             PickupCollected?.Invoke(new ResourcePickupCollected(
                 result.BlockId,
-                result.Reward,
+                Math.Max(0L, result.Reward),
                 Math.Max(1L, result.BlocksRemoved),
                 automated,
-                ProjectCollectionSource(result.Voxel, manual)));
+                source));
             return;
         }
 
-        // MiningService has just credited this exact reward. Move it from the bank into the world pickup
-        // before later BlockMined observers execute. The reward calculation therefore stays centralized.
-        if (!_mining.TrySpend(result.Reward))
+        // MiningService has just credited this exact reward. Positive rewards are moved from the bank
+        // into the world pickup before later BlockMined observers execute. Zero-value blocks (notably
+        // water) still materialize a pickup so collection feedback remains consistent without changing
+        // the economy.
+        if (result.Reward > 0 && !_mining.TrySpend(result.Reward))
         {
             GD.PushWarning($"Could not defer {result.Reward} resources for pickup at {result.Voxel}; leaving reward banked.");
             return;
         }
 
-        if (!AddPickup(result.Voxel, result.BlockId, result.Reward, automated, Math.Max(1L, result.BlocksRemoved), notify: true, animateSpawn: true))
+        if (!AddPickup(result.Voxel, result.BlockId, Math.Max(0L, result.Reward), automated, Math.Max(1L, result.BlocksRemoved), notify: true, animateSpawn: true)
+            && result.Reward > 0)
         {
             _mining.GrantCurrency(result.Reward);
         }
@@ -339,6 +349,7 @@ public partial class ResourceCollectionField : Node3D
         WriteVisual(bucket, slot, pickup, animateSpawn ? pickup.OriginPosition : pickup.FinalPosition);
         bucket.MultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
         bucket.OutlineMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
+        bucket.CrtMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
         if (animateSpawn && GraphicsSettingsRuntime.Current?.ReducedMotionEnabled != true)
             _activeSpawnIds.Add(id);
         if (notify) NotifyPendingChanged(); else UpdateHint();
@@ -372,6 +383,7 @@ public partial class ResourceCollectionField : Node3D
         bucket.PickupIds.RemoveAt(lastSlot);
         bucket.MultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
         bucket.OutlineMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
+        bucket.CrtMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
 
         if (bucket.PickupIds.Count == 0)
             RemoveBucket(bucket);
@@ -431,6 +443,13 @@ public partial class ResourceCollectionField : Node3D
             InstanceCount = BucketCapacity,
             VisibleInstanceCount = 0,
         };
+        var crtMultiMesh = new MultiMesh
+        {
+            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            Mesh = mesh,
+            InstanceCount = BucketCapacity,
+            VisibleInstanceCount = 0,
+        };
 
         // Inverted-hull outline: the slightly enlarged black backfaces remain visible around the
         // miniature block while the real block mesh/material renders normally on top.
@@ -449,8 +468,20 @@ public partial class ResourceCollectionField : Node3D
             Multimesh = multiMesh,
             MaterialOverride = _assets.GetMaterialOverride(blockId),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Transparency = 0.20f,
         };
         AddChild(node);
+
+        // A very light screen-space scanline/RGB-mask shell gives pickups a CRT/readout quality while
+        // keeping the source block art visible underneath. It stays inside the thinner black outline.
+        var crtNode = new MultiMeshInstance3D
+        {
+            Name = $"PickupCrt_{blockId}_{cell.X}_{cell.Y}_{cell.Z}",
+            Multimesh = crtMultiMesh,
+            MaterialOverride = _crtMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(crtNode);
 
         var bucket = new RenderBucket
         {
@@ -459,6 +490,8 @@ public partial class ResourceCollectionField : Node3D
             MultiMesh = multiMesh,
             OutlineNode = outlineNode,
             OutlineMultiMesh = outlineMultiMesh,
+            CrtNode = crtNode,
+            CrtMultiMesh = crtMultiMesh,
             BobPhase = BucketPhase(cell, blockId),
         };
         _buckets.Add(key, bucket);
@@ -481,6 +514,7 @@ public partial class ResourceCollectionField : Node3D
         }
         bucket.Node.QueueFree();
         bucket.OutlineNode.QueueFree();
+        bucket.CrtNode.QueueFree();
     }
 
     private void UpdateVisualMotion()
@@ -493,6 +527,7 @@ public partial class ResourceCollectionField : Node3D
                 : MathF.Sin((float)(_visualTime * 1.85) + bucket.BobPhase) * _spacing * 0.035f;
             bucket.Node.Position = Vector3.Up * bob;
             bucket.OutlineNode.Position = bucket.Node.Position;
+            bucket.CrtNode.Position = bucket.Node.Position;
         }
 
         if (_activeSpawnIds.Count == 0) return;
@@ -548,6 +583,8 @@ public partial class ResourceCollectionField : Node3D
     private void WriteVisual(RenderBucket bucket, int slot, Pickup pickup, Vector3 position)
     {
         bucket.MultiMesh.SetInstanceTransform(slot, new Transform3D(pickup.Basis, position));
+        Basis crtBasis = pickup.Basis.Scaled(Vector3.One * CrtScale);
+        bucket.CrtMultiMesh.SetInstanceTransform(slot, new Transform3D(crtBasis, position));
         Basis outlineBasis = pickup.Basis.Scaled(Vector3.One * OutlineScale);
         bucket.OutlineMultiMesh.SetInstanceTransform(slot, new Transform3D(outlineBasis, position));
     }
@@ -582,7 +619,22 @@ public partial class ResourceCollectionField : Node3D
                 }
 
                 Vector3 position = pickup.FinalPosition;
-                float along = Mathf.Clamp((position - rayOrigin).Dot(rayDirection), _spacing * 0.35f, maxDistance);
+                float rawAlong = (position - rayOrigin).Dot(rayDirection);
+                float rangeAlong = Mathf.Clamp(rawAlong, 0.0f, maxDistance);
+                Vector3 closestOnCursorRay = rayOrigin + rayDirection * rangeAlong;
+                float liveRange = position.DistanceTo(closestOnCursorRay);
+
+                // Capture is conditional every frame. Once the cursor ray moves farther away than the
+                // collector field, stop applying force and leave the miniature block where it reached.
+                if (rawAlong < 0.0f || rawAlong > maxDistance || liveRange > collectorRadius * 1.02f)
+                {
+                    pickup.Sucking = false;
+                    pickup.Velocity = Vector3.Zero;
+                    _suctionIds.RemoveAt(index);
+                    continue;
+                }
+
+                float along = Mathf.Clamp(rawAlong, _spacing * 0.35f, maxDistance);
                 Vector3 target = rayOrigin + rayDirection * along;
                 Vector3 toTarget = target - position;
                 float distance = toTarget.Length();
@@ -626,7 +678,8 @@ public partial class ResourceCollectionField : Node3D
             screenPosition);
         long amount = pickup.Amount;
         RemovePickup(id, notify: false);
-        _mining.GrantCurrency(amount);
+        if (amount > 0) _mining.GrantCurrency(amount);
+        _manual.PulseCollectionCursor(screenPosition);
         PickupCollected?.Invoke(collected);
         if (notify) NotifyPendingChanged();
     }
@@ -651,6 +704,26 @@ public partial class ResourceCollectionField : Node3D
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             CullMode = BaseMaterial3D.CullModeEnum.Front,
         };
+
+    private static ShaderMaterial BuildCrtMaterial()
+    {
+        var shader = new Shader
+        {
+            Code = "shader_type spatial;\n"
+                + "render_mode unshaded, blend_mix, cull_back, depth_draw_never;\n\n"
+                + "void fragment() {\n"
+                + "    float row = mod(floor(FRAGCOORD.y), 3.0);\n"
+                + "    float scan = row < 1.0 ? 1.0 : 0.14;\n"
+                + "    float column = mod(floor(FRAGCOORD.x), 3.0);\n"
+                + "    vec3 mask = column < 1.0 ? vec3(1.0, 0.58, 0.58) : (column < 2.0 ? vec3(0.58, 1.0, 0.58) : vec3(0.58, 0.68, 1.0));\n"
+                + "    vec3 tint = vec3(0.23, 0.62, 0.56) * mask;\n"
+                + "    ALBEDO = tint;\n"
+                + "    EMISSION = tint * 0.18;\n"
+                + "    ALPHA = 0.035 + scan * 0.12;\n"
+                + "}\n",
+        };
+        return new ShaderMaterial { Shader = shader };
+    }
 
     private Vector2 PickupScatter(Vector3I voxel, int id)
     {
