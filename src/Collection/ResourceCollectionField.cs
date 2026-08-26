@@ -43,10 +43,11 @@ public partial class ResourceCollectionField : Node3D
     private const int BucketVoxelSize = 8;
     private const int BucketCapacity = BucketVoxelSize * BucketVoxelSize * BucketVoxelSize;
     private const float PickupScale = 0.30f;
-    private const float OutlineScale = 1.045f;
-    private const float CrtScale = 1.012f;
+    private const float OutlineScale = 1.035f;
     private const float SpawnDuration = 0.48f;
     private const float CursorTouchPixels = 15.0f;
+    private const float BaseSuctionDuration = 0.82f;
+    private const float ReleaseDamping = 16.0f;
 
     private readonly record struct RenderBucketKey(Vector3I Cell, string BlockId);
 
@@ -59,7 +60,10 @@ public partial class ResourceCollectionField : Node3D
         public long BlocksRemoved = 1L;
         public bool Automated;
         public bool Sucking;
+        public bool Coasting;
         public Vector3 Velocity;
+        public Vector3 SuctionStartPosition;
+        public float SuctionProgress;
         public RenderBucketKey RenderKey;
         public int RenderSlot;
         public Vector3 OriginPosition;
@@ -75,8 +79,6 @@ public partial class ResourceCollectionField : Node3D
         public MultiMesh MultiMesh = null!;
         public MultiMeshInstance3D OutlineNode = null!;
         public MultiMesh OutlineMultiMesh = null!;
-        public MultiMeshInstance3D CrtNode = null!;
-        public MultiMesh CrtMultiMesh = null!;
         public float BobPhase;
         public List<int> PickupIds { get; } = new(BucketCapacity);
     }
@@ -88,7 +90,6 @@ public partial class ResourceCollectionField : Node3D
     private ManualMiningController _manual = null!;
     private BlockAssetRegistry _assets = null!;
     private StandardMaterial3D _outlineMaterial = null!;
-    private ShaderMaterial _crtMaterial = null!;
     private float _spacing;
     private int _nextId = 1;
     private long _pendingAmount;
@@ -102,6 +103,8 @@ public partial class ResourceCollectionField : Node3D
     private readonly List<int> _sweepIds = new();
     private readonly List<int> _activeSpawnIds = new();
     private readonly List<int> _suctionIds = new();
+    private readonly List<int> _coastingIds = new();
+    private readonly Dictionary<string, ShaderMaterial> _pickupMaterials = new(StringComparer.Ordinal);
 
     private CanvasLayer? _hintLayer;
     private Label? _hint;
@@ -127,7 +130,6 @@ public partial class ResourceCollectionField : Node3D
         _assets = assets ?? throw new ArgumentNullException(nameof(assets));
         _spacing = Math.Max(0.01f, world.Profile.BlockSpacing);
         _outlineMaterial = BuildOutlineMaterial();
-        _crtMaterial = BuildCrtMaterial();
         BuildHint();
 
         // GameRoot intentionally attaches its BlockMined observer after this one. That guarantees a
@@ -144,8 +146,10 @@ public partial class ResourceCollectionField : Node3D
 
     public override void _Process(double delta)
     {
-        _visualTime += Math.Max(0.0, delta);
+        float dt = Math.Max(0.0f, (float)delta);
+        _visualTime += dt;
         UpdateVisualMotion();
+        AdvanceReleasedMomentum(dt);
 
         if (_pickups.Count == 0) return;
         if (!_manual.InputEnabled || _manual.PlacementMode || _camera.IsManipulating) return;
@@ -156,9 +160,8 @@ public partial class ResourceCollectionField : Node3D
         Vector3 rayDirection = camera.ProjectRayNormal(mouse).Normalized();
         float maxDistance = _world.GetWorldBounds().Size.Length() * 2.5f;
 
-        // Collection is a live cursor field, not a permanent capture. A pickup accelerates toward
-        // the cursor only while it remains inside the current collector radius; moving the cursor away
-        // releases it immediately so reach upgrades have a clear, bounded footprint.
+        // Collection is a live cursor field. Entering range starts an easeInOutExpo pull; leaving
+        // range releases the pickup into a short damped coast instead of hard-stopping it.
         if (VoxelRaycaster.TryRaycast(_world, camera, mouse, maxDistance, out Vector3I hitVoxel, out _))
         {
             Vector3 hitPosition = (Vector3)hitVoxel * _spacing;
@@ -189,12 +192,17 @@ public partial class ResourceCollectionField : Node3D
         foreach (int id in _hoverCandidates)
         {
             if (!_pickups.TryGetValue(id, out Pickup? pickup) || pickup.Sucking) continue;
+            Vector3 current = CurrentVisualPosition(pickup);
             pickup.Sucking = true;
+            pickup.Coasting = false;
+            pickup.SuctionStartPosition = current;
+            pickup.FinalPosition = current;
+            pickup.SuctionProgress = 0.0f;
             pickup.Velocity = Vector3.Zero;
             _suctionIds.Add(id);
         }
 
-        AdvanceSuction((float)Math.Max(0.0, delta), camera, mouse, rayOrigin, rayDirection, maxDistance, radius);
+        AdvanceSuction(dt, camera, mouse, rayOrigin, rayDirection, maxDistance, radius);
     }
 
     public List<ResourcePickupSnapshot> CreateSnapshot()
@@ -349,7 +357,6 @@ public partial class ResourceCollectionField : Node3D
         WriteVisual(bucket, slot, pickup, animateSpawn ? pickup.OriginPosition : pickup.FinalPosition);
         bucket.MultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
         bucket.OutlineMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
-        bucket.CrtMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
         if (animateSpawn && GraphicsSettingsRuntime.Current?.ReducedMotionEnabled != true)
             _activeSpawnIds.Add(id);
         if (notify) NotifyPendingChanged(); else UpdateHint();
@@ -383,7 +390,6 @@ public partial class ResourceCollectionField : Node3D
         bucket.PickupIds.RemoveAt(lastSlot);
         bucket.MultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
         bucket.OutlineMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
-        bucket.CrtMultiMesh.VisibleInstanceCount = bucket.PickupIds.Count;
 
         if (bucket.PickupIds.Count == 0)
             RemoveBucket(bucket);
@@ -443,16 +449,7 @@ public partial class ResourceCollectionField : Node3D
             InstanceCount = BucketCapacity,
             VisibleInstanceCount = 0,
         };
-        var crtMultiMesh = new MultiMesh
-        {
-            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
-            Mesh = mesh,
-            InstanceCount = BucketCapacity,
-            VisibleInstanceCount = 0,
-        };
 
-        // Inverted-hull outline: the slightly enlarged black backfaces remain visible around the
-        // miniature block while the real block mesh/material renders normally on top.
         var outlineNode = new MultiMeshInstance3D
         {
             Name = $"PickupOutline_{blockId}_{cell.X}_{cell.Y}_{cell.Z}",
@@ -462,26 +459,16 @@ public partial class ResourceCollectionField : Node3D
         };
         AddChild(outlineNode);
 
+        // The pickup material owns both the real 80% transparency and CRT modulation. The previous
+        // separate shell left the actual block opaque, which made both requested effects nearly invisible.
         var node = new MultiMeshInstance3D
         {
             Name = $"PickupBucket_{blockId}_{cell.X}_{cell.Y}_{cell.Z}",
             Multimesh = multiMesh,
-            MaterialOverride = _assets.GetMaterialOverride(blockId),
+            MaterialOverride = GetPickupMaterial(blockId),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-            Transparency = 0.20f,
         };
         AddChild(node);
-
-        // A very light screen-space scanline/RGB-mask shell gives pickups a CRT/readout quality while
-        // keeping the source block art visible underneath. It stays inside the thinner black outline.
-        var crtNode = new MultiMeshInstance3D
-        {
-            Name = $"PickupCrt_{blockId}_{cell.X}_{cell.Y}_{cell.Z}",
-            Multimesh = crtMultiMesh,
-            MaterialOverride = _crtMaterial,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-        };
-        AddChild(crtNode);
 
         var bucket = new RenderBucket
         {
@@ -490,8 +477,6 @@ public partial class ResourceCollectionField : Node3D
             MultiMesh = multiMesh,
             OutlineNode = outlineNode,
             OutlineMultiMesh = outlineMultiMesh,
-            CrtNode = crtNode,
-            CrtMultiMesh = crtMultiMesh,
             BobPhase = BucketPhase(cell, blockId),
         };
         _buckets.Add(key, bucket);
@@ -514,7 +499,6 @@ public partial class ResourceCollectionField : Node3D
         }
         bucket.Node.QueueFree();
         bucket.OutlineNode.QueueFree();
-        bucket.CrtNode.QueueFree();
     }
 
     private void UpdateVisualMotion()
@@ -527,7 +511,6 @@ public partial class ResourceCollectionField : Node3D
                 : MathF.Sin((float)(_visualTime * 1.85) + bucket.BobPhase) * _spacing * 0.035f;
             bucket.Node.Position = Vector3.Up * bob;
             bucket.OutlineNode.Position = bucket.Node.Position;
-            bucket.CrtNode.Position = bucket.Node.Position;
         }
 
         if (_activeSpawnIds.Count == 0) return;
@@ -583,8 +566,6 @@ public partial class ResourceCollectionField : Node3D
     private void WriteVisual(RenderBucket bucket, int slot, Pickup pickup, Vector3 position)
     {
         bucket.MultiMesh.SetInstanceTransform(slot, new Transform3D(pickup.Basis, position));
-        Basis crtBasis = pickup.Basis.Scaled(Vector3.One * CrtScale);
-        bucket.CrtMultiMesh.SetInstanceTransform(slot, new Transform3D(crtBasis, position));
         Basis outlineBasis = pickup.Basis.Scaled(Vector3.One * OutlineScale);
         bucket.OutlineMultiMesh.SetInstanceTransform(slot, new Transform3D(outlineBasis, position));
     }
@@ -601,8 +582,7 @@ public partial class ResourceCollectionField : Node3D
         if (_suctionIds.Count == 0 || delta <= 0.0f) return;
 
         float rate = (float)Math.Clamp(_skills.Derived.CollectionRatePerSecond, 0.5, 160.0);
-        float spring = 8.0f + rate * 0.85f;
-        float maxSpeed = _spacing * (2.2f + rate * 0.16f);
+        float duration = Mathf.Clamp(BaseSuctionDuration * MathF.Sqrt(8.0f / rate), 0.30f, BaseSuctionDuration);
         bool collectedAny = false;
 
         _mining.BeginCurrencyNotificationBatch();
@@ -624,35 +604,28 @@ public partial class ResourceCollectionField : Node3D
                 Vector3 closestOnCursorRay = rayOrigin + rayDirection * rangeAlong;
                 float liveRange = position.DistanceTo(closestOnCursorRay);
 
-                // Capture is conditional every frame. Once the cursor ray moves farther away than the
-                // collector field, stop applying force and leave the miniature block where it reached.
                 if (rawAlong < 0.0f || rawAlong > maxDistance || liveRange > collectorRadius * 1.02f)
                 {
                     pickup.Sucking = false;
-                    pickup.Velocity = Vector3.Zero;
+                    pickup.Coasting = true;
+                    pickup.SuctionProgress = 0.0f;
                     _suctionIds.RemoveAt(index);
+                    _coastingIds.Add(id);
                     continue;
                 }
 
                 float along = Mathf.Clamp(rawAlong, _spacing * 0.35f, maxDistance);
                 Vector3 target = rayOrigin + rayDirection * along;
-                Vector3 toTarget = target - position;
-                float distance = toTarget.Length();
-                float closeBoost = collectorRadius <= 0.001f
-                    ? 0.0f
-                    : 0.65f * (1.0f - Mathf.Clamp(distance / collectorRadius, 0.0f, 1.0f));
 
-                pickup.Velocity += toTarget * (spring * (1.0f + closeBoost) * delta);
-                pickup.Velocity *= MathF.Pow(0.16f, delta);
-                float speed = pickup.Velocity.Length();
-                if (speed > maxSpeed) pickup.Velocity = pickup.Velocity / speed * maxSpeed;
+                pickup.SuctionProgress = Math.Min(1.0f, pickup.SuctionProgress + delta / duration);
+                float eased = EaseInOutExpo(pickup.SuctionProgress);
+                Vector3 next = pickup.SuctionStartPosition.Lerp(target, eased);
+                pickup.Velocity = (next - position) / Math.Max(0.0001f, delta);
+                pickup.FinalPosition = next;
+                WriteVisual(bucket, pickup.RenderSlot, pickup, next);
 
-                pickup.FinalPosition = position + pickup.Velocity * delta;
-                WriteVisual(bucket, pickup.RenderSlot, pickup, pickup.FinalPosition);
-
-                Vector2 screen = camera.UnprojectPosition(pickup.FinalPosition + bucket.Node.Position);
-                if (screen.DistanceTo(mouse) > CursorTouchPixels
-                    && pickup.FinalPosition.DistanceTo(target) > _spacing * 0.035f) continue;
+                Vector2 screen = camera.UnprojectPosition(next + bucket.Node.Position);
+                if (screen.DistanceTo(mouse) > CursorTouchPixels && pickup.SuctionProgress < 1.0f) continue;
 
                 CollectPickup(id, mouse, notify: false);
                 _suctionIds.RemoveAt(index);
@@ -665,6 +638,45 @@ public partial class ResourceCollectionField : Node3D
         }
 
         if (collectedAny) NotifyPendingChanged();
+    }
+
+    private void AdvanceReleasedMomentum(float delta)
+    {
+        if (_coastingIds.Count == 0 || delta <= 0.0f) return;
+
+        float damping = MathF.Exp(-ReleaseDamping * delta);
+        float stopSpeed = _spacing * 0.045f;
+        for (int index = _coastingIds.Count - 1; index >= 0; index--)
+        {
+            int id = _coastingIds[index];
+            if (!_pickups.TryGetValue(id, out Pickup? pickup)
+                || !_buckets.TryGetValue(pickup.RenderKey, out RenderBucket? bucket)
+                || pickup.Sucking
+                || !pickup.Coasting)
+            {
+                _coastingIds.RemoveAt(index);
+                continue;
+            }
+
+            pickup.Velocity *= damping;
+            pickup.FinalPosition += pickup.Velocity * delta;
+            WriteVisual(bucket, pickup.RenderSlot, pickup, pickup.FinalPosition);
+
+            if (pickup.Velocity.Length() > stopSpeed) continue;
+            pickup.Velocity = Vector3.Zero;
+            pickup.Coasting = false;
+            _coastingIds.RemoveAt(index);
+        }
+    }
+
+    private static float EaseInOutExpo(float value)
+    {
+        float x = Mathf.Clamp(value, 0.0f, 1.0f);
+        if (x <= 0.0f) return 0.0f;
+        if (x >= 1.0f) return 1.0f;
+        return x < 0.5f
+            ? MathF.Pow(2.0f, 20.0f * x - 10.0f) * 0.5f
+            : (2.0f - MathF.Pow(2.0f, -20.0f * x + 10.0f)) * 0.5f;
     }
 
     private void CollectPickup(int id, Vector2 screenPosition, bool notify)
@@ -705,24 +717,46 @@ public partial class ResourceCollectionField : Node3D
             CullMode = BaseMaterial3D.CullModeEnum.Front,
         };
 
-    private static ShaderMaterial BuildCrtMaterial()
+    private ShaderMaterial GetPickupMaterial(string blockId)
     {
+        if (_pickupMaterials.TryGetValue(blockId, out ShaderMaterial? cached)) return cached;
+
+        StandardMaterial3D? source = _assets.GetMaterialOverride(blockId) as StandardMaterial3D;
+        Texture2D? albedoTexture = source?.AlbedoTexture;
+        Color albedoColor = source?.AlbedoColor ?? Colors.White;
+
         var shader = new Shader
         {
             Code = "shader_type spatial;\n"
-                + "render_mode unshaded, blend_mix, cull_back, depth_draw_never;\n\n"
+                + "render_mode blend_mix, depth_prepass_alpha, cull_back;\n\n"
+                + "uniform sampler2D albedo_texture : source_color, filter_linear_mipmap_anisotropic, repeat_enable;\n"
+                + "uniform bool has_albedo_texture = false;\n"
+                + "uniform vec4 albedo_color : source_color = vec4(1.0);\n"
+                + "uniform float opacity = 0.80;\n"
+                + "uniform float crt_strength = 0.42;\n\n"
                 + "void fragment() {\n"
-                + "    float row = mod(floor(FRAGCOORD.y), 3.0);\n"
-                + "    float scan = row < 1.0 ? 1.0 : 0.14;\n"
+                + "    vec4 texel = has_albedo_texture ? texture(albedo_texture, UV) : vec4(1.0);\n"
+                + "    vec3 base = texel.rgb * albedo_color.rgb;\n"
+                + "    float scan = mod(floor(FRAGCOORD.y), 2.0) < 1.0 ? 0.62 : 1.0;\n"
                 + "    float column = mod(floor(FRAGCOORD.x), 3.0);\n"
-                + "    vec3 mask = column < 1.0 ? vec3(1.0, 0.58, 0.58) : (column < 2.0 ? vec3(0.58, 1.0, 0.58) : vec3(0.58, 0.68, 1.0));\n"
-                + "    vec3 tint = vec3(0.23, 0.62, 0.56) * mask;\n"
-                + "    ALBEDO = tint;\n"
-                + "    EMISSION = tint * 0.18;\n"
-                + "    ALPHA = 0.035 + scan * 0.12;\n"
+                + "    vec3 mask = column < 1.0 ? vec3(1.0, 0.82, 0.82) : (column < 2.0 ? vec3(0.82, 1.0, 0.82) : vec3(0.82, 0.86, 1.0));\n"
+                + "    float flicker = 0.985 + 0.015 * sin(TIME * 18.0 + FRAGCOORD.y * 0.13);\n"
+                + "    vec3 crt = base * scan * mask * flicker;\n"
+                + "    ALBEDO = mix(base, crt, crt_strength);\n"
+                + "    ROUGHNESS = 1.0;\n"
+                + "    SPECULAR = 0.0;\n"
+                + "    EMISSION = ALBEDO * (0.035 * crt_strength);\n"
+                + "    ALPHA = clamp(opacity * texel.a * albedo_color.a, 0.0, 1.0);\n"
                 + "}\n",
         };
-        return new ShaderMaterial { Shader = shader };
+        var material = new ShaderMaterial { Shader = shader };
+        material.SetShaderParameter("has_albedo_texture", albedoTexture is not null);
+        material.SetShaderParameter("albedo_color", albedoColor);
+        material.SetShaderParameter("opacity", 0.80f);
+        material.SetShaderParameter("crt_strength", 0.42f);
+        if (albedoTexture is not null) material.SetShaderParameter("albedo_texture", albedoTexture);
+        _pickupMaterials.Add(blockId, material);
+        return material;
     }
 
     private Vector2 PickupScatter(Vector3I voxel, int id)
