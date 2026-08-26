@@ -152,11 +152,19 @@ public partial class AutomationAttentionView : CanvasLayer
         }
 
         selected ??= _miners.GetAttentionMiner(0);
-        string detail = selected is null
-            ? "automation stopped"
-            : $"{selected.DefinitionId}: {_miners.DescribeStop(selected)}";
+        string code = selected?.DefinitionId switch
+        {
+            "line_miner" => "DRL",
+            "shovel_miner" => "SHV",
+            "pickaxe_miner" => "RBK",
+            "axe_miner" => "CUT",
+            _ => "AUTO",
+        };
         _button.Text = count == 1
-            ? $"AUTOMATION STOPPED\n{detail}  ·  Click to focus/select"
-            : $"{count} AUTOMATIONS NEED ATTENTION\n{detail}  ·  Click to cycle/focus";
+            ? $"ATTENTION  //  {code} STOPPED  //  CLICK TO FOCUS"
+            : $"ATTENTION {count}  //  {code} + OTHERS  //  CLICK TO CYCLE";
+        _button.TooltipText = selected is null
+            ? "Automation stopped. Click to focus it."
+            : $"{selected.DefinitionId}: {_miners.DescribeStop(selected)}";
     }
 }
