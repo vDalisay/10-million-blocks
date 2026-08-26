@@ -263,7 +263,7 @@ public partial class GameRoot : Node3D
         // Incremental-game feedback remains presentation-only. ResourceCollectionField has already
         // decided whether ordinary manual/live-automation rewards are banked or deferred pickups.
         var incrementalFeedback = new IncrementalFeedbackView { Name = "IncrementalFeedbackView" };
-        incrementalFeedback.Initialize(_world, _worldView, _mining, _specialResources, _assets);
+        incrementalFeedback.Initialize(_world, _worldView, _mining, _specialResources, _assets, _resourceCollection);
         _sessionRoot.AddChild(incrementalFeedback);
 
         if (profile.AutomationAvailable)

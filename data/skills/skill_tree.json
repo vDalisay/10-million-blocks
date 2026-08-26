@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "content_version": 19,
+  "content_version": 20,
   "nodes": [
     {
       "id": "collection_reach_1",
@@ -47,7 +47,7 @@
     {
       "id": "collection_reach_2",
       "display_name": "Collector Reach II",
-      "description": "Expand the hover pickup field again, from 1.0 to 1.6 block widths for broad cluster collection.",
+      "description": "Expand the collector field to a full 5 block widths from the cursor before the final instant-collection upgrade.",
       "grid_x": -2,
       "grid_y": 4,
       "category": "manual",
@@ -64,7 +64,7 @@
       "effects": [
         {
           "type": "set_collection_radius_blocks",
-          "value": 1.6
+          "value": 5.0
         }
       ]
     },
@@ -99,7 +99,7 @@
     {
       "id": "collection_auto_manual",
       "display_name": "Personal Auto-Collect",
-      "description": "Manual and Hover Mining rewards bank themselves immediately. Existing manual pickups are collected when this upgrade is purchased.",
+      "description": "Final collector upgrade: manual and Hover Mining rewards are collected instantly when mined. Existing manual pickups are swept up immediately on purchase.",
       "grid_x": -2,
       "grid_y": 8,
       "category": "manual",

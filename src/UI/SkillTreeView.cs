@@ -32,6 +32,7 @@ public partial class SkillTreeView : CanvasLayer
     private readonly Dictionary<string, IncrementalSkillNodeButton> _buttons = new(StringComparer.Ordinal);
     private readonly HashSet<string> _previouslyRevealed = new(StringComparer.Ordinal);
     private Tween? _transition;
+    private Tween? _detailTween;
     private double _feedbackTimer;
     private bool _refreshPending;
 
@@ -449,6 +450,7 @@ public partial class SkillTreeView : CanvasLayer
             button.InstallSpaceFeedback(node);
             button.TooltipText = BuildTooltip(node);
             button.Hovered += _ => ShowDetails(node);
+            button.HoverEnded += _ => HideDetailsAnimated();
             string id = node.Id;
             button.Pressed += () =>
             {
@@ -495,8 +497,64 @@ public partial class SkillTreeView : CanvasLayer
             : (_mining.Currency >= cost && _skills.SpecialCostsAffordable(node) && prerequisites
                 ? SkillTreeSpacePalette.Affordable
                 : SkillTreeSpacePalette.TextFaint);
-        _detailPanel.Visible = true;
         PositionDetailCard(node);
+        ShowDetailsAnimated();
+    }
+
+    private void ShowDetailsAnimated()
+    {
+        _detailTween?.Kill();
+        _detailPanel.PivotOffset = _detailPanel.Size * 0.5f;
+        _detailPanel.Visible = true;
+
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            _detailPanel.Modulate = Colors.White;
+            _detailPanel.Scale = Vector2.One;
+            _detailPanel.Rotation = 0.0f;
+            return;
+        }
+
+        _detailPanel.Modulate = new Color(1, 1, 1, 0);
+        _detailPanel.Scale = Vector2.One * 0.94f;
+        _detailPanel.Rotation = -0.030f;
+        _detailTween = CreateTween();
+        _detailTween.SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Back);
+        _detailTween.SetParallel(true);
+        _detailTween.TweenProperty(_detailPanel, "modulate:a", 1.0f, 0.13f);
+        _detailTween.TweenProperty(_detailPanel, "scale", Vector2.One * 1.015f, 0.15f);
+        _detailTween.TweenProperty(_detailPanel, "rotation", 0.014f, 0.11f);
+        _detailTween.Chain().SetParallel(true);
+        _detailTween.TweenProperty(_detailPanel, "scale", Vector2.One, 0.10f);
+        _detailTween.TweenProperty(_detailPanel, "rotation", 0.0f, 0.12f);
+    }
+
+    private void HideDetailsAnimated()
+    {
+        if (!_detailPanel.Visible) return;
+        _detailTween?.Kill();
+
+        if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)
+        {
+            _detailPanel.Visible = false;
+            _detailPanel.Modulate = Colors.White;
+            _detailPanel.Scale = Vector2.One;
+            _detailPanel.Rotation = 0.0f;
+            return;
+        }
+
+        _detailTween = CreateTween().SetParallel(true);
+        _detailTween.SetEase(Tween.EaseType.In).SetTrans(Tween.TransitionType.Quad);
+        _detailTween.TweenProperty(_detailPanel, "modulate:a", 0.0f, 0.11f);
+        _detailTween.TweenProperty(_detailPanel, "scale", Vector2.One * 0.95f, 0.12f);
+        _detailTween.TweenProperty(_detailPanel, "rotation", -0.025f, 0.12f);
+        _detailTween.TweenCallback(Callable.From(() =>
+        {
+            _detailPanel.Visible = false;
+            _detailPanel.Modulate = Colors.White;
+            _detailPanel.Scale = Vector2.One;
+            _detailPanel.Rotation = 0.0f;
+        })).SetDelay(0.12f);
     }
 
     private void PositionDetailCard(SkillNodeDefinition node)
@@ -624,7 +682,7 @@ public partial class SkillTreeView : CanvasLayer
         _scroll.ScrollVertical = Math.Max(0, _scroll.ScrollVertical + Mathf.RoundToInt(delta.Y));
 
         if (_detailPanel.Visible)
-            _detailPanel.Visible = false;
+            HideDetailsAnimated();
     }
 
     private static string FormatCost(SkillNodeDefinition node, long ordinaryCost)

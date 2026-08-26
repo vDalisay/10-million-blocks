@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using TenMillionBlocks.Collection;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Economy;
 using TenMillionBlocks.Mining;
@@ -67,6 +68,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
     private MiningService _mining = null!;
     private SpecialResourceInventory _specialResources = null!;
     private BlockAssetRegistry _assets = null!;
+    private ResourceCollectionField _collection = null!;
 
     private Control _root = null!;
     private HBoxContainer _counterBar = null!;
@@ -98,13 +100,15 @@ public partial class IncrementalFeedbackView : CanvasLayer
         WorldView worldView,
         MiningService mining,
         SpecialResourceInventory specialResources,
-        BlockAssetRegistry assets)
+        BlockAssetRegistry assets,
+        ResourceCollectionField collection)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _worldView = worldView ?? throw new ArgumentNullException(nameof(worldView));
         _mining = mining ?? throw new ArgumentNullException(nameof(mining));
         _specialResources = specialResources ?? throw new ArgumentNullException(nameof(specialResources));
         _assets = assets ?? throw new ArgumentNullException(nameof(assets));
+        _collection = collection ?? throw new ArgumentNullException(nameof(collection));
     }
 
     public override void _Ready()
@@ -278,6 +282,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
         _mining.BulkMined += OnBulkMined;
         _mining.CurrencyChanged += OnCurrencyChanged;
         _specialResources.Changed += OnSpecialResourcesChanged;
+        _collection.PickupCollected += OnPickupCollected;
         _subscribed = true;
     }
 
@@ -288,6 +293,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
         _mining.BulkMined -= OnBulkMined;
         _mining.CurrencyChanged -= OnCurrencyChanged;
         _specialResources.Changed -= OnSpecialResourcesChanged;
+        _collection.PickupCollected -= OnPickupCollected;
         _subscribed = false;
     }
 
@@ -295,31 +301,40 @@ public partial class IncrementalFeedbackView : CanvasLayer
     {
         if (!result.Success || !result.Removed) return;
 
-        _counterRefreshPending = true;
-        Pulse(_blocksChip.Root, strong: false);
-        if (result.Reward > 0) Pulse(_resourcesChip.Root, strong: false);
-
         BlockDefinition definition = _mining.GetBlockDefinition(result.BlockId);
         bool special = definition.Tags.Contains("gem", StringComparer.Ordinal);
+        bool deferredCollectionSource = result.Source is MiningSource.Manual or MiningSource.Automated;
         Vector2 source = default;
         bool hasSource = result.Source != MiningSource.Offline && TryProjectSource(result.Voxel, out source);
 
-        if (result.Source == MiningSource.Offline)
+        // Manual and live-automation ordinary feedback is now emitted by ResourceCollectionField only
+        // when the world pickup actually reaches the cursor. Direct/offline sources have no deferred
+        // pickup, so they retain their existing immediate/aggregated feedback path.
+        if (!deferredCollectionSource)
         {
-            AggregatedFeedbackCount++;
-        }
-        else
-        {
-            QueuePickup(
-                result.BlockId,
-                _blocksChip.Root,
-                result.BlocksRemoved,
-                result.Reward,
-                source,
-                hasSource,
-                special: false);
+            _counterRefreshPending = true;
+            Pulse(_blocksChip.Root, strong: false);
+            if (result.Reward > 0) Pulse(_resourcesChip.Root, strong: false);
+
+            if (result.Source == MiningSource.Offline)
+            {
+                AggregatedFeedbackCount++;
+            }
+            else
+            {
+                QueuePickup(
+                    result.BlockId,
+                    _blocksChip.Root,
+                    result.BlocksRemoved,
+                    result.Reward,
+                    source,
+                    hasSource,
+                    special: false);
+            }
         }
 
+        // Special-resource inventory remains authoritative/direct, so its own chip still celebrates at
+        // discovery time. The ordinary BLOCKS MINED flight for the same gem waits for collection.
         if (special)
         {
             CounterChip specialChip = EnsureSpecialChip(result.BlockId);
@@ -333,6 +348,21 @@ public partial class IncrementalFeedbackView : CanvasLayer
                 hasSource,
                 special: true);
         }
+    }
+
+    private void OnPickupCollected(ResourcePickupCollected collected)
+    {
+        _counterRefreshPending = true;
+        Pulse(_blocksChip.Root, strong: collected.BlocksRemoved > 1);
+        if (collected.Amount > 0) Pulse(_resourcesChip.Root, strong: collected.Amount > 1);
+        QueuePickup(
+            collected.BlockId,
+            _blocksChip.Root,
+            Math.Max(1L, collected.BlocksRemoved),
+            Math.Max(0L, collected.Amount),
+            collected.ScreenPosition,
+            hasSource: true,
+            special: false);
     }
 
     private void OnBulkMined(BulkMiningResult result)

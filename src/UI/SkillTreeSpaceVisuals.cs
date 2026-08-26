@@ -13,8 +13,8 @@ namespace TenMillionBlocks.UI;
 /// </summary>
 internal static class SkillTreeSpacePalette
 {
-    public static readonly Color Backdrop = new("#070d1c");
-    public static readonly Color BackdropDeep = new("#030712");
+    public static readonly Color Backdrop = new("#01030a");
+    public static readonly Color BackdropDeep = new("#000106");
     public static readonly Color Panel = new("#0b1424");
     public static readonly Color PanelRaised = new("#111d30");
     public static readonly Color Grid = new("#1c2a46");
@@ -80,9 +80,9 @@ internal partial class SkillTreeSpaceBackdrop : Control
         Rect2 rect = new(Vector2.Zero, Size);
         DrawRect(rect, SkillTreeSpacePalette.Backdrop);
 
-        DrawNebula(Size * new Vector2(0.18f, 0.32f), MathF.Max(220.0f, Size.Y * 0.42f), new Color(0.20f, 0.28f, 0.64f, 0.055f));
-        DrawNebula(Size * new Vector2(0.80f, 0.58f), MathF.Max(250.0f, Size.Y * 0.48f), new Color(0.50f, 0.19f, 0.62f, 0.045f));
-        DrawNebula(Size * new Vector2(0.55f, 0.08f), MathF.Max(160.0f, Size.Y * 0.26f), new Color(0.08f, 0.54f, 0.58f, 0.035f));
+        DrawNebula(Size * new Vector2(0.18f, 0.32f), MathF.Max(220.0f, Size.Y * 0.42f), new Color(0.20f, 0.28f, 0.64f, 0.022f));
+        DrawNebula(Size * new Vector2(0.80f, 0.58f), MathF.Max(250.0f, Size.Y * 0.48f), new Color(0.50f, 0.19f, 0.62f, 0.018f));
+        DrawNebula(Size * new Vector2(0.55f, 0.08f), MathF.Max(160.0f, Size.Y * 0.26f), new Color(0.08f, 0.54f, 0.58f, 0.014f));
 
         int columns = Math.Max(1, Mathf.CeilToInt(Size.X / 58.0f));
         int rows = Math.Max(1, Mathf.CeilToInt(Size.Y / 58.0f));
@@ -111,7 +111,7 @@ internal partial class SkillTreeSpaceBackdrop : Control
             }
         }
 
-        Color orbit = new(0.30f, 0.47f, 0.72f, 0.08f);
+        Color orbit = new(0.30f, 0.47f, 0.72f, 0.045f);
         Vector2 orbitCenter = Size * new Vector2(0.55f, 0.52f);
         DrawArc(orbitCenter, MathF.Min(Size.X, Size.Y) * 0.31f, 0.15f, 5.65f, 96, orbit, 1.0f, true);
         DrawArc(orbitCenter, MathF.Min(Size.X, Size.Y) * 0.44f, 0.55f, 4.95f, 96, orbit, 1.0f, true);
@@ -143,34 +143,86 @@ internal partial class SkillTreeSpaceBackdrop : Control
     }
 }
 
+internal static class SkillNodeStarGeometry
+{
+    public static Vector2[] Points(Vector2 size, float inset = 2.0f)
+    {
+        Vector2 c = size * 0.5f;
+        float outerX = MathF.Max(2.0f, c.X - inset);
+        float outerY = MathF.Max(2.0f, c.Y - inset);
+        float shoulderX = outerX * 0.39f;
+        float shoulderY = outerY * 0.39f;
+        return
+        [
+            c + new Vector2(0, -outerY),
+            c + new Vector2(shoulderX, -shoulderY),
+            c + new Vector2(outerX, 0),
+            c + new Vector2(shoulderX, shoulderY),
+            c + new Vector2(0, outerY),
+            c + new Vector2(-shoulderX, shoulderY),
+            c + new Vector2(-outerX, 0),
+            c + new Vector2(-shoulderX, -shoulderY),
+        ];
+    }
+
+    public static void DrawOutline(Control canvas, Vector2[] points, Color color, float width)
+    {
+        for (int i = 0; i < points.Length; i++)
+            canvas.DrawLine(points[i], points[(i + 1) % points.Length], color, width, true);
+    }
+}
+
+internal partial class SkillNodeStarPlate : Control
+{
+    private Color _fill = new(0.02f, 0.035f, 0.055f, 0.98f);
+    private Color _border = new(0.32f, 0.46f, 0.58f, 0.8f);
+    private float _borderWidth = 1.0f;
+    private bool _hovered;
+
+    public void SetState(Color fill, Color border, float borderWidth)
+    {
+        _fill = fill;
+        _border = border;
+        _borderWidth = borderWidth;
+        QueueRedraw();
+    }
+
+    public void SetHovered(bool hovered)
+    {
+        if (_hovered == hovered) return;
+        _hovered = hovered;
+        QueueRedraw();
+    }
+
+    public override void _Draw()
+    {
+        Vector2[] points = SkillNodeStarGeometry.Points(Size, 3.0f);
+        Color fill = _hovered ? _fill.Lightened(0.045f) : _fill;
+        Color border = _hovered ? _border.Lightened(0.10f) : _border;
+        DrawColoredPolygon(points, fill);
+        SkillNodeStarGeometry.DrawOutline(this, points, border, _borderWidth + (_hovered ? 0.7f : 0.0f));
+    }
+}
+
 internal partial class SkillNodeSpaceAura : Control
 {
     public Color RingColor { get; set; } = Colors.White;
 
     public override void _Draw()
     {
-        Vector2 center = Size * 0.5f;
-        float radius = MathF.Min(Size.X, Size.Y) * 0.45f;
+        Vector2[] points = SkillNodeStarGeometry.Points(Size, 2.0f);
         Color outer = RingColor;
-        outer.A *= 0.20f;
+        outer.A *= 0.16f;
         Color inner = RingColor;
-        inner.A *= 0.38f;
-        DrawArc(center, radius, 0, Mathf.Tau, 64, outer, 2.2f, true);
-        DrawArc(center, MathF.Max(1.0f, radius - 3.0f), 0, Mathf.Tau, 64, inner, 0.85f, true);
-
-        Color tick = RingColor;
-        tick.A *= 0.30f;
-        for (int i = 0; i < 4; i++)
-        {
-            float angle = i * Mathf.Pi * 0.5f;
-            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
-            DrawLine(center + direction * (radius - 1.5f), center + direction * (radius + 2.5f), tick, 1.0f, true);
-        }
+        inner.A *= 0.30f;
+        SkillNodeStarGeometry.DrawOutline(this, points, outer, 3.2f);
+        SkillNodeStarGeometry.DrawOutline(this, points, inner, 0.9f);
     }
 }
 
 public partial class IncrementalSkillNodeButton
 {
+    private SkillNodeStarPlate? _starPlate;
     private SkillNodeSpaceAura? _spaceAura;
     private Tween? _spaceHoverTween;
     private Tween? _spacePurchaseTween;
@@ -183,7 +235,7 @@ public partial class IncrementalSkillNodeButton
         _categoryColor = SkillTreeSpacePalette.CategoryColor(node.Category);
 
         // Center the atlas cell, then apply a small optical correction for asymmetric glyph art.
-        const float iconSize = 44.0f;
+        const float iconSize = 42.0f;
         Vector2 opticalOffset = SkillTreeIconAtlas.OpticalOffsetForSkill(node.Id);
         _icon.Position = new Vector2((70.0f - iconSize) * 0.5f, (70.0f - iconSize) * 0.5f) + opticalOffset;
         _icon.Size = new Vector2(iconSize, iconSize);
@@ -195,11 +247,20 @@ public partial class IncrementalSkillNodeButton
         _lockGlyph.GlyphColor = SkillTreeSpacePalette.TextMuted;
         _lockGlyph.QueueRedraw();
 
+        _starPlate = new SkillNodeStarPlate
+        {
+            Position = Vector2.Zero,
+            Size = new Vector2(70, 70),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        AddChild(_starPlate);
+        MoveChild(_starPlate, 0);
+
         _spaceAura = new SkillNodeSpaceAura
         {
-            Position = new Vector2(-3, -3),
-            Size = new Vector2(76, 76),
-            PivotOffset = new Vector2(38, 38),
+            Position = new Vector2(-4, -4),
+            Size = new Vector2(78, 78),
+            PivotOffset = new Vector2(39, 39),
             MouseFilter = MouseFilterEnum.Ignore,
             RingColor = _categoryColor,
             Modulate = new Color(1, 1, 1, 0.08f),
@@ -216,40 +277,41 @@ public partial class IncrementalSkillNodeButton
         Color fill;
         Color border;
         Color icon;
-        int radius = _visualKind == SkillNodeVisualKind.Stat ? 28 : (_visualKind == SkillNodeVisualKind.Milestone ? 9 : 7);
         int borderWidth = 1;
 
         if (maxed)
         {
-            fill = new Color(0.045f, 0.085f, 0.13f, 0.98f);
-            border = _categoryColor.Lightened(0.10f);
+            fill = new Color(0.016f, 0.030f, 0.050f, 0.99f);
+            border = _categoryColor.Lightened(0.06f);
             icon = new Color(0.86f, 0.91f, 0.95f);
         }
         else if (!requirementsMet)
         {
-            fill = new Color(0.040f, 0.065f, 0.10f, 0.96f);
-            border = SkillTreeSpacePalette.Locked.Darkened(0.08f);
+            fill = new Color(0.010f, 0.017f, 0.030f, 0.98f);
+            border = SkillTreeSpacePalette.Locked.Darkened(0.14f);
             icon = SkillTreeSpacePalette.TextFaint;
         }
         else
         {
             fill = affordable
-                ? new Color(0.050f, 0.090f, 0.14f, 0.97f)
-                : new Color(0.050f, 0.075f, 0.115f, 0.96f);
-            border = affordable ? _categoryColor : _categoryColor.Darkened(0.38f);
+                ? new Color(0.018f, 0.034f, 0.055f, 0.99f)
+                : new Color(0.013f, 0.024f, 0.040f, 0.98f);
+            border = affordable ? _categoryColor.Darkened(0.08f) : _categoryColor.Darkened(0.48f);
             icon = affordable ? new Color(0.88f, 0.93f, 0.97f) : SkillTreeSpacePalette.TextMuted;
         }
 
         if (_recommended && !maxed && requirementsMet)
         {
-            border = _categoryColor.Lightened(0.17f);
+            border = _categoryColor.Lightened(0.13f);
             borderWidth = 2;
         }
 
-        AddThemeStyleboxOverride("normal", SkillTreeSpacePalette.Box(fill, border, radius, borderWidth));
-        AddThemeStyleboxOverride("hover", SkillTreeSpacePalette.Box(fill.Lightened(0.035f), border.Lightened(0.08f), radius, borderWidth + 1));
-        AddThemeStyleboxOverride("pressed", SkillTreeSpacePalette.Box(fill.Darkened(0.035f), border, radius, borderWidth + 1));
-        AddThemeStyleboxOverride("disabled", SkillTreeSpacePalette.Box(fill, border, radius, borderWidth));
+        Color transparent = new(0, 0, 0, 0);
+        AddThemeStyleboxOverride("normal", SkillTreeSpacePalette.Box(transparent, transparent, 0, 0));
+        AddThemeStyleboxOverride("hover", SkillTreeSpacePalette.Box(transparent, transparent, 0, 0));
+        AddThemeStyleboxOverride("pressed", SkillTreeSpacePalette.Box(transparent, transparent, 0, 0));
+        AddThemeStyleboxOverride("disabled", SkillTreeSpacePalette.Box(transparent, transparent, 0, 0));
+        _starPlate?.SetState(fill, border, borderWidth);
 
         _icon.SelfModulate = icon;
         _rankBadge.AddThemeColorOverride("font_color", maxed ? SkillTreeSpacePalette.Text : SkillTreeSpacePalette.TextMuted);
@@ -293,7 +355,8 @@ public partial class IncrementalSkillNodeButton
     private void SetSpaceHover(bool hovered)
     {
         if (_spaceAura is null || _icon is null) return;
-        float auraAlpha = hovered ? 0.26f : (_purchased ? 0.12f : _affordable && _requirementsMet ? 0.09f : 0.025f);
+        _starPlate?.SetHovered(hovered);
+        float auraAlpha = hovered ? 0.22f : (_purchased ? 0.10f : _affordable && _requirementsMet ? 0.075f : 0.018f);
         Vector2 iconScale = hovered ? Vector2.One * 1.045f : Vector2.One;
 
         if (GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true)

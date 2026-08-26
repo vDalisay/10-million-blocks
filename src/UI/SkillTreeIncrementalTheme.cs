@@ -179,22 +179,31 @@ internal static class SkillTreeIconAtlas
 
     private static readonly Dictionary<int, Vector2> OpticalOffsets = new()
     {
-        [0] = new Vector2(-2.0f, 2.0f),
-        [2] = new Vector2(-3.0f, 4.0f),
-        [6] = new Vector2(0.5f, 1.0f),
-        [7] = new Vector2(1.0f, 0.0f),
-        [9] = new Vector2(-2.5f, 2.0f),
-        [10] = new Vector2(1.0f, -2.0f),
-        [11] = new Vector2(0.0f, -2.0f),
-        [12] = new Vector2(-2.0f, 0.0f),
-        [13] = new Vector2(4.0f, 0.0f),
-        [14] = new Vector2(1.0f, 0.0f),
-        [16] = new Vector2(-2.0f, 0.0f),
-        [17] = new Vector2(-2.0f, 0.0f),
-        [19] = new Vector2(0.0f, -3.0f),
-        [20] = new Vector2(2.0f, 2.0f),
-        [21] = new Vector2(2.0f, 0.0f),
-        [22] = new Vector2(-2.5f, 0.0f),
+        // Measured from the rendered alpha bounds of every 64x64 atlas cell, not hand-tuned guesses.
+        [0] = new Vector2(0.5f, -1.0f),
+        [1] = new Vector2(0.5f, 0.5f),
+        [2] = new Vector2(-4.0f, 6.5f),
+        [3] = new Vector2(1.0f, 0.5f),
+        [4] = new Vector2(0.5f, 0.5f),
+        [5] = new Vector2(1.5f, 0.5f),
+        [6] = new Vector2(1.0f, 2.0f),
+        [7] = new Vector2(1.5f, 0.5f),
+        [8] = new Vector2(0.5f, 0.5f),
+        [9] = new Vector2(-2.5f, 3.5f),
+        [10] = new Vector2(2.0f, -1.5f),
+        [11] = new Vector2(-1.0f, -3.0f),
+        [12] = new Vector2(-2.5f, 1.0f),
+        [13] = new Vector2(4.5f, 1.0f),
+        [14] = new Vector2(1.0f, 0.5f),
+        [15] = new Vector2(0.5f, 0.5f),
+        [16] = new Vector2(1.0f, 2.5f),
+        [17] = new Vector2(-1.5f, 1.0f),
+        [18] = new Vector2(0.5f, 0.5f),
+        [19] = new Vector2(1.5f, -5.0f),
+        [20] = new Vector2(4.5f, 3.0f),
+        [21] = new Vector2(4.0f, 0.5f),
+        [22] = new Vector2(-2.5f, 0.5f),
+        [23] = new Vector2(0.5f, 0.5f),
     };
 
     public static Vector2 OpticalOffsetForSkill(string skillId)
@@ -250,6 +259,7 @@ public partial class IncrementalSkillNodeButton : Button
     public string SkillId { get; private set; } = string.Empty;
     internal SkillNodeVisualKind VisualKind => _visualKind;
     public event Action<IncrementalSkillNodeButton>? Hovered;
+    public event Action<IncrementalSkillNodeButton>? HoverEnded;
 
     public void Initialize(SkillNodeDefinition node)
     {
@@ -313,7 +323,7 @@ public partial class IncrementalSkillNodeButton : Button
         AddChild(_recommendBadge);
 
         MouseEntered += () => { Hovered?.Invoke(this); AnimateScale(1.045f, 0.09f); };
-        MouseExited += () => AnimateScale(1.0f, 0.11f);
+        MouseExited += () => { HoverEnded?.Invoke(this); AnimateScale(1.0f, 0.11f); };
         ButtonDown += () => AnimateScale(0.97f, 0.05f);
         ButtonUp += () => AnimateScale(IsHovered() ? 1.045f : 1.0f, 0.10f);
 
