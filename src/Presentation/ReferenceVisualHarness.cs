@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Godot;
+using TenMillionBlocks.UI;
 using TenMillionBlocks.World.Rendering;
 
 namespace TenMillionBlocks.Presentation;
@@ -49,7 +50,9 @@ public partial class ReferenceVisualHarness : Node
             OffsetBottom = 106.0f,
             TooltipText = "Reference A/B harness. Camera [1-3], look [4-8], capture [F6]. RMB orbit, MMB pan, wheel zoom.",
         };
+        panel.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(new Color("#697d91"), 0.88f));
         canvas.AddChild(panel);
+        RetroHudChrome.Attach(panel, new Color("#697d91"), dense: true, scanlines: true);
 
         var margin = new MarginContainer();
         margin.AddThemeConstantOverride("margin_left", 8);
@@ -68,7 +71,7 @@ public partial class ReferenceVisualHarness : Node
 
         _status = new Label
         {
-            Text = $"Camera: Medium · Look: {VisualLookProfiles.Shipping}",
+            Text = $"VIS// CAM Medium  LOOK {VisualLookProfiles.Shipping}",
             CustomMinimumSize = new Vector2(250.0f, 0.0f),
         };
         cameraRow.AddChild(_status);
@@ -77,7 +80,8 @@ public partial class ReferenceVisualHarness : Node
         AddCameraPresetButton(cameraRow, "Med [2]", OrbitCameraController.MediumPreset);
         AddCameraPresetButton(cameraRow, "Near [3]", OrbitCameraController.NearPreset);
 
-        var recenter = new Button { Text = "Center [F]" };
+        var recenter = new Button { Text = "CTR [F]" };
+        RetroHudChrome.SkinButton(recenter, new Color("#70879a"));
         recenter.Pressed += () => _camera.Recenter();
         cameraRow.AddChild(recenter);
 
@@ -86,7 +90,7 @@ public partial class ReferenceVisualHarness : Node
         column.AddChild(lookRow);
         lookRow.AddChild(new Label
         {
-            Text = "A/B:",
+            Text = "LOOK//",
             CustomMinimumSize = new Vector2(44.0f, 0.0f),
         });
 
@@ -98,9 +102,10 @@ public partial class ReferenceVisualHarness : Node
 
         var capture = new Button
         {
-            Text = "Capture [F6]",
+            Text = "CAP [F6]",
             TooltipText = "Save a PNG under user://reference_captures with world/version/camera/look metadata.",
         };
+        RetroHudChrome.SkinButton(capture, new Color("#8c789e"));
         capture.Pressed += CaptureScreenshot;
         lookRow.AddChild(capture);
     }
@@ -110,7 +115,7 @@ public partial class ReferenceVisualHarness : Node
         _ = delta;
         if (_status is not null && _camera is not null)
         {
-            _status.Text = $"Camera: {_camera.ActivePresetName} · Look: {_visualPreset}";
+            _status.Text = $"VIS// CAM {_camera.ActivePresetName}  LOOK {_visualPreset}";
         }
     }
 
@@ -218,6 +223,7 @@ public partial class ReferenceVisualHarness : Node
     private void AddCameraPresetButton(Control parent, string text, OrbitCameraController.CameraPreset preset)
     {
         var button = new Button { Text = text };
+        RetroHudChrome.SkinButton(button, new Color("#70879a"));
         button.Pressed += () => _camera.ApplyPreset(preset);
         parent.AddChild(button);
     }
@@ -225,6 +231,7 @@ public partial class ReferenceVisualHarness : Node
     private void AddLookPresetButton(Control parent, string text, string preset)
     {
         var button = new Button { Text = text };
+        RetroHudChrome.SkinButton(button, new Color("#8c789e"));
         button.Pressed += () => ApplyVisualPreset(preset);
         parent.AddChild(button);
     }

@@ -29,6 +29,10 @@ Current short codes:
 
 Each row may show `LOCKED`, `READY`, `RUNNING`, `STOP`, or `DONE` state plus the world-local unit count. Clicking a row opens/focuses the existing automation drawer for that class. Stopped automation uses the compact Attention control beneath the rail rather than a large floating warning over the world.
 
+## Anti-generic rule
+
+A dark rectangle with a one-pixel neon outline is not, by itself, the visual identity. Shipping gameplay HUD modules use broken corner brackets, registration ticks, scan-lines, asymmetric accent rails and segmented progress. Avoid full four-sided borders on every module, rounded SaaS-style cards, large soft shadows, and decorative gradients. The UI should read as a compact mining instrument panel assembled from hardware modules.
+
 ## Visual language
 
 - Deep navy/black translucent glass rather than opaque gray boxes.

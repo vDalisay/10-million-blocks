@@ -25,7 +25,7 @@ public partial class MiningHud
     private VBoxContainer? _retroAutomationList;
     private Label? _retroAutomationRate;
     private PanelContainer? _retroBottomStrip;
-    private ProgressBar? _retroProgress;
+    private RetroSegmentBar? _retroProgress;
     private Label? _retroWorldLine;
     private Label? _retroControls;
     private Label? _retroEvent;
@@ -43,9 +43,10 @@ public partial class MiningHud
         _automationToggle.OffsetTop = 116.0f;
         _automationToggle.OffsetRight = 202.0f;
         _automationToggle.OffsetBottom = 148.0f;
-        _automationToggle.Text = "AUTOMATION  [A]";
+        _automationToggle.Text = "// AUTO BUS   [A]";
         _automationToggle.AddThemeFontSizeOverride("font_size", 11);
         ApplyRetroButton(_automationToggle, new Color("#5fd8cf"));
+        RetroHudChrome.Attach(_automationToggle, new Color("#5fd8cf"), dense: true, scanlines: false);
 
         _retroAutomationRail = new PanelContainer
         {
@@ -60,8 +61,9 @@ public partial class MiningHud
             MouseFilter = Control.MouseFilterEnum.Ignore,
             Visible = _world.Profile.AutomationAvailable,
         };
-        _retroAutomationRail.AddThemeStyleboxOverride("panel", RetroHudPanel(new Color("#5fd8cf"), 0.62f));
+        _retroAutomationRail.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(new Color("#5fd8cf"), 0.76f));
         root.AddChild(_retroAutomationRail);
+        RetroHudChrome.Attach(_retroAutomationRail, new Color("#5fd8cf"), scanlines: true);
 
         var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         margin.AddThemeConstantOverride("margin_left", 7);
@@ -93,7 +95,7 @@ public partial class MiningHud
 
         _retroAutomationRate = new Label
         {
-            Text = "AUTO  0 /s",
+            Text = "BUS RATE  0.00 blk/s",
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         _retroAutomationRate.AddThemeFontSizeOverride("font_size", 10);
@@ -113,8 +115,9 @@ public partial class MiningHud
             OffsetBottom = -12.0f,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        _retroBottomStrip.AddThemeStyleboxOverride("panel", RetroHudPanel(new Color("#55788a"), 0.58f));
+        _retroBottomStrip.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(new Color("#55788a"), 0.72f));
         root.AddChild(_retroBottomStrip);
+        RetroHudChrome.Attach(_retroBottomStrip, new Color("#55788a"), dense: true, scanlines: false);
 
         var bottomMargin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         bottomMargin.AddThemeConstantOverride("margin_left", 10);
@@ -156,23 +159,22 @@ public partial class MiningHud
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             MouseFilter = Control.MouseFilterEnum.Ignore,
             Text = _world.Profile.AutomationAvailable
-                ? "K  UPGRADES    A  AUTOMATION    H  DETAILS"
-                : _world.Profile.SkillTreeAvailable ? "K  UPGRADES    H  DETAILS" : "LMB  MINE",
+                ? "[K] GRID    [A] AUTO    [H] DIAG"
+                : _world.Profile.SkillTreeAvailable ? "[K] GRID    [H] DIAG" : "[LMB] MINE",
         };
         _retroControls.AddThemeFontSizeOverride("font_size", 9);
         _retroControls.AddThemeColorOverride("font_color", new Color("#758d9b"));
         bottomRow.AddChild(_retroControls);
 
-        _retroProgress = new ProgressBar
+        _retroProgress = new RetroSegmentBar
         {
             MinValue = 0,
             MaxValue = 100,
-            ShowPercentage = false,
-            CustomMinimumSize = new Vector2(0, 3),
+            SegmentCount = 64,
+            Accent = new Color("#5fd8cf"),
+            CustomMinimumSize = new Vector2(0, 4),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        _retroProgress.AddThemeStyleboxOverride("background", FlatBar(new Color("#122330")));
-        _retroProgress.AddThemeStyleboxOverride("fill", FlatBar(new Color("#5fd8cf")));
         bottomColumn.AddChild(_retroProgress);
     }
 
@@ -194,6 +196,7 @@ public partial class MiningHud
             Text = string.Empty,
         };
         ApplyRetroButton(button, accent);
+        RetroHudChrome.Attach(button, accent, dense: true, scanlines: false);
         string captured = minerId;
         button.Pressed += () => OpenAutomationMenu(captured);
         _retroAutomationList.AddChild(button);
@@ -265,10 +268,10 @@ public partial class MiningHud
 
         long total = _mining.TotalMined + _mining.Remaining;
         double percent = total <= 0 ? 100.0 : _mining.TotalMined * 100.0 / total;
-        _retroWorldLine.Text = $"{_world.Profile.DisplayName.ToUpperInvariant()}  //  {_mining.Remaining:N0} LEFT  //  {percent:0.0}%";
+        _retroWorldLine.Text = $"SECTOR::{_world.Profile.DisplayName.ToUpperInvariant()}   REM {_mining.Remaining:N0}   CLR {percent:0.0}%";
         if (_retroProgress is not null) _retroProgress.Value = percent;
         if (_retroAutomationRate is not null)
-            _retroAutomationRate.Text = $"AUTO OUTPUT   {_miners.BlocksPerSecond:0.##} BLOCKS/s";
+            _retroAutomationRate.Text = $"BUS RATE   {_miners.BlocksPerSecond:0.##} blk/s";
 
         foreach (RetroAutomationEntry entry in _retroAutomationEntries.Values)
         {
@@ -284,10 +287,10 @@ public partial class MiningHud
             int attention = instances.Count(miner => miner.Exhausted && miner.StopReason is not MinerStopReason.RangeComplete);
             int completed = Math.Max(0, totalCount - running - attention);
 
-            entry.CountLabel.Text = $"×{totalCount}";
+            entry.CountLabel.Text = $"x{totalCount:00}";
             if (!unlocked)
             {
-                entry.StatusLabel.Text = "LOCKED";
+                entry.StatusLabel.Text = "-- LOCKED";
                 entry.StatusLabel.AddThemeColorOverride("font_color", new Color("#586872"));
                 entry.Button.Modulate = new Color(1, 1, 1, 0.52f);
                 continue;
@@ -296,22 +299,22 @@ public partial class MiningHud
             entry.Button.Modulate = Colors.White;
             if (attention > 0)
             {
-                entry.StatusLabel.Text = $"RUN {running}  //  STOP {attention}";
+                entry.StatusLabel.Text = $"FAULT {attention:00} / RUN {running:00}";
                 entry.StatusLabel.AddThemeColorOverride("font_color", new Color("#efb45f"));
             }
             else if (running > 0)
             {
-                entry.StatusLabel.Text = completed > 0 ? $"RUN {running}  //  DONE {completed}" : $"RUNNING {running}";
+                entry.StatusLabel.Text = completed > 0 ? $"LIVE {running:00} / DONE {completed:00}" : $"LIVE {running:00}";
                 entry.StatusLabel.AddThemeColorOverride("font_color", new Color("#68d9b0"));
             }
             else if (completed > 0)
             {
-                entry.StatusLabel.Text = $"DONE {completed}";
+                entry.StatusLabel.Text = $"IDLE / DONE {completed:00}";
                 entry.StatusLabel.AddThemeColorOverride("font_color", new Color("#7f9aaa"));
             }
             else
             {
-                entry.StatusLabel.Text = "READY";
+                entry.StatusLabel.Text = "-- READY";
                 entry.StatusLabel.AddThemeColorOverride("font_color", new Color("#8099a6"));
             }
         }
@@ -326,12 +329,7 @@ public partial class MiningHud
 
     private static void ApplyRetroButton(Button button, Color accent)
     {
-        button.AddThemeStyleboxOverride("normal", RetroHudPanel(accent, 0.68f));
-        button.AddThemeStyleboxOverride("hover", RetroHudPanel(accent.Lightened(0.10f), 0.86f));
-        button.AddThemeStyleboxOverride("pressed", RetroHudPanel(accent.Darkened(0.08f), 0.94f));
-        button.AddThemeColorOverride("font_color", new Color("#dcebec"));
-        button.AddThemeColorOverride("font_hover_color", Colors.White);
-        button.AddThemeColorOverride("font_pressed_color", Colors.White);
+        RetroHudChrome.SkinButton(button, accent);
     }
 
     private static StyleBoxFlat RetroHudPanel(Color accent, float opacity)

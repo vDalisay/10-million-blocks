@@ -38,20 +38,9 @@ public partial class AutomationAttentionView : CanvasLayer
             OffsetBottom = 492.0f,
             Visible = false,
         };
-        _panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
-        {
-            BgColor = new Color(0.022f, 0.016f, 0.008f, 0.78f),
-            BorderColor = new Color(0.92f, 0.58f, 0.26f, 0.72f),
-            BorderWidthLeft = 1,
-            BorderWidthTop = 1,
-            BorderWidthRight = 1,
-            BorderWidthBottom = 1,
-            CornerRadiusTopLeft = 1,
-            CornerRadiusTopRight = 1,
-            CornerRadiusBottomLeft = 1,
-            CornerRadiusBottomRight = 1,
-        });
+        _panel.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(new Color("#e5a34d"), 0.86f));
         AddChild(_panel);
+        RetroHudChrome.Attach(_panel, new Color("#e5a34d"), dense: true, scanlines: false);
 
         var margin = new MarginContainer();
         margin.AddThemeConstantOverride("margin_left", 8);
@@ -62,13 +51,14 @@ public partial class AutomationAttentionView : CanvasLayer
 
         _button = new Button
         {
-            Text = "ATTENTION",
+            Text = "!! AUTO FAULT",
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         _button.AddThemeFontSizeOverride("font_size", 9);
         _button.AddThemeColorOverride("font_color", new Color("#f3c17a"));
         _button.AddThemeColorOverride("font_hover_color", new Color("#ffe0aa"));
+        RetroHudChrome.SkinButton(_button, new Color("#e5a34d"));
         _button.Pressed += CycleAttention;
         margin.AddChild(_button);
         Refresh();

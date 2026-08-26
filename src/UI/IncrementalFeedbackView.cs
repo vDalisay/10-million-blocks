@@ -198,7 +198,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
 
         var resourceHeader = new Label
         {
-            Text = "RESOURCE LEDGER",
+            Text = "// STORAGE BUS  03",
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         resourceHeader.AddThemeFontSizeOverride("font_size", 10);
@@ -234,7 +234,8 @@ public partial class IncrementalFeedbackView : CanvasLayer
             CustomMinimumSize = new Vector2(width, primary ? 82.0f : 58.0f),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        panel.AddThemeStyleboxOverride("panel", RetroPanel(accent, primary ? 0.78f : 0.72f));
+        panel.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(accent, primary ? 0.90f : 0.82f));
+        RetroHudChrome.Attach(panel, accent, dense: !primary, scanlines: primary);
 
         var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         margin.AddThemeConstantOverride("margin_left", primary ? 14 : 10);
@@ -265,7 +266,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
         };
         valueLabel.AddThemeFontSizeOverride("font_size", primary ? 31 : 20);
         valueLabel.AddThemeColorOverride("font_color", primary ? new Color("#effffd") : new Color("#fff4d5"));
-        valueLabel.AddThemeConstantOverride("outline_size", 3);
+        valueLabel.AddThemeConstantOverride("outline_size", 1);
         valueLabel.AddThemeColorOverride("font_outline_color", new Color(0.0f, 0.04f, 0.06f, 0.9f));
         column.AddChild(valueLabel);
 
@@ -311,7 +312,8 @@ public partial class IncrementalFeedbackView : CanvasLayer
             CustomMinimumSize = new Vector2(162.0f, 54.0f),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        panel.AddThemeStyleboxOverride("panel", RetroPanel(accent, 0.68f));
+        panel.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(accent, 0.82f));
+        RetroHudChrome.Attach(panel, accent, dense: true, scanlines: false);
 
         var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         margin.AddThemeConstantOverride("margin_left", 7);
@@ -343,9 +345,16 @@ public partial class IncrementalFeedbackView : CanvasLayer
         column.AddThemeConstantOverride("separation", -2);
         row.AddChild(column);
 
+        string code = resourceId switch
+        {
+            "gem_red" => "CRG",
+            "gem_blue" => "AZG",
+            "gem_green" => "VDG",
+            _ => "RSC",
+        };
         var caption = new Label
         {
-            Text = definition.DisplayName.ToUpperInvariant(),
+            Text = $"{code} // {definition.DisplayName.ToUpperInvariant()}",
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         caption.AddThemeFontSizeOverride("font_size", 9);
@@ -515,7 +524,7 @@ public partial class IncrementalFeedbackView : CanvasLayer
         double percent = _world.InitialMineableBlocks <= 0
             ? 100.0
             : Math.Clamp(_mining.TotalMined * 100.0 / _world.InitialMineableBlocks, 0.0, 100.0);
-        _blocksChip.Caption.Text = $"BLOCKS MINED  //  {percent:0.0}% OF {IncrementalNumberFormatter.Format(_world.InitialMineableBlocks)}";
+        _blocksChip.Caption.Text = $"MINE CORE  //  {percent:0.0}% OF {IncrementalNumberFormatter.Format(_world.InitialMineableBlocks)}";
         _blocksChip.Value.Text = IncrementalNumberFormatter.Format(_mining.TotalMined);
         _resourcesChip.Value.Text = IncrementalNumberFormatter.Format(_mining.Currency);
         RefreshSpecialCounters();
