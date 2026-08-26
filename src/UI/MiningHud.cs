@@ -307,8 +307,9 @@ public partial class MiningHud : CanvasLayer
             OffsetBottom = -58.0f,
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
-        _automationDrawer.AddThemeStyleboxOverride("panel", RetroHudPanel(new Color("#5fd8cf"), 0.94f));
+        _automationDrawer.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(new Color("#5fd8cf"), 0.96f));
         root.AddChild(_automationDrawer);
+        RetroHudChrome.Attach(_automationDrawer, new Color("#5fd8cf"), scanlines: true);
 
         var margin = new MarginContainer();
         margin.AddThemeConstantOverride("margin_left", 14);
@@ -323,11 +324,13 @@ public partial class MiningHud : CanvasLayer
 
         var header = new HBoxContainer();
         header.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        var title = new Label { Text = "AUTOMATION", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-        title.AddThemeFontSizeOverride("font_size", 22);
+        var title = new Label { Text = "AUTO// DEPLOYMENT BUS", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        title.AddThemeFontSizeOverride("font_size", 15);
+        title.AddThemeColorOverride("font_color", new Color("#8ee9dc"));
         header.AddChild(title);
-        var close = new Button { Text = "CLOSE", CustomMinimumSize = new Vector2(64.0f, 32.0f) };
+        var close = new Button { Text = "X // BACK", CustomMinimumSize = new Vector2(82.0f, 32.0f) };
         ApplyRetroButton(close, new Color("#5fd8cf"));
+        RetroHudChrome.Attach(close, new Color("#5fd8cf"), dense: true, scanlines: false);
         close.Pressed += CloseAutomationMenu;
         header.AddChild(close);
         column.AddChild(header);
@@ -353,13 +356,13 @@ public partial class MiningHud : CanvasLayer
         list.AddThemeConstantOverride("separation", 10);
         scroll.AddChild(list);
 
-        AddAutomationEntry(list, "line_miner", "automation_unlock", "DRILL",
+        AddAutomationEntry(list, "line_miner", "automation_unlock", "DRL // DRILL",
             "Straight-line miner. Unlock the class in the skill tree, then buy each physical Drill for its fixed unit price in the current world.");
-        AddAutomationEntry(list, "shovel_miner", "shovel_unlock", "POWERED SHOVEL",
+        AddAutomationEntry(list, "shovel_miner", "shovel_unlock", "SHV // POWERED SHOVEL",
             "Surface crawler for soft terrain. Every physical Shovel is bought for the same fixed unit price and belongs to this world.");
-        AddAutomationEntry(list, "pickaxe_miner", "pickaxe_unlock", "ROCK BREAKER",
+        AddAutomationEntry(list, "pickaxe_miner", "pickaxe_unlock", "RBK // ROCK BREAKER",
             "Stone and ore miner. Permanent capability unlock; fixed-price physical units per world.");
-        AddAutomationEntry(list, "axe_miner", "axe_unlock", "FOREST CUTTER",
+        AddAutomationEntry(list, "axe_miner", "axe_unlock", "CUT // FOREST CUTTER",
             "Tree-clearing surface tool. Permanent capability unlock; fixed-price physical units per world.");
     }
 
@@ -375,8 +378,9 @@ public partial class MiningHud : CanvasLayer
             CustomMinimumSize = new Vector2(0.0f, 124.0f),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
-        card.AddThemeStyleboxOverride("panel", RetroHudPanel(new Color("#55788a"), 0.72f));
+        card.AddThemeStyleboxOverride("panel", RetroHudChrome.Glass(new Color("#55788a"), 0.82f));
         list.AddChild(card);
+        RetroHudChrome.Attach(card, new Color("#55788a"), dense: true, scanlines: false);
 
         var margin = new MarginContainer();
         margin.AddThemeConstantOverride("margin_left", 10);
@@ -390,7 +394,8 @@ public partial class MiningHud : CanvasLayer
         margin.AddChild(column);
 
         var name = new Label { Text = displayName };
-        name.AddThemeFontSizeOverride("font_size", 18);
+        name.AddThemeFontSizeOverride("font_size", 14);
+        name.AddThemeColorOverride("font_color", new Color("#b9e5e1"));
         column.AddChild(name);
         column.AddChild(new Label
         {
@@ -404,6 +409,7 @@ public partial class MiningHud : CanvasLayer
 
         var action = new Button { CustomMinimumSize = new Vector2(0.0f, 34.0f) };
         ApplyRetroButton(action, new Color("#5fd8cf"));
+        RetroHudChrome.Attach(action, new Color("#5fd8cf"), dense: true, scanlines: false);
         string id = minerId;
         action.Pressed += () => OnAutomationAction(id);
         column.AddChild(action);
@@ -484,7 +490,7 @@ public partial class MiningHud : CanvasLayer
 
         _automationOpen = open;
         _manual.InputEnabled = !open;
-        _automationToggle.Text = open ? "CLOSE AUTOMATION" : "AUTOMATION [A]";
+        _automationToggle.Text = open ? "// AUTO BUS   CLOSE [A]" : "// AUTO BUS   [A]";
         RefreshAutomationMenu();
 
         float targetLeft = open ? 14.0f : -AutomationDrawerWidth;

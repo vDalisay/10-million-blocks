@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Skills;
+using TenMillionBlocks.UI;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Interaction;
 using TenMillionBlocks.World.Rendering;
@@ -386,6 +387,8 @@ public partial class ManualMiningController : Node3D
         };
         _hoverToggle.Pressed += () => SetHoverMiningEnabled(!HoverMiningEnabled);
         root.AddChild(_hoverToggle);
+        RetroHudChrome.SkinButton(_hoverToggle, new Color("#63d8cb"));
+        RetroHudChrome.Attach(_hoverToggle, new Color("#63d8cb"), dense: true, scanlines: true);
     }
 
     private void RefreshHoverMiningUi()
@@ -393,7 +396,10 @@ public partial class ManualMiningController : Node3D
         if (_hoverToggle is null) return;
         bool unlocked = _skills.Derived.HoverMiningUnlocked;
         _hoverToggle.Visible = unlocked;
-        _hoverToggle.Text = $"HOVER MINING: {(HoverMiningEnabled ? "ON" : "OFF")}";
+        _hoverToggle.Text = HoverMiningEnabled ? "HVR// ACTIVE   [CLICK: DISARM]" : "HVR// STANDBY  [CLICK: ARM]";
+        _hoverToggle.AddThemeColorOverride(
+            "font_color",
+            HoverMiningEnabled ? new Color("#dffcf6") : new Color("#78939a"));
         _hoverToggle.TooltipText = unlocked
             ? "Toggle automatic manual mining while the cursor rests on a block. Camera movement and placement pause it."
             : string.Empty;
