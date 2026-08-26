@@ -8,6 +8,7 @@ using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Skills;
 using TenMillionBlocks.World;
 using TenMillionBlocks.World.Interaction;
+using TenMillionBlocks.World.Rendering;
 
 namespace TenMillionBlocks.Collection;
 
@@ -88,6 +89,7 @@ public partial class ResourceCollectionField : Node3D
     private SkillTreeService _skills = null!;
     private OrbitCameraController _camera = null!;
     private ManualMiningController _manual = null!;
+    private WorldView _worldView = null!;
     private BlockAssetRegistry _assets = null!;
     private StandardMaterial3D _outlineMaterial = null!;
     private float _spacing;
@@ -120,6 +122,7 @@ public partial class ResourceCollectionField : Node3D
         SkillTreeService skills,
         OrbitCameraController camera,
         ManualMiningController manual,
+        WorldView worldView,
         BlockAssetRegistry assets)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
@@ -127,6 +130,7 @@ public partial class ResourceCollectionField : Node3D
         _skills = skills ?? throw new ArgumentNullException(nameof(skills));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _manual = manual ?? throw new ArgumentNullException(nameof(manual));
+        _worldView = worldView ?? throw new ArgumentNullException(nameof(worldView));
         _assets = assets ?? throw new ArgumentNullException(nameof(assets));
         _spacing = Math.Max(0.01f, world.Profile.BlockSpacing);
         _outlineMaterial = BuildOutlineMaterial();
@@ -321,7 +325,8 @@ public partial class ResourceCollectionField : Node3D
         bool animateSpawn)
     {
         Vector3I cell = BucketForVoxel(voxel);
-        RenderBucket bucket = GetOrCreateBucket(cell, blockId);
+        string visualBlockId = _worldView.ResolveSurfaceVisualBlockId(voxel, blockId);
+        RenderBucket bucket = GetOrCreateBucket(cell, visualBlockId);
         if (bucket.PickupIds.Count >= BucketCapacity)
         {
             GD.PushWarning($"Resource pickup bucket {cell}/{blockId} exceeded {BucketCapacity} entries.");
@@ -348,7 +353,8 @@ public partial class ResourceCollectionField : Node3D
             RenderSlot = slot,
             OriginPosition = blockCenter + Vector3.Up * (_spacing * 0.06f),
             FinalPosition = finalPosition,
-            Basis = new Basis(Vector3.Up, angle).Scaled(Vector3.One * PickupScale),
+            Basis = (_worldView.ResolveSurfaceVisualBasis(voxel, visualBlockId)
+                * new Basis(Vector3.Up, angle)).Scaled(Vector3.One * PickupScale),
             SpawnTime = animateSpawn ? _visualTime : _visualTime - SpawnDuration,
         };
         _pickups.Add(id, pickup);
@@ -459,8 +465,8 @@ public partial class ResourceCollectionField : Node3D
         };
         AddChild(outlineNode);
 
-        // The pickup material owns both the real 80% transparency and CRT modulation. The previous
-        // separate shell left the actual block opaque, which made both requested effects nearly invisible.
+        // The pickup material keeps the exact resolved block texture opaque and adds only a light,
+        // luminance-neutral CRT modulation so the miniature remains readable against the black outline.
         var node = new MultiMeshInstance3D
         {
             Name = $"PickupBucket_{blockId}_{cell.X}_{cell.Y}_{cell.Z}",
@@ -732,28 +738,28 @@ public partial class ResourceCollectionField : Node3D
                 + "uniform sampler2D albedo_texture : source_color, filter_linear_mipmap_anisotropic, repeat_enable;\n"
                 + "uniform bool has_albedo_texture = false;\n"
                 + "uniform vec4 albedo_color : source_color = vec4(1.0);\n"
-                + "uniform float opacity = 0.50;\n"
-                + "uniform float crt_strength = 0.72;\n\n"
+                + "uniform float opacity = 1.0;\n"
+                + "uniform float crt_strength = 0.32;\n\n"
                 + "void fragment() {\n"
                 + "    vec4 texel = has_albedo_texture ? texture(albedo_texture, UV) : vec4(1.0);\n"
                 + "    vec3 base = texel.rgb * albedo_color.rgb;\n"
-                + "    float scan = mod(floor(FRAGCOORD.y), 2.0) < 1.0 ? 0.42 : 1.0;\n"
+                + "    float scan = mod(floor(FRAGCOORD.y), 2.0) < 1.0 ? 0.82 : 1.08;\n"
                 + "    float column = mod(floor(FRAGCOORD.x), 3.0);\n"
-                + "    vec3 mask = column < 1.0 ? vec3(1.0, 0.68, 0.68) : (column < 2.0 ? vec3(0.68, 1.0, 0.68) : vec3(0.68, 0.74, 1.0));\n"
-                + "    float flicker = 0.965 + 0.035 * sin(TIME * 18.0 + FRAGCOORD.y * 0.13);\n"
+                + "    vec3 mask = column < 1.0 ? vec3(1.0, 0.94, 0.94) : (column < 2.0 ? vec3(0.94, 1.0, 0.94) : vec3(0.94, 0.95, 1.0));\n"
+                + "    float flicker = 0.995 + 0.005 * sin(TIME * 18.0 + FRAGCOORD.y * 0.13);\n"
                 + "    vec3 crt = base * scan * mask * flicker;\n"
                 + "    ALBEDO = mix(base, crt, crt_strength);\n"
                 + "    ROUGHNESS = 1.0;\n"
                 + "    SPECULAR = 0.0;\n"
-                + "    EMISSION = ALBEDO * (0.060 * crt_strength);\n"
+                + "    EMISSION = base * 0.08;\n"
                 + "    ALPHA = clamp(opacity * texel.a * albedo_color.a, 0.0, 1.0);\n"
                 + "}\n",
         };
         var material = new ShaderMaterial { Shader = shader };
         material.SetShaderParameter("has_albedo_texture", albedoTexture is not null);
         material.SetShaderParameter("albedo_color", albedoColor);
-        material.SetShaderParameter("opacity", 0.50f);
-        material.SetShaderParameter("crt_strength", 0.72f);
+        material.SetShaderParameter("opacity", 1.0f);
+        material.SetShaderParameter("crt_strength", 0.32f);
         if (albedoTexture is not null) material.SetShaderParameter("albedo_texture", albedoTexture);
         _pickupMaterials.Add(blockId, material);
         return material;

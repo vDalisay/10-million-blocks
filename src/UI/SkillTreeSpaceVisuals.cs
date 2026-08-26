@@ -234,14 +234,17 @@ public partial class IncrementalSkillNodeButton
         _spaceFeedbackInstalled = true;
         _categoryColor = SkillTreeSpacePalette.CategoryColor(node.Category);
 
-        // Center the atlas cell, then apply a small optical correction for asymmetric glyph art.
+        // Anchor every visual to the button's exact center, then apply only the glyph's optical correction.
         const float iconSize = 42.0f;
         Vector2 opticalOffset = SkillTreeIconAtlas.OpticalOffsetForSkill(node.Id, iconSize);
-        Vector2 globalCenterCorrection = new(-4.0f, -4.0f);
-        _icon.Position = new Vector2((70.0f - iconSize) * 0.5f, (70.0f - iconSize) * 0.5f)
-            + opticalOffset
-            + globalCenterCorrection;
-        _icon.Size = new Vector2(iconSize, iconSize);
+        _icon.AnchorLeft = 0.5f;
+        _icon.AnchorTop = 0.5f;
+        _icon.AnchorRight = 0.5f;
+        _icon.AnchorBottom = 0.5f;
+        _icon.OffsetLeft = -iconSize * 0.5f + opticalOffset.X;
+        _icon.OffsetTop = -iconSize * 0.5f + opticalOffset.Y;
+        _icon.OffsetRight = iconSize * 0.5f + opticalOffset.X;
+        _icon.OffsetBottom = iconSize * 0.5f + opticalOffset.Y;
         _icon.PivotOffset = new Vector2(iconSize * 0.5f, iconSize * 0.5f);
         _icon.Scale = Vector2.One;
         _icon.Rotation = 0.0f;
@@ -252,8 +255,14 @@ public partial class IncrementalSkillNodeButton
 
         _starPlate = new SkillNodeStarPlate
         {
-            Position = new Vector2(-6, -6),
-            Size = new Vector2(82, 82),
+            AnchorLeft = 0.5f,
+            AnchorTop = 0.5f,
+            AnchorRight = 0.5f,
+            AnchorBottom = 0.5f,
+            OffsetLeft = -41,
+            OffsetTop = -41,
+            OffsetRight = 41,
+            OffsetBottom = 41,
             MouseFilter = MouseFilterEnum.Ignore,
         };
         AddChild(_starPlate);
@@ -261,8 +270,14 @@ public partial class IncrementalSkillNodeButton
 
         _spaceAura = new SkillNodeSpaceAura
         {
-            Position = new Vector2(-10, -10),
-            Size = new Vector2(90, 90),
+            AnchorLeft = 0.5f,
+            AnchorTop = 0.5f,
+            AnchorRight = 0.5f,
+            AnchorBottom = 0.5f,
+            OffsetLeft = -45,
+            OffsetTop = -45,
+            OffsetRight = 45,
+            OffsetBottom = 45,
             PivotOffset = new Vector2(45, 45),
             MouseFilter = MouseFilterEnum.Ignore,
             RingColor = _categoryColor,

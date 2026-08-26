@@ -11,7 +11,7 @@ public partial class WorldView
 {
     private const string OuterRimVisualBlockId = "grass_outer";
 
-    private string ResolveSurfaceVisualBlockId(Vector3I voxel, string blockId)
+    public string ResolveSurfaceVisualBlockId(Vector3I voxel, string blockId)
     {
         if (_world is null
             || _world.Profile.UsesSingleBlockGenerator
@@ -27,6 +27,11 @@ public partial class WorldView
             _world.Profile.SoilBlock,
             blockId == _world.Profile.SoilBlock && IsOuterCubeFaceRim(voxel));
     }
+
+    public Basis ResolveSurfaceVisualBasis(Vector3I voxel, string visualBlockId)
+        => ShouldOrientToCubeFace(visualBlockId)
+            ? BasisForNormal(_world.Source.GetOutwardNormal(voxel))
+            : Basis.Identity;
 
     internal static string ResolveTerrainVisualBlockId(
         string blockId,
