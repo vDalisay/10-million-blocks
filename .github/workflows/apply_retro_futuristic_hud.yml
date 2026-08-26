@@ -50,3 +50,4 @@ jobs:
           git push origin HEAD:codex/future-world-progression
 
 # retry after helper-anchor fix
+# retry after automation-attention copy fix
