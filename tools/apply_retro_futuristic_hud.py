@@ -410,18 +410,6 @@ replace_once(
         _feedbackTime = duration;
         ShowRetroEvent(message, duration);''')
 
-replace_once(
-    path,
-    '''        _feedback.Visible = true;
-    }
-
-    private void Refresh()''',
-    '''        _feedback.Visible = true;
-        ShowRetroEvent(_feedback.Text, _feedbackTime);
-    }
-
-    private void Refresh()''')
-
 retro_partial = r'''using System;
 using System.Collections.Generic;
 using System.Linq;
