@@ -1,0 +1,39 @@
+name: Apply pickup and constellation polish
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - tools/apply_pickup_and_constellation_polish.py
+      - .github/workflows/apply_pickup_and_constellation_polish.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/future-world-progression
+          fetch-depth: 0
+
+      - name: Apply pickup and constellation polish
+        run: python tools/apply_pickup_and_constellation_polish.py
+
+      - name: Validate content
+        run: |
+          python tools/validate_content.py
+          python tools/validate_progression_contracts.py
+
+      - name: Commit implementation
+        run: |
+          rm tools/apply_pickup_and_constellation_polish.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Polish resource pickups and constellation UI"
+          git push origin HEAD:codex/future-world-progression
