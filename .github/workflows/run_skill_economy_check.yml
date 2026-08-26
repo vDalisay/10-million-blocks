@@ -1,0 +1,16 @@
+name: Skill economy checkpoint
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - .github/workflows/run_skill_economy_check.yml
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Simulate 61-node economy
+        run: python tools/simulate_skill_economy.py --reserve 0.20
