@@ -3,9 +3,9 @@ using Godot;
 using TenMillionBlocks.Automation;
 using TenMillionBlocks.Content;
 using TenMillionBlocks.Presentation;
-using TenMillionBlocks.UI;
 using TenMillionBlocks.Progression;
 using TenMillionBlocks.Save;
+using TenMillionBlocks.UI;
 
 namespace TenMillionBlocks.App;
 
@@ -24,6 +24,7 @@ public partial class GameRoot
     }
 
     private const double WorldIntroDurationSeconds = 3.0;
+    private const double CompletionSaveRetrySeconds = 1.0;
 
     private WorldRunPhase _runPhase = WorldRunPhase.PreparingWorld;
     private double _introElapsed;
@@ -34,6 +35,9 @@ public partial class GameRoot
     private long _completionBonusResources;
     private bool _completionBonusClaimed;
     private bool _loadedCompletedWorld;
+    private bool _completionPersistenceReady;
+    private bool _awaitingCompletionCommitSave;
+    private double _completionSaveRetryElapsed;
     private WorldCompletionCeremony? _completionCeremony;
 
     private void ResetWorldRunLifecycle()
@@ -54,6 +58,9 @@ public partial class GameRoot
         _completionBonusResources = 0L;
         _completionBonusClaimed = false;
         _loadedCompletedWorld = false;
+        _completionPersistenceReady = false;
+        _awaitingCompletionCommitSave = false;
+        _completionSaveRetryElapsed = 0.0;
     }
 
     private void InitializeWorldRunLifecycle(WorldSaveData? savedWorld, OfflineProgressResult offline)
@@ -67,6 +74,9 @@ public partial class GameRoot
         _completionBonusResources = Math.Max(0L, savedWorld?.CompletionBonusResources ?? 0L);
         _completionBonusClaimed = savedWorld?.CompletionBonusClaimed ?? false;
         _loadedCompletedWorld = savedWorld?.Completed ?? false;
+        _completionPersistenceReady = _clearReached;
+        _awaitingCompletionCommitSave = false;
+        _completionSaveRetryElapsed = 0.0;
 
         if (offline.BlocksRemoved > 0)
         {
@@ -75,8 +85,13 @@ public partial class GameRoot
             {
                 _completionClearSeconds = _activePlaySeconds;
                 _completionScorePercent = CompletionScore.CalculatePercent(_completionClearSeconds);
-                _completionBonusResources = CompletionScore.CalculateBonus(_world?.InitialMineableBlocks ?? 0L, _completionScorePercent);
+                _completionBonusResources = CompletionScore.CalculateBonus(
+                    _world?.InitialMineableBlocks ?? 0L,
+                    _completionScorePercent);
                 _clearReached = true;
+                // This result was calculated after loading the save and therefore must be written
+                // before the cinematic is allowed to start.
+                _completionPersistenceReady = false;
             }
         }
 
@@ -102,6 +117,11 @@ public partial class GameRoot
                 if (_world.RemainingMineableBlocks == 0)
                 {
                     if (!_clearReached) FreezeCompletionResultAndSave();
+                    if (!_completionPersistenceReady)
+                    {
+                        _runPhase = WorldRunPhase.CompletionLocked;
+                        return;
+                    }
                     BeginCompletionCinematic();
                     return;
                 }
@@ -125,15 +145,22 @@ public partial class GameRoot
                 _activePlaySeconds += Math.Max(0.0, delta);
                 _autosaveDirty = true;
                 return;
+
+            case WorldRunPhase.CompletionLocked:
+                ProcessCompletionSaveRetry(delta);
+                return;
         }
     }
 
     private void SetGameplayInteractionEnabled(bool enabled)
     {
         if (_manualMining is not null) _manualMining.InputEnabled = enabled;
-        if (_placement is not null) _placement.InputEnabled = enabled && (_world?.Profile.AutomationAvailable ?? false);
-        if (_miners is not null) _miners.ProcessMode = enabled ? ProcessModeEnum.Inherit : ProcessModeEnum.Disabled;
-        if (_worldEvents is not null) _worldEvents.ProcessMode = enabled ? ProcessModeEnum.Inherit : ProcessModeEnum.Disabled;
+        if (_placement is not null)
+            _placement.InputEnabled = enabled && (_world?.Profile.AutomationAvailable ?? false);
+        if (_miners is not null)
+            _miners.ProcessMode = enabled ? ProcessModeEnum.Inherit : ProcessModeEnum.Disabled;
+        if (_worldEvents is not null)
+            _worldEvents.ProcessMode = enabled ? ProcessModeEnum.Inherit : ProcessModeEnum.Disabled;
         if (_skillTree is not null)
         {
             if (!enabled) _skillTree.Close();
@@ -150,17 +177,72 @@ public partial class GameRoot
         _clearReached = true;
         _completionClearSeconds = Math.Max(0.0, _activePlaySeconds);
         _completionScorePercent = CompletionScore.CalculatePercent(_completionClearSeconds);
-        _completionBonusResources = CompletionScore.CalculateBonus(_world.InitialMineableBlocks, _completionScorePercent);
+        _completionBonusResources = CompletionScore.CalculateBonus(
+            _world.InitialMineableBlocks,
+            _completionScorePercent);
         _completionBonusClaimed = false;
+        _completionPersistenceReady = PersistCompletionState();
 
-        CaptureCurrentSession();
-        TrySaveCurrentSession(captureFirst: false);
-        GD.Print($"Clear frozen at {_completionClearSeconds:0.00}s: {_completionScorePercent}% => {_completionBonusResources:N0} bonus resources.");
+        GD.Print(
+            $"Clear frozen at {_completionClearSeconds:0.00}s: {_completionScorePercent}% => " +
+            $"{_completionBonusResources:N0} bonus resources. persisted={_completionPersistenceReady}.");
+    }
+
+    private bool PersistCompletionState()
+    {
+        try
+        {
+            CaptureCurrentSession();
+            _saveService.Save(_save);
+            _autosaveDirty = false;
+            _autosaveTimer = 0.0;
+            _completionSaveRetryElapsed = 0.0;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _autosaveTimer = 0.0;
+            GD.PushError($"Completion state save failed; cinematic is held until persistence succeeds: {exception}");
+            return false;
+        }
+    }
+
+    private void ProcessCompletionSaveRetry(double delta)
+    {
+        if (_completionCeremony is not null) return;
+        if (!_clearReached) return;
+
+        _completionSaveRetryElapsed += Math.Max(0.0, delta);
+        if (_completionSaveRetryElapsed < CompletionSaveRetrySeconds) return;
+        _completionSaveRetryElapsed = 0.0;
+
+        if (_awaitingCompletionCommitSave)
+        {
+            if (!PersistCompletionState()) return;
+            _awaitingCompletionCommitSave = false;
+            _completionPersistenceReady = true;
+            _runPhase = WorldRunPhase.Results;
+            ShowCompletion(debugPreview: false);
+            return;
+        }
+
+        if (_completionPersistenceReady) return;
+        _completionPersistenceReady = PersistCompletionState();
+        if (_completionPersistenceReady) BeginCompletionCinematic();
     }
 
     private void BeginCompletionCinematic()
     {
-        if (_world is null || _worldView is null || _mining is null || _sessionRoot is null || _completionCeremony is not null) return;
+        if (!_completionPersistenceReady
+            || _world is null
+            || _worldView is null
+            || _mining is null
+            || _sessionRoot is null
+            || _completionCeremony is not null)
+        {
+            return;
+        }
+
         _runPhase = WorldRunPhase.CompletionLocked;
         SetGameplayInteractionEnabled(false);
         _resourceCollection?.CollectAllPending();
@@ -169,7 +251,9 @@ public partial class GameRoot
         Vector3 center = bounds.Position + bounds.Size * 0.5f;
         float spacing = Math.Max(0.01f, _world.Profile.BlockSpacing);
         float worldRadius = Math.Max(spacing * 2.0f, bounds.Size.Length() * 0.5f);
-        float scatterRadius = Math.Max(spacing * 4.0f, Math.Min(worldRadius * 0.58f, spacing * 20.0f));
+        float scatterRadius = Math.Max(
+            spacing * 4.0f,
+            Math.Min(worldRadius * 0.58f, spacing * 20.0f));
         float cameraDistance = Math.Max(scatterRadius * 2.7f, worldRadius * 1.55f);
         _camera.BeginCinematicFocus(center, cameraDistance, immediate: false);
 
@@ -208,18 +292,26 @@ public partial class GameRoot
         _save.CompletedWorldIds.Add(_world.Profile.Id);
         if (next is not null) _save.UnlockedWorldIds.Add(next.Id);
         _loadedCompletedWorld = true;
+
+        if (_completionCeremony is not null)
+        {
+            _completionCeremony.StageChanged -= OnCompletionVisualStageChanged;
+            _completionCeremony.Completed -= CommitCompletionRewardAndShowResults;
+            _completionCeremony.QueueFree();
+            _completionCeremony = null;
+        }
+
+        if (!PersistCompletionState())
+        {
+            // Reward + claimed/completed flag live in the same in-memory snapshot. Do not expose the
+            // results/Continue controls until that whole transaction reaches disk.
+            _awaitingCompletionCommitSave = true;
+            _runPhase = WorldRunPhase.CompletionLocked;
+            return;
+        }
+
+        _completionPersistenceReady = true;
         _runPhase = WorldRunPhase.Results;
-
-        CaptureCurrentSession();
-        TrySaveCurrentSession(captureFirst: false);
         ShowCompletion(debugPreview: false);
-    }
-
-    private static string FormatClearTime(double seconds)
-    {
-        int total = Math.Max(0, (int)Math.Floor(seconds));
-        int minutes = total / 60;
-        int remainder = total % 60;
-        return $"{minutes:00}:{remainder:00}";
     }
 }
