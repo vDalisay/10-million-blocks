@@ -6,6 +6,7 @@ on:
       - codex/future-world-progression
     paths:
       - tools/apply_late_laser_and_completion_finish.py
+      - tools/apply_late_laser_compile_fixups.py
       - .github/workflows/apply_late_laser_and_completion_finish.yml
 
 permissions:
@@ -23,7 +24,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply implementation
-        run: python3 tools/apply_late_laser_and_completion_finish.py
+        run: |
+          python3 tools/apply_late_laser_and_completion_finish.py
+          python3 tools/apply_late_laser_compile_fixups.py
 
       - name: Validate content
         run: |
@@ -54,6 +57,7 @@ jobs:
       - name: Commit implementation
         run: |
           rm tools/apply_late_laser_and_completion_finish.py
+          rm tools/apply_late_laser_compile_fixups.py
           rm -rf tools/__pycache__
           rm -rf tools/completion_contract/bin tools/completion_contract/obj
           rm -rf tools/generation_contract/bin tools/generation_contract/obj
