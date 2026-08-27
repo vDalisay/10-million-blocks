@@ -1,0 +1,62 @@
+name: Apply world ceremony implementation
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - tools/apply_world_ceremony_implementation.py
+      - .github/workflows/apply_world_ceremony_implementation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out implementation branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/future-world-progression
+          fetch-depth: 0
+
+      - name: Apply implementation
+        run: python3 tools/apply_world_ceremony_implementation.py
+
+      - name: Validate content
+        run: |
+          python3 tools/validate_content.py
+          python3 tools/validate_progression_contracts.py
+          python3 -m py_compile tools/analyze_pacing_reports.py
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore TenMillionBlocks.csproj
+
+      - name: Build
+        run: dotnet build TenMillionBlocks.csproj --configuration Release --no-restore
+
+      - name: Validate deterministic generation
+        run: dotnet run --project tools/generation_contract/GenerationContract.csproj --configuration Release
+
+      - name: Validate replay codec
+        run: dotnet run --project tools/replay_contract/ReplayContract.csproj --configuration Release
+
+      - name: Validate completion score
+        run: dotnet run --project tools/completion_contract/CompletionContract.csproj --configuration Release
+
+      - name: Commit implementation
+        run: |
+          rm tools/apply_world_ceremony_implementation.py
+          rm .github/workflows/apply_world_ceremony_implementation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Implement world intro and black-hole completion"
+          git push origin HEAD:codex/future-world-progression
