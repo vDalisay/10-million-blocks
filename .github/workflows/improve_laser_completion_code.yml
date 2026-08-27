@@ -1,0 +1,63 @@
+name: Improve laser and completion code
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - tools/improve_laser_completion_code.py
+      - .github/workflows/improve_laser_completion_code.yml
+
+permissions:
+  contents: write
+
+jobs:
+  improve:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/future-world-progression
+          fetch-depth: 0
+
+      - name: Apply code-quality pass
+        run: python3 tools/improve_laser_completion_code.py
+
+      - name: Validate content
+        run: |
+          python3 tools/validate_content.py
+          python3 tools/validate_progression_contracts.py
+          python3 tools/validate_laser_contract.py
+          python3 -m py_compile tools/analyze_pacing_reports.py
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore TenMillionBlocks.csproj
+
+      - name: Build
+        run: dotnet build TenMillionBlocks.csproj --configuration Release --no-restore
+
+      - name: Contracts
+        run: |
+          dotnet run --project tools/generation_contract/GenerationContract.csproj --configuration Release
+          dotnet run --project tools/replay_contract/ReplayContract.csproj --configuration Release
+          dotnet run --project tools/completion_contract/CompletionContract.csproj --configuration Release
+
+      - name: Commit improvements
+        run: |
+          rm tools/improve_laser_completion_code.py
+          rm -rf tools/__pycache__
+          rm -rf tools/completion_contract/bin tools/completion_contract/obj
+          rm -rf tools/generation_contract/bin tools/generation_contract/obj
+          rm -rf tools/replay_contract/bin tools/replay_contract/obj
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Improve laser source semantics and completion GPU setup"
+          git push origin HEAD:codex/future-world-progression
