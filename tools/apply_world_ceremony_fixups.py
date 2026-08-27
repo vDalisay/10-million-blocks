@@ -27,5 +27,13 @@ patch(
     "    <Compile Remove=\"tools/replay_contract/**/*.cs\" />",
     "    <Compile Remove=\"tools/replay_contract/**/*.cs\" />\n    <Compile Remove=\"tools/completion_contract/**/*.cs\" />",
 )
+# The implementation helper adds the permanent score-contract CI step so its transformed tree can
+# validate it. Restore build.yml before the bot commit: GitHub Apps without workflow permission cannot
+# push workflow-file changes. The connector will add this permanent step after the implementation lands.
+patch(
+    ".github/workflows/build.yml",
+    "\n\n      - name: Validate completion score\n        run: dotnet run --project tools/completion_contract/CompletionContract.csproj --configuration Release",
+    "",
+)
 
-print("Applied world ceremony compile fixups.")
+print("Applied world ceremony compile/workflow fixups.")
