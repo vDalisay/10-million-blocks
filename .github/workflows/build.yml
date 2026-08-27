@@ -39,3 +39,6 @@ jobs:
 
       - name: Validate replay codec
         run: dotnet run --project tools/replay_contract/ReplayContract.csproj --configuration Release
+
+      - name: Validate completion score
+        run: dotnet run --project tools/completion_contract/CompletionContract.csproj --configuration Release
