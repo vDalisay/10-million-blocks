@@ -6,6 +6,7 @@ on:
       - codex/future-world-progression
     paths:
       - tools/apply_world_ceremony_implementation.py
+      - tools/apply_world_ceremony_fixups.py
       - .github/workflows/apply_world_ceremony_implementation.yml
 
 permissions:
@@ -23,7 +24,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply implementation
-        run: python3 tools/apply_world_ceremony_implementation.py
+        run: |
+          python3 tools/apply_world_ceremony_implementation.py
+          python3 tools/apply_world_ceremony_fixups.py
 
       - name: Validate content
         run: |
@@ -54,6 +57,7 @@ jobs:
       - name: Commit implementation
         run: |
           rm tools/apply_world_ceremony_implementation.py
+          rm tools/apply_world_ceremony_fixups.py
           rm .github/workflows/apply_world_ceremony_implementation.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
