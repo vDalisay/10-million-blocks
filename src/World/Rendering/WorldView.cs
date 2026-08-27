@@ -53,6 +53,38 @@ public partial class WorldView : Node3D
     public double AverageChunkBuildMilliseconds
         => TotalChunkBuilds == 0 ? 0.0 : _chunkBuildTotalMilliseconds / TotalChunkBuilds;
 
+    /// <summary>
+    /// True once every chunk required for the initial view has been resolved at least once. Empty
+    /// chunks count as resolved too, so callers can keep a loading presentation up until the world is
+    /// genuinely ready instead of dismissing it merely because a WorldView node exists.
+    /// </summary>
+    public bool InitialPresentationReady
+    {
+        get
+        {
+            if (_loadQueue.Count > 0 || _dirtyChunks.Count > 0) return false;
+            foreach (ChunkCoord desired in _desiredChunks)
+            {
+                if (!_resolvedChunks.Contains(desired)) return false;
+            }
+            return true;
+        }
+    }
+
+    public float InitialPresentationProgress
+    {
+        get
+        {
+            if (_desiredChunks.Count == 0) return 1.0f;
+            int resolved = 0;
+            foreach (ChunkCoord desired in _desiredChunks)
+            {
+                if (_resolvedChunks.Contains(desired)) resolved++;
+            }
+            return Mathf.Clamp(resolved / (float)_desiredChunks.Count, 0.0f, 1.0f);
+        }
+    }
+
     public void Initialize(BlockAssetRegistry assets, VirtualWorld world, OrbitCameraController? camera = null)
     {
         _assets = assets;
@@ -101,9 +133,13 @@ public partial class WorldView : Node3D
             }
         }
 
-        int maxBuilds = FullSurfaceRenderer ? 10 : StreamingEnabled ? 4 : 2;
+        // The million-block benchmark showed ~2.5 ms per full-surface chunk rebuild and sustained
+        // bursts of 80+ rebuilds/s. Allowing up to ten rebuilds in one rendered frame created avoidable
+        // CPU spikes even though the HashSet already coalesces repeated dirties. Two builds/frame still
+        // sustains ~120 builds/s at 60 FPS while bounding presentation work much more tightly.
+        int maxBuilds = FullSurfaceRenderer ? 2 : StreamingEnabled ? 4 : 2;
         double frameBuildBudgetMs = FullSurfaceRenderer
-            ? 6.0
+            ? 4.0
             : StreamingEnabled ? 2.5 : double.PositiveInfinity;
         ulong buildFrameStarted = Time.GetTicksUsec();
         int builds = 0;
@@ -202,12 +238,20 @@ public partial class WorldView : Node3D
         int minChunk = _world.MinChunkCoordinate;
         int maxChunk = _world.MaxChunkCoordinate;
 
+        // Exact demo worlds used to synchronously rebuild every chunk from Initialize(), which made a
+        // world change look like the application had frozen. Queue the same exact chunks and let the
+        // normal per-frame loader resolve them instead. No generation or rendering rules change; only
+        // the scheduling does, so the loading screen can keep animating while the world is prepared.
         for (int z = minChunk; z <= maxChunk; z++)
         for (int y = minChunk; y <= maxChunk; y++)
         for (int x = minChunk; x <= maxChunk; x++)
         {
-            RebuildChunk(new ChunkCoord(x, y, z));
+            var chunk = new ChunkCoord(x, y, z);
+            _desiredChunks.Add(chunk);
+            QueueDesiredChunk(chunk);
         }
+
+        GD.Print($"Queued {_desiredChunks.Count:N0} exact chunks for staged initial load of '{_world.Profile.Id}'.");
     }
 
     private void InitializeFullSurfaceSet()
@@ -429,33 +473,26 @@ public partial class WorldView : Node3D
         var batches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         var treeBatches = new Dictionary<string, List<Transform3D>>(StringComparer.Ordinal);
         long sampledColumns = 0L;
-
-        foreach (Vector3I normal in RelevantFullSurfaceNormals(chunk))
-        {
-            SampleFaceColumns(
-                chunk,
-                normal,
-                includeFeatures: true,
-                batches,
-                treeBatches,
-                ref sampledColumns);
-        }
-
-        StoreSurfaceChunk(chunk, "FullSurface", batches, treeBatches, started, sampledColumns);
-    }
-
-    private IEnumerable<Vector3I> RelevantFullSurfaceNormals(ChunkCoord chunk)
-    {
         int depth = Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
         int min = _world.MinChunkCoordinate;
         int max = _world.MaxChunkCoordinate;
 
-        if (max - chunk.X < depth) yield return Vector3I.Right;
-        if (chunk.X - min < depth) yield return Vector3I.Left;
-        if (max - chunk.Y < depth) yield return Vector3I.Up;
-        if (chunk.Y - min < depth) yield return Vector3I.Down;
-        if (max - chunk.Z < depth) yield return Vector3I.Back;
-        if (chunk.Z - min < depth) yield return Vector3I.Forward;
+        // Avoid the iterator/yield allocation that used to run for every rebuild. Under the F11 trace
+        // this path executes thousands of times, while at most six simple face checks are required.
+        if (max - chunk.X < depth)
+            SampleFaceColumns(chunk, Vector3I.Right, true, batches, treeBatches, ref sampledColumns);
+        if (chunk.X - min < depth)
+            SampleFaceColumns(chunk, Vector3I.Left, true, batches, treeBatches, ref sampledColumns);
+        if (max - chunk.Y < depth)
+            SampleFaceColumns(chunk, Vector3I.Up, true, batches, treeBatches, ref sampledColumns);
+        if (chunk.Y - min < depth)
+            SampleFaceColumns(chunk, Vector3I.Down, true, batches, treeBatches, ref sampledColumns);
+        if (max - chunk.Z < depth)
+            SampleFaceColumns(chunk, Vector3I.Back, true, batches, treeBatches, ref sampledColumns);
+        if (chunk.Z - min < depth)
+            SampleFaceColumns(chunk, Vector3I.Forward, true, batches, treeBatches, ref sampledColumns);
+
+        StoreSurfaceChunk(chunk, "FullSurface", batches, treeBatches, started, sampledColumns);
     }
 
     private void RebuildStreamedSurfaceChunk(ChunkCoord chunk, ulong started)
@@ -543,16 +580,16 @@ public partial class WorldView : Node3D
                 continue;
             }
 
-            Vector3I actualNormal = _world.Source.GetOutwardNormal(voxel);
-            if (actualNormal != normal)
+            if (WorldStructuralRules.DominantNormal(voxel) != normal)
             {
                 continue;
             }
 
-            Basis blockBasis = ShouldOrientToCubeFace(sample.BlockId)
-                ? BasisForNormal(actualNormal)
+            string visualBlockId = ResolveSurfaceVisualBlockId(voxel, sample.BlockId);
+            Basis blockBasis = ShouldOrientToCubeFace(visualBlockId)
+                ? BasisForNormal(normal)
                 : Basis.Identity;
-            AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
+            AddTransform(batches, visualBlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
             if (includeFeatures
                 && (sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
@@ -589,36 +626,59 @@ public partial class WorldView : Node3D
         }
 
         _chunkRoots[chunk] = chunkRoot;
+        ApplyPresentationToRebuiltRoot(chunk, chunkRoot);
         FinishChunkBuild(started, sampledColumns);
     }
 
     private bool ResolveVisibleStreamedVoxel(Vector3I normal, ref Vector3I voxel, ref BlockSample sample)
     {
-        if (!_world.State.IsMined(voxel))
+        // The column locator intentionally samples the raw deterministic source because it can find an
+        // outer face without scanning the volume. The visible block, however, must come from VirtualWorld
+        // so generation-v3 structural rules (inset water, sand support/shoreline, cube-rim rules) and mined
+        // state are honored.
+        BlockSample resolved = _world.SampleVoxel(voxel);
+        if (!resolved.Present)
         {
-            return sample.Present;
-        }
+            int detailedShellDepth = _world.Profile.ChunkSize
+                * Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks);
+            int maxInward = FullSurfaceRenderer
+                ? Math.Max(8, detailedShellDepth + 2)
+                : Math.Max(8, detailedShellDepth);
 
-        int maxInward = FullSurfaceRenderer
-            ? _world.MaxCoordinate * 2 + 2
-            : Math.Max(8,
-                _world.Profile.ChunkSize * Math.Max(1, _world.Profile.DetailedSurfaceDepthChunks));
-
-        for (int inward = 1; inward <= maxInward; inward++)
-        {
-            Vector3I candidate = voxel - normal * inward;
-            BlockSample candidateSample = _world.SampleVoxel(candidate);
-            if (!candidateSample.Present)
+            // Deep excavation is owned by SparseExposureOverlay, so only resolve the authored shell.
+            for (int inward = 1; inward <= maxInward; inward++)
             {
-                continue;
+                Vector3I candidate = voxel - normal * inward;
+                resolved = _world.SampleVoxel(candidate);
+                if (!resolved.Present) continue;
+                voxel = candidate;
+                break;
             }
 
-            voxel = candidate;
-            sample = candidateSample;
-            return true;
+            if (!resolved.Present) return false;
         }
 
-        return false;
+        // Another face's filled terrain column can protrude one or two cells beyond this face's raw
+        // height estimate. Walk the contiguous solid outward so the fast locator still returns the
+        // true structural surface instead of leaving a slit or substituting the block behind it.
+        while (true)
+        {
+            Vector3I candidate = voxel + normal;
+            if (Math.Abs(candidate.X) > _world.MaxCoordinate
+                || Math.Abs(candidate.Y) > _world.MaxCoordinate
+                || Math.Abs(candidate.Z) > _world.MaxCoordinate)
+            {
+                break;
+            }
+
+            BlockSample outward = _world.SampleVoxel(candidate);
+            if (!outward.Present) break;
+            voxel = candidate;
+            resolved = outward;
+        }
+
+        sample = resolved;
+        return true;
     }
 
     private void RebuildEagerChunk(ChunkCoord chunk, ulong started)
@@ -642,16 +702,17 @@ public partial class WorldView : Node3D
 
             scanned++;
             BlockSample sample = _world.SampleVoxel(voxel);
-            if (!sample.Present || !_world.IsExposed(voxel))
+            if (!sample.Present || !_world.IsExposed(voxel, sample))
             {
                 continue;
             }
 
             Vector3I outward = _world.Source.GetOutwardNormal(voxel);
-            Basis blockBasis = ShouldOrientToCubeFace(sample.BlockId)
+            string visualBlockId = ResolveSurfaceVisualBlockId(voxel, sample.BlockId);
+            Basis blockBasis = ShouldOrientToCubeFace(visualBlockId)
                 ? BasisForNormal(outward)
                 : Basis.Identity;
-            AddTransform(batches, sample.BlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
+            AddTransform(batches, visualBlockId, new Transform3D(blockBasis, VoxelToWorld(voxel)));
 
             if ((sample.BlockId == _world.Profile.SurfaceBlock || sample.BlockId == _world.Profile.SurfaceEdgeBlock)
                 && _world.Source.TrySampleTree(voxel, out FeatureSample feature)

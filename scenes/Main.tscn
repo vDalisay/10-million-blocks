@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://src/App/GameRoot.cs" id="1_game_root"]
+[ext_resource type="Script" path="res://src/App/MainMenuRoot.cs" id="1_main_menu"]
 
-[node name="GameRoot" type="Node3D"]
-script = ExtResource("1_game_root")
+[node name="MainMenuRoot" type="Node"]
+script = ExtResource("1_main_menu")

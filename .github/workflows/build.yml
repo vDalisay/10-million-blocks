@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - agent/one-million-squared-plan
+      - codex/future-world-progression
   pull_request:
     branches:
       - main
@@ -17,7 +18,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate content
-        run: python3 tools/validate_content.py
+        run: |
+          python3 tools/validate_content.py
+          python3 tools/validate_progression_contracts.py
+          python3 tools/validate_laser_contract.py
+          python3 tools/validate_completion_presentation.py
+          python3 -m py_compile tools/analyze_pacing_reports.py
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -29,3 +35,12 @@ jobs:
 
       - name: Build
         run: dotnet build TenMillionBlocks.csproj --configuration Release --no-restore
+
+      - name: Validate deterministic generation
+        run: dotnet run --project tools/generation_contract/GenerationContract.csproj --configuration Release
+
+      - name: Validate replay codec
+        run: dotnet run --project tools/replay_contract/ReplayContract.csproj --configuration Release
+
+      - name: Validate completion score
+        run: dotnet run --project tools/completion_contract/CompletionContract.csproj --configuration Release

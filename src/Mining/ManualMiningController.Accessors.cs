@@ -1,3 +1,5 @@
+using Godot;
+using TenMillionBlocks.Content;
 using TenMillionBlocks.Presentation;
 using TenMillionBlocks.Skills;
 
@@ -7,4 +9,6 @@ public partial class ManualMiningController
 {
     public OrbitCameraController CameraController => _camera;
     public SkillTreeService SkillTree => _skills;
+    public WorldProfile WorldProfile => _world.Profile;
+    public void PulseCollectionCursor(Vector2 screenPosition) => _hoverIndicator?.PulseCollection(screenPosition);
 }

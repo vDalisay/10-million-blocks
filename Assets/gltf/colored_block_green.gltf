@@ -3,6 +3,9 @@
         "generator" : "Khronos glTF Blender I/O v3.4.50",
         "version" : "2.0"
     },
+    "extensionsUsed" : [
+        "KHR_texture_transform"
+    ],
     "scene" : 0,
     "scenes" : [
         {
@@ -23,7 +26,19 @@
             "name" : "block",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
-                    "index" : 0
+                    "index" : 0,
+                    "extensions" : {
+                        "KHR_texture_transform" : {
+                            "offset" : [
+                                0,
+                                0.81410712
+                            ],
+                            "scale" : [
+                                1,
+                                0
+                            ]
+                        }
+                    }
                 },
                 "metallicFactor" : 0,
                 "roughnessFactor" : 0.4000000059604645

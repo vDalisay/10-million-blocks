@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Godot;
 
 namespace TenMillionBlocks.Skills;
@@ -11,6 +12,12 @@ public sealed class SkillEffectDefinition
     public string Type { get; set; } = string.Empty;
     public double Value { get; set; }
     public string StringValue { get; set; } = string.Empty;
+}
+
+public sealed class SkillSpecialCostDefinition
+{
+    public string ResourceId { get; set; } = string.Empty;
+    public long Amount { get; set; }
 }
 
 public sealed class SkillRoutePoint
@@ -36,7 +43,12 @@ public sealed class SkillNodeDefinition
     public string Category { get; set; } = string.Empty;
     public string PurchaseMode { get; set; } = "once"; // once | repeatable
     public List<SkillPrerequisiteDefinition> Prerequisites { get; set; } = new();
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HideUntilPrerequisitesMet { get; set; }
+
     public long Cost { get; set; }
+    public List<SkillSpecialCostDefinition> SpecialCosts { get; set; } = new();
     public int MaxRank { get; set; } = 1;
     public List<SkillEffectDefinition> Effects { get; set; } = new();
 }
@@ -55,6 +67,19 @@ public sealed class SkillTreeCatalog
     private static readonly HashSet<string> KnownEffectTypes = new(StringComparer.Ordinal)
     {
         "add_manual_blocks_per_click",
+        "multiply_manual_mining_rate",
+        "set_manual_mining_power",
+        "set_manual_penetration_depth",
+        "set_manual_footprint",
+        "unlock_hover_mining",
+        "set_collection_radius_blocks",
+        "multiply_collection_rate",
+        "unlock_manual_auto_collect",
+        "unlock_automation_auto_collect",
+        "multiply_resource_yield",
+        "multiply_precious_resource_yield",
+        "add_critical_yield_chance",
+        "set_critical_yield_multiplier",
         "multiply_miner_rate",
         "multiply_shovel_rate",
         "unlock_miner",
@@ -65,6 +90,19 @@ public sealed class SkillTreeCatalog
         "set_shovel_height_tolerance",
         "set_shovel_search_radius",
         "unlock_resource_filter",
+        "unlock_auto_cloud_charger",
+        "unlock_radioactive_cloud",
+        "multiply_radioactive_cloud_rate",
+        "add_radioactive_cloud_radius",
+        "unlock_orb_breaker",
+        "multiply_orb_breaker_rate",
+        "add_orb_breaker_count",
+        "add_orb_breaker_radius",
+        "multiply_cloud_charge_rate",
+        "add_lightning_radius",
+        "add_lightning_chain_count",
+        "multiply_meteor_spawn_rate",
+        "add_meteor_radius",
     };
 
     private static readonly HashSet<string> KnownPurchaseModes = new(StringComparer.Ordinal)
@@ -109,6 +147,10 @@ public sealed class SkillTreeCatalog
 
         foreach (SkillNodeDefinition node in document.Nodes)
         {
+            node.Prerequisites ??= new List<SkillPrerequisiteDefinition>();
+            node.SpecialCosts ??= new List<SkillSpecialCostDefinition>();
+            node.Effects ??= new List<SkillEffectDefinition>();
+
             if (string.IsNullOrWhiteSpace(node.Id)) errors.Add("Skill node has an empty id.");
             if (string.IsNullOrWhiteSpace(node.DisplayName)) errors.Add($"Skill '{node.Id}' has no display name.");
             if (node.Cost < 0) errors.Add($"Skill '{node.Id}' has a negative cost.");
@@ -124,6 +166,23 @@ public sealed class SkillTreeCatalog
             else if (node.PurchaseMode == "repeatable" && node.MaxRank < 2)
             {
                 errors.Add($"Repeatable skill '{node.Id}' must have max_rank >= 2.");
+            }
+
+            var specialIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (SkillSpecialCostDefinition specialCost in node.SpecialCosts)
+            {
+                if (string.IsNullOrWhiteSpace(specialCost.ResourceId))
+                {
+                    errors.Add($"Skill '{node.Id}' has a special cost with an empty resource id.");
+                }
+                else if (!specialIds.Add(specialCost.ResourceId))
+                {
+                    errors.Add($"Skill '{node.Id}' contains duplicate special cost '{specialCost.ResourceId}'.");
+                }
+                if (specialCost.Amount <= 0)
+                {
+                    errors.Add($"Skill '{node.Id}' special cost '{specialCost.ResourceId}' must be positive.");
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(node.Id) && !nodes.TryAdd(node.Id, node))
@@ -145,6 +204,7 @@ public sealed class SkillTreeCatalog
             var seenPrerequisites = new HashSet<string>(StringComparer.Ordinal);
             foreach (SkillPrerequisiteDefinition prerequisite in node.Prerequisites)
             {
+                prerequisite.Route ??= new List<SkillRoutePoint>();
                 if (!nodes.TryGetValue(prerequisite.NodeId, out SkillNodeDefinition? source))
                 {
                     errors.Add($"Skill '{node.Id}' references missing prerequisite '{prerequisite.NodeId}'.");

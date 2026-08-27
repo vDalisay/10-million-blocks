@@ -1,232 +1,1790 @@
 {
   "schema_version": 2,
-  "content_version": 9,
+  "content_version": 21,
   "nodes": [
     {
-      "id": "manual_2x",
-      "display_name": "Two-Handed Mining",
-      "description": "Mine one additional nearby block per click.",
+      "id": "collection_reach_1",
+      "display_name": "Collector Reach I",
+      "description": "Double the initial hover pickup field to a full 1.0 block width so nearby miniature drops are easy to sweep up.",
+      "grid_x": -2,
+      "grid_y": 0,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [],
+      "cost": 5,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_collection_radius_blocks",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "collection_rate_1",
+      "display_name": "Collector Pull I",
+      "description": "Pull hovered resource pickups 75% faster. Dense clusters are collected more quickly while the cursor passes over them.",
+      "grid_x": -2,
+      "grid_y": 2,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_reach_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 12,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_collection_rate",
+          "value": 1.75
+        }
+      ]
+    },
+    {
+      "id": "collection_reach_2",
+      "display_name": "Collector Reach II",
+      "description": "Expand the collector field to a 5-block-wide diameter (2.5 blocks from the cursor center) before the final instant-collection upgrade.",
+      "grid_x": -2,
+      "grid_y": 4,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_rate_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 45,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_collection_radius_blocks",
+          "value": 2.5
+        }
+      ]
+    },
+    {
+      "id": "collection_rate_2",
+      "display_name": "Collector Pull II",
+      "description": "Double collection throughput again. Hovering a resource cluster now vacuums many pickups per second.",
+      "grid_x": -2,
+      "grid_y": 6,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_reach_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "hover_mining_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 120,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_collection_rate",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "collection_auto_manual",
+      "display_name": "Personal Auto-Collect",
+      "description": "Final collector upgrade: manual and Hover Mining rewards are collected instantly when mined. Existing manual pickups are swept up immediately on purchase.",
+      "grid_x": -2,
+      "grid_y": 8,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "collection_rate_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "manual_hover_speed_3",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 900,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_manual_auto_collect"
+        }
+      ]
+    },
+    {
+      "id": "collection_auto_automation",
+      "display_name": "Automation Logistics",
+      "description": "Live automation rewards bank themselves immediately instead of leaving pickups behind. Existing automation pickups are collected on purchase.",
+      "grid_x": 9,
+      "grid_y": 5,
+      "category": "automation",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 2200,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_automation_auto_collect"
+        }
+      ]
+    },
+    {
+      "id": "hover_mining_unlock",
+      "display_name": "Hover Mining",
+      "description": "Mine automatically while the cursor rests on an exposed block. This is the core Breaker-style idle-active bridge for manual mining.",
       "grid_x": 0,
+      "grid_y": 0,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [],
+      "cost": 8,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_hover_mining"
+        }
+      ]
+    },
+    {
+      "id": "manual_hover_speed",
+      "display_name": "Breaker Speed I",
+      "description": "Hover Mining acts 25% faster: 100% to 125% breaker speed.",
+      "grid_x": 0,
+      "grid_y": 2,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "hover_mining_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 18,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.25
+        }
+      ]
+    },
+    {
+      "id": "manual_power_1",
+      "display_name": "Breaker Power I",
+      "description": "Increase manual mining power from 1.0 to 1.5 damage per action. Hard blocks now become a visible progression gate instead of all breaking identically.",
+      "grid_x": 4,
       "grid_y": 0,
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [],
       "cost": 20,
       "max_rank": 1,
-      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "manual_2x",
+      "display_name": "Breaker Radius I",
+      "description": "Expand a manual action from one block to a 3x3 plus footprint: up to 5 exposed blocks per action.",
+      "grid_x": 2,
+      "grid_y": 0,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [],
+      "cost": 20,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_manual_footprint",
+          "string_value": "plus_3"
+        }
+      ]
     },
     {
       "id": "manual_3x",
-      "display_name": "Rapid Chipping",
-      "description": "Mine one more nearby block per click.",
-      "grid_x": 0,
+      "display_name": "Breaker Radius II",
+      "description": "Expand the plus footprint into the complete 3x3 surface square: up to 9 exposed blocks per action.",
+      "grid_x": 2,
       "grid_y": 2,
       "category": "manual",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "manual_2x", "required_rank": 1, "route": [{ "grid_x": 0, "grid_y": 1 }] }
+        {
+          "node_id": "manual_2x",
+          "required_rank": 1
+        }
       ],
-      "cost": 60,
-      "max_rank": 1,
-      "effects": [{ "type": "add_manual_blocks_per_click", "value": 1.0 }]
-    },
-    {
-      "id": "automation_unlock",
-      "display_name": "Automation",
-      "description": "Unlock the starter drill. It advances exactly one block of depth per second and initially only cuts ordinary stone.",
-      "grid_x": 2,
-      "grid_y": 0,
-      "category": "automation",
-      "purchase_mode": "once",
-      "prerequisites": [],
-      "cost": 30,
-      "max_rank": 1,
-      "effects": [{ "type": "unlock_miner", "string_value": "line_miner" }]
-    },
-    {
-      "id": "drill_hardened_bit",
-      "display_name": "Hardened Bit",
-      "description": "Upgrade the Drill so dark stone no longer blocks it. Existing drills stopped on dark stone resume automatically.",
-      "grid_x": 4,
-      "grid_y": 0,
-      "category": "drill",
-      "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 0 }] }
-      ],
-      "cost": 85,
-      "max_rank": 1,
-      "effects": [{ "type": "set_drill_material_tier", "value": 1.0 }]
-    },
-    {
-      "id": "drill_ore_bit",
-      "display_name": "Ore-Cutting Bit",
-      "description": "Upgrade the Drill to cut copper, silver and gold ore instead of stopping when it reaches an ore vein.",
-      "grid_x": 6,
-      "grid_y": 1,
-      "category": "drill",
-      "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "drill_hardened_bit", "required_rank": 1, "route": [{ "grid_x": 5, "grid_y": 0 }, { "grid_x": 6, "grid_y": 0 }] }
-      ],
-      "cost": 190,
-      "max_rank": 1,
-      "effects": [{ "type": "set_drill_material_tier", "value": 2.0 }]
-    },
-    {
-      "id": "miner_speed_1",
-      "display_name": "Faster Motors",
-      "description": "Repeatable speed upgrade for secondary automation. The starter drill remains locked to one depth layer per second.",
-      "grid_x": 2,
-      "grid_y": 2,
-      "category": "automation",
-      "purchase_mode": "repeatable",
-      "prerequisites": [
-        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 2, "grid_y": 1 }] }
-      ],
+      "hide_until_prerequisites_met": true,
       "cost": 50,
-      "max_rank": 5,
-      "effects": [{ "type": "multiply_miner_rate", "value": 1.15 }]
-    },
-    {
-      "id": "wide_bore_unlock",
-      "display_name": "Wide Bore",
-      "description": "Upgrade the placed drill to a slower 3x3 bore.",
-      "grid_x": 4,
-      "grid_y": 2,
-      "category": "patterns",
-      "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 1 }, { "grid_x": 4, "grid_y": 1 }] }
-      ],
-      "cost": 140,
       "max_rank": 1,
       "effects": [
-        { "type": "unlock_pattern", "string_value": "wide_line" },
-        { "type": "set_drill_pattern", "string_value": "wide_line" },
-        { "type": "set_miner_pattern_width", "value": 3.0 }
+        {
+          "type": "set_manual_footprint",
+          "string_value": "square_3"
+        }
       ]
-    },
-    {
-      "id": "resource_sensors",
-      "display_name": "Resource Sensors",
-      "description": "Foundation unlock for material-specialized automation.",
-      "grid_x": 1,
-      "grid_y": 3,
-      "category": "resources",
-      "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "automation_unlock", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 1 }, { "grid_x": 1, "grid_y": 2 }] }
-      ],
-      "cost": 110,
-      "max_rank": 1,
-      "effects": [{ "type": "unlock_resource_filter", "string_value": "ore" }]
-    },
-    {
-      "id": "pickaxe_unlock",
-      "display_name": "Rock Breaker",
-      "description": "Unlock a pickaxe-class miner that skips soft terrain and works faster on stone, ore and gems.",
-      "grid_x": 6,
-      "grid_y": 3,
-      "category": "tools",
-      "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "resource_sensors", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 3 }, { "grid_x": 5, "grid_y": 3 }] }
-      ],
-      "cost": 260,
-      "max_rank": 1,
-      "effects": [{ "type": "unlock_miner", "string_value": "pickaxe_miner" }]
-    },
-    {
-      "id": "axe_unlock",
-      "display_name": "Forest Cutter",
-      "description": "Unlock an axe-class surface machine that seeks deterministic tree-bearing tiles and clears the tree with its support block.",
-      "grid_x": 6,
-      "grid_y": 5,
-      "category": "tools",
-      "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "resource_sensors", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 3 }, { "grid_x": 5, "grid_y": 5 }] }
-      ],
-      "cost": 230,
-      "max_rank": 1,
-      "effects": [{ "type": "unlock_miner", "string_value": "axe_miner" }]
     },
     {
       "id": "shovel_unlock",
       "display_name": "Powered Shovel",
-      "description": "Unlock a deliberately simple sand crawler. It mines about one sand block per second and initially only understands same-height cardinal neighbors.",
+      "description": "Unlock the Powered Shovel class. Physical Shovels are then bought separately for their fixed per-unit world price.",
       "grid_x": 2,
       "grid_y": 4,
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [],
-      "cost": 180,
+      "cost": 160,
       "max_rank": 1,
       "effects": [
-        { "type": "unlock_miner", "string_value": "shovel_miner" },
-        { "type": "unlock_pattern", "string_value": "surface_strip" }
+        {
+          "type": "unlock_miner",
+          "string_value": "shovel_miner"
+        },
+        {
+          "type": "unlock_pattern",
+          "string_value": "surface_strip"
+        }
       ]
     },
     {
       "id": "shovel_speed",
-      "display_name": "Shovel Gearbox",
-      "description": "Repeatable shovel-only speed upgrade. Each rank increases Powered Shovel speed by 25%.",
-      "grid_x": 4,
-      "grid_y": 5,
+      "display_name": "Shovel Speed I",
+      "description": "Powered Shovels work 25% faster, the surface-automation equivalent of a Breaker Speed node.",
+      "grid_x": 2,
+      "grid_y": 6,
       "category": "shovel",
-      "purchase_mode": "repeatable",
+      "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "shovel_unlock", "required_rank": 1, "route": [{ "grid_x": 3, "grid_y": 4 }, { "grid_x": 4, "grid_y": 4 }] }
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
       ],
-      "cost": 90,
-      "max_rank": 4,
-      "effects": [{ "type": "multiply_shovel_rate", "value": 1.25 }]
+      "hide_until_prerequisites_met": true,
+      "cost": 110,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_shovel_rate",
+          "value": 1.25
+        }
+      ]
     },
     {
-      "id": "shovel_high_torque",
-      "display_name": "High-Torque Drive",
-      "description": "Requires Shovel Gearbox rank 3. Gives the Powered Shovel another 50% speed increase.",
+      "id": "shovel_vertical_sensing",
+      "display_name": "Slope Sensor",
+      "description": "Let Powered Shovels follow compatible soft terrain one block above or below their current surface height.",
+      "grid_x": 3,
+      "grid_y": 5,
+      "category": "shovel",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 180,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_shovel_height_tolerance",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "manual_hover_speed_2",
+      "display_name": "Breaker Speed II",
+      "description": "Another 20% faster Hover Mining. Combined breaker speed becomes 150% of the original cadence.",
+      "grid_x": 0,
+      "grid_y": 5,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_hover_speed",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 140,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.2
+        }
+      ]
+    },
+    {
+      "id": "manual_power_2",
+      "display_name": "Breaker Power II",
+      "description": "Raise manual power to 2.0. Ordinary stone now breaks in one manual action.",
+      "grid_x": 4,
+      "grid_y": 5,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_power_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 110,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "shovel_speed_2",
+      "display_name": "Shovel Speed II",
+      "description": "Another 25% Shovel speed increase. The two gearbox steps compound to about 156% base speed.",
+      "grid_x": 2,
+      "grid_y": 8,
+      "category": "shovel",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "shovel_speed",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_vertical_sensing",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 300,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_shovel_rate",
+          "value": 1.25
+        }
+      ]
+    },
+    {
+      "id": "shovel_search_upgrade",
+      "display_name": "Terrain Scout",
+      "description": "After adjacent terrain is exhausted, search up to 5 tiles away for another compatible patch and jump to it.",
       "grid_x": 4,
       "grid_y": 7,
       "category": "shovel",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "shovel_speed", "required_rank": 3, "route": [{ "grid_x": 4, "grid_y": 6 }] }
+        {
+          "node_id": "shovel_vertical_sensing",
+          "required_rank": 1
+        }
       ],
-      "cost": 420,
+      "hide_until_prerequisites_met": true,
+      "cost": 520,
       "max_rank": 1,
-      "effects": [{ "type": "multiply_shovel_rate", "value": 1.5 }]
+      "effects": [
+        {
+          "type": "set_shovel_search_radius",
+          "value": 5.0
+        }
+      ]
     },
     {
-      "id": "shovel_vertical_sensing",
-      "display_name": "Slope Sensor",
-      "description": "Teach the Powered Shovel to detect sand one block above or below the current surface height while following a neighboring tile.",
-      "grid_x": 1,
+      "id": "shovel_high_torque",
+      "display_name": "High-Torque Drive",
+      "description": "A large late Shovel speed jump: another 50% after both normal gearbox upgrades and Terrain Scout.",
+      "grid_x": 3,
+      "grid_y": 9,
+      "category": "shovel",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "shovel_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "shovel_search_upgrade",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 1400,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_shovel_rate",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "automation_unlock",
+      "display_name": "Drill Automation",
+      "description": "Unlock the starter Drill class. Physical Drills are bought separately for their fixed per-unit world price.",
+      "grid_x": 6,
       "grid_y": 6,
-      "category": "shovel",
+      "category": "automation",
       "purchase_mode": "once",
-      "prerequisites": [
-        { "node_id": "shovel_unlock", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 5 }] }
-      ],
-      "cost": 220,
+      "prerequisites": [],
+      "cost": 300,
       "max_rank": 1,
-      "effects": [{ "type": "set_shovel_height_tolerance", "value": 1.0 }]
+      "effects": [
+        {
+          "type": "unlock_miner",
+          "string_value": "line_miner"
+        }
+      ]
     },
     {
-      "id": "shovel_search_upgrade",
-      "display_name": "Terrain Scout",
-      "description": "After all valid adjacent sand is exhausted, search up to 5 tiles away for another valid sand patch and jump to it.",
-      "grid_x": 1,
-      "grid_y": 8,
-      "category": "shovel",
+      "id": "drill_hardened_bit",
+      "display_name": "Hardened Bit",
+      "description": "Upgrade Drills so dark stone no longer stops them. Existing drills blocked by dark stone resume automatically.",
+      "grid_x": 7,
+      "grid_y": 7,
+      "category": "drill",
       "purchase_mode": "once",
       "prerequisites": [
-        { "node_id": "shovel_vertical_sensing", "required_rank": 1, "route": [{ "grid_x": 1, "grid_y": 7 }] }
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
       ],
+      "hide_until_prerequisites_met": true,
+      "cost": 450,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_drill_material_tier",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "wide_bore_unlock",
+      "display_name": "Wide Bore",
+      "description": "Consume the central Core Gem to transform every current and future Drill into a slower 3x3 cutter. This is the automation analogue of a major radius upgrade.",
+      "grid_x": 6,
+      "grid_y": 8,
+      "category": "patterns",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        },
+        {
+          "node_id": "drill_hardened_bit",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 750,
+      "special_costs": [
+        {
+          "resource_id": "gem_red",
+          "amount": 1
+        }
+      ],
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_pattern",
+          "string_value": "wide_line"
+        },
+        {
+          "type": "set_drill_pattern",
+          "string_value": "wide_line"
+        },
+        {
+          "type": "set_miner_pattern_width",
+          "value": 3.0
+        }
+      ]
+    },
+    {
+      "id": "manual_hover_speed_3",
+      "display_name": "Breaker Speed III",
+      "description": "Another 20% Hover Mining speed step. Combined breaker speed becomes 180% of the original cadence.",
+      "grid_x": 0,
+      "grid_y": 7,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_hover_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
       "cost": 360,
       "max_rank": 1,
-      "effects": [{ "type": "set_shovel_search_radius", "value": 5.0 }]
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.2
+        }
+      ]
+    },
+    {
+      "id": "manual_power_3",
+      "display_name": "Breaker Power III",
+      "description": "Raise manual power to 2.5. Dark stone and copper now break in one manual action.",
+      "grid_x": 5,
+      "grid_y": 7,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_power_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 420,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 2.5
+        }
+      ]
+    },
+    {
+      "id": "resource_sensors",
+      "display_name": "Resource Sensors",
+      "description": "Reveal material-specialized automation and the richer economy branch for generated worlds.",
+      "grid_x": 7,
+      "grid_y": 9,
+      "category": "resources",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "automation_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 700,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_resource_filter",
+          "string_value": "ore"
+        }
+      ]
+    },
+    {
+      "id": "drill_ore_bit",
+      "display_name": "Ore-Cutting Bit",
+      "description": "Let Drills cut copper, silver and gold ore rather than stopping when a vein enters the cutter face.",
+      "grid_x": 8,
+      "grid_y": 8,
+      "category": "drill",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "drill_hardened_bit",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 1000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_drill_material_tier",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "pickaxe_unlock",
+      "display_name": "Rock Breaker",
+      "description": "Unlock a specialist miner that skips soft terrain and works faster on stone, ore and gems.",
+      "grid_x": 9,
+      "grid_y": 9,
+      "category": "tools",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        },
+        {
+          "node_id": "drill_ore_bit",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 1500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_miner",
+          "string_value": "pickaxe_miner"
+        }
+      ]
+    },
+    {
+      "id": "axe_unlock",
+      "display_name": "Forest Cutter",
+      "description": "Unlock the Forest Cutter so tree-bearing surface blocks can be cleared automatically. Physical units keep their fixed world-local price.",
+      "grid_x": 10,
+      "grid_y": 8,
+      "category": "forest",
+      "purchase_mode": "once",
+      "prerequisites": [],
+      "cost": 1200,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_miner",
+          "string_value": "axe_miner"
+        }
+      ]
+    },
+    {
+      "id": "miner_speed_1",
+      "display_name": "Automation Speed I",
+      "description": "Secondary automation such as Rock Breakers and Forest Cutters works 15% faster. The starter Drill keeps its authored depth cadence.",
+      "grid_x": 9,
+      "grid_y": 11,
+      "category": "automation",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "pickaxe_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 650,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.15
+        }
+      ]
+    },
+    {
+      "id": "miner_speed_2",
+      "display_name": "Automation Speed II",
+      "description": "Another 15% secondary-automation speed increase.",
+      "grid_x": 9,
+      "grid_y": 13,
+      "category": "automation",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "miner_speed_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 1350,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.15
+        }
+      ]
+    },
+    {
+      "id": "manual_hover_speed_4",
+      "display_name": "Breaker Speed IV",
+      "description": "Another 20% speed step. Combined Hover Mining cadence becomes 216% of its starting value.",
+      "grid_x": 0,
+      "grid_y": 10,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_hover_speed_3",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 900,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.2
+        }
+      ]
+    },
+    {
+      "id": "manual_power_4",
+      "display_name": "Breaker Power IV",
+      "description": "Raise manual power to 3.5. Silver, gold and most gems now collapse in one manual action.",
+      "grid_x": 5,
+      "grid_y": 10,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_power_3",
+          "required_rank": 1
+        },
+        {
+          "node_id": "drill_ore_bit",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 1200,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 3.5
+        }
+      ]
+    },
+    {
+      "id": "manual_5x",
+      "display_name": "Breaker Radius III",
+      "description": "Expand manual mining to a 5x5 surface footprint: up to 25 exposed blocks per action. A costly, dramatic radius jump rather than another tiny rank.",
+      "grid_x": 3,
+      "grid_y": 11,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_3x",
+          "required_rank": 1
+        },
+        {
+          "node_id": "pickaxe_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 4500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_manual_footprint",
+          "string_value": "square_5"
+        }
+      ]
+    },
+    {
+      "id": "resource_density_1",
+      "display_name": "Resource Density I",
+      "description": "Increase ordinary resource payout by 25%. Fractional gains use deterministic rounding so even 1-value terrain benefits over time.",
+      "grid_x": 7,
+      "grid_y": 11,
+      "category": "resources",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "resource_sensors",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 1800,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_resource_yield",
+          "value": 1.25
+        }
+      ]
+    },
+    {
+      "id": "critical_yield_1",
+      "display_name": "Critical Yield I",
+      "description": "5% of mined blocks deterministically pay 3x resources. This is the mining-economy analogue of critical matter upgrades.",
+      "grid_x": 7,
+      "grid_y": 13,
+      "category": "resources",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "resource_density_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 4000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_critical_yield_chance",
+          "value": 0.05
+        },
+        {
+          "type": "set_critical_yield_multiplier",
+          "value": 3.0
+        }
+      ]
+    },
+    {
+      "id": "cloud_charger_unlock",
+      "display_name": "Cloud Charger",
+      "description": "Automatically add one cloud charge every 3 seconds. Manual cloud clicks still stack with it, preserving active acceleration.",
+      "grid_x": 9,
+      "grid_y": 15,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "pickaxe_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 12000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_auto_cloud_charger"
+        }
+      ]
+    },
+    {
+      "id": "radioactive_cloud_unlock",
+      "display_name": "Radioactive Clouds",
+      "description": "Clouds passively corrode a small radius-1 patch beneath their orbit every 6 seconds. This is a literal pseudo-idle destruction branch: it mines without consuming lightning charge.",
+      "grid_x": 10,
+      "grid_y": 16,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 9000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_radioactive_cloud"
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_unlock",
+      "display_name": "Orb Breaker",
+      "description": "Spawn a glowing breaker orb that jumps to a new point around the cube every 2.5 seconds and breaks a small radius-1 patch beneath it.",
+      "grid_x": 12,
+      "grid_y": 16,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "radioactive_cloud_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 11000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_orb_breaker"
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_speed_1",
+      "display_name": "Orb Breaker Speed",
+      "description": "Increase Orb Breaker pulse frequency by 50%, reducing its base interval from 2.5 seconds to about 1.7 seconds.",
+      "grid_x": 12,
+      "grid_y": 18,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 8500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_orb_breaker_rate",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "resource_density_2",
+      "display_name": "Resource Density II",
+      "description": "A deliberately chunky payout jump: another 50% multiplier to all ordinary resource income.",
+      "grid_x": 6,
+      "grid_y": 16,
+      "category": "resources",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "resource_density_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 6000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_resource_yield",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "precious_yield_1",
+      "display_name": "Golden Veins",
+      "description": "Gold and gem blocks pay twice their normal resources, directly echoing the high-value Golden-object payout branch of classic incrementals.",
+      "grid_x": 7,
+      "grid_y": 17,
+      "category": "resources",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "resource_density_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "critical_yield_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 8000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_precious_resource_yield",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "drill_gem_bit",
+      "display_name": "Gem-Cutting Bit",
+      "description": "Upgrade every Drill to cut special gem blocks instead of stopping at them. Bombs remain unsafe. This is the late material-density payoff after ordinary ore cutting.",
+      "grid_x": 5,
+      "grid_y": 19,
+      "category": "drill",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "drill_ore_bit",
+          "required_rank": 1
+        },
+        {
+          "node_id": "precious_yield_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 12000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_drill_material_tier",
+          "value": 3.0
+        }
+      ]
+    },
+    {
+      "id": "critical_yield_2",
+      "display_name": "Critical Yield II",
+      "description": "Increase critical payout chance from 5% to 10% and critical payout from 3x to 4x.",
+      "grid_x": 6,
+      "grid_y": 18,
+      "category": "resources",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "critical_yield_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "resource_density_2",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 10000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_critical_yield_chance",
+          "value": 0.05
+        },
+        {
+          "type": "set_critical_yield_multiplier",
+          "value": 4.0
+        }
+      ]
+    },
+    {
+      "id": "manual_hover_speed_5",
+      "display_name": "Breaker Speed V",
+      "description": "A final 15% speed step for the demo branch. Combined Hover Mining cadence reaches about 248% of the starting value.",
+      "grid_x": 0,
+      "grid_y": 16,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_hover_speed_4",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 6000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_manual_mining_rate",
+          "value": 1.15
+        }
+      ]
+    },
+    {
+      "id": "manual_power_5",
+      "display_name": "Breaker Power V",
+      "description": "Raise manual power to 4.0 so even the Core Gem hardness tier breaks in one manual action.",
+      "grid_x": 4,
+      "grid_y": 16,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_power_4",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 6500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_manual_mining_power",
+          "value": 4.0
+        }
+      ]
+    },
+    {
+      "id": "miner_speed_3",
+      "display_name": "Automation Speed III",
+      "description": "Another 15% speed increase for secondary automation.",
+      "grid_x": 10,
+      "grid_y": 17,
+      "category": "automation",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "miner_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 7000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.15
+        }
+      ]
+    },
+    {
+      "id": "lightning_frequency_1",
+      "display_name": "Lightning Frequency",
+      "description": "Cloud Charger contributes charge 50% faster, reducing its automatic charge interval from 3.0s to 2.0s.",
+      "grid_x": 8,
+      "grid_y": 17,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 6500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_cloud_charge_rate",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "lightning_radius_1",
+      "display_name": "Lightning Radius",
+      "description": "Increase every lightning crater radius by one block, the direct event analogue of an explosion/radius upgrade.",
+      "grid_x": 9,
+      "grid_y": 18,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 7000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_lightning_radius",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "lightning_chain_1",
+      "display_name": "Chain Lightning",
+      "description": "After the primary strike, lightning forks once to another nearby exposed patch and creates a second crater.",
+      "grid_x": 9,
+      "grid_y": 20,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "lightning_radius_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "lightning_frequency_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 9000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_lightning_chain_count",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "meteor_frequency_1",
+      "display_name": "Meteor Frequency",
+      "description": "Catchable meteors return 50% faster after use, mirroring spawn-rate upgrades for rare high-impact objects.",
+      "grid_x": 11,
+      "grid_y": 17,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "cloud_charger_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 8000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_meteor_spawn_rate",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "meteor_radius_1",
+      "display_name": "Supernova Impact",
+      "description": "Increase meteor crater radius by one block. The meteor becomes the game's literal supernova-radius branch.",
+      "grid_x": 11,
+      "grid_y": 19,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "meteor_frequency_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 10000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_meteor_radius",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "radioactive_cloud_frequency_1",
+      "display_name": "Radioactive Frequency",
+      "description": "Radioactive Clouds pulse 50% faster, cutting the passive corrosion interval from 6.0 seconds to 4.0 seconds.",
+      "grid_x": 10,
+      "grid_y": 18,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "radioactive_cloud_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 10500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_radioactive_cloud_rate",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "radioactive_cloud_radius_1",
+      "display_name": "Radioactive Radius",
+      "description": "Increase the passive Radioactive Cloud corrosion radius from 1 to 2 blocks for a much larger pseudo-idle bite.",
+      "grid_x": 10,
+      "grid_y": 20,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "radioactive_cloud_frequency_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 12500,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_radioactive_cloud_radius",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_split_1",
+      "display_name": "Orb Split",
+      "description": "Spawn a second autonomous Orb Breaker. Both orbs choose separate deterministic routes and mine on every pulse.",
+      "grid_x": 13,
+      "grid_y": 18,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_unlock",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 14000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_orb_breaker_count",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_speed_2",
+      "display_name": "Orb Breaker Speed II",
+      "description": "Another 35% Orb Breaker speed increase. Combined with the first speed node, pulses arrive about every 1.23 seconds.",
+      "grid_x": 12,
+      "grid_y": 20,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_speed_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "orb_breaker_split_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 15000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_orb_breaker_rate",
+          "value": 1.35
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_radius_1",
+      "display_name": "Orb Breaker Radius",
+      "description": "Increase every Orb Breaker impact radius from 1 to 2 blocks, making each autonomous pulse substantially wider.",
+      "grid_x": 13,
+      "grid_y": 21,
+      "category": "events",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_split_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 17000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_orb_breaker_radius",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "miner_speed_4",
+      "display_name": "Automation Speed IV",
+      "description": "Final demo automation motor step: another 10% secondary-automation speed increase.",
+      "grid_x": 10,
+      "grid_y": 22,
+      "category": "finale",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "miner_speed_3",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 16000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_miner_rate",
+          "value": 1.1
+        }
+      ]
+    },
+    {
+      "id": "lightning_chain_2",
+      "display_name": "Forking Lightning",
+      "description": "Lightning gains a second deterministic fork. One charged cloud can now produce three separated strikes when valid targets exist.",
+      "grid_x": 8,
+      "grid_y": 22,
+      "category": "finale",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "lightning_chain_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 18000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_lightning_chain_count",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "meteor_radius_2",
+      "display_name": "Supernova Impact II",
+      "description": "Add two more blocks of meteor crater radius for a deliberately oversized late-game destruction spike.",
+      "grid_x": 11,
+      "grid_y": 22,
+      "category": "finale",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "meteor_radius_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 22000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_meteor_radius",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "manual_aftershock",
+      "display_name": "Aftershock",
+      "description": "Final manual milestone. Each successful footprint column immediately continues one newly exposed block inward, turning radius plus power into a second destruction layer.",
+      "grid_x": 3,
+      "grid_y": 22,
+      "category": "finale",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_hover_speed_5",
+          "required_rank": 1
+        },
+        {
+          "node_id": "manual_power_5",
+          "required_rank": 1
+        },
+        {
+          "node_id": "manual_5x",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 20000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_manual_penetration_depth",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "orb_breaker_swarm",
+      "display_name": "Orb Swarm",
+      "description": "Finale capstone: add a third Orb Breaker after completing the split, speed and radius branches.",
+      "grid_x": 13,
+      "grid_y": 23,
+      "category": "finale",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "orb_breaker_speed_2",
+          "required_rank": 1
+        },
+        {
+          "node_id": "orb_breaker_radius_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 24000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "add_orb_breaker_count",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "laser_core",
+      "display_name": "Flux Laser",
+      "description": "Very-late active/idle capstone. After Aftershock and Orb Breaker Radius converge, manual clicks and Hover Mining charge a capacitor; at full charge a wide cursor laser fires automatically for 5 seconds at 1.0 block-damage per second, then locks into a 60-second cooldown.",
+      "grid_x": 15,
+      "grid_y": 23,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "manual_aftershock",
+          "required_rank": 1
+        },
+        {
+          "node_id": "orb_breaker_radius_1",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 18000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_laser"
+        }
+      ]
+    },
+    {
+      "id": "laser_capacitor_1",
+      "display_name": "Click Capacitor",
+      "description": "Active clicks feed 50% more charge into the Flux Laser. The branch keeps active play materially faster than idle charging.",
+      "grid_x": 13,
+      "grid_y": 25,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_core",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 22000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_laser_manual_charge_rate",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "laser_auto_coupler",
+      "display_name": "Auto Flux Coupler",
+      "description": "Hover Mining auto-actions feed the capacitor twice as efficiently. Idle play still charges the laser, but remains slower than deliberate clicking.",
+      "grid_x": 17,
+      "grid_y": 25,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_core",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 28000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_laser_auto_charge_rate",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "laser_wide_lens",
+      "display_name": "Wide Lens",
+      "description": "Increase the beam footprint from a 3x3 face to a 5x5 face, borrowing the classic incremental laser upgrade of making the lens itself bigger rather than only multiplying damage.",
+      "grid_x": 15,
+      "grid_y": 26,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_core",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 30000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_laser_beam_radius",
+          "value": 2.0
+        }
+      ]
+    },
+    {
+      "id": "laser_cooling",
+      "display_name": "Cryo Radiator",
+      "description": "Reduce the post-burst lockout from 60 seconds to 50 seconds. Cooldown reduction is deliberately late so the first laser still has a strong rhythm.",
+      "grid_x": 13,
+      "grid_y": 28,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_capacitor_1",
+          "required_rank": 1
+        },
+        {
+          "node_id": "laser_auto_coupler",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 35000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_laser_cooldown_seconds",
+          "value": 50.0
+        }
+      ]
+    },
+    {
+      "id": "laser_hotter_beam",
+      "display_name": "Hotter Beam",
+      "description": "Raise beam damage from 1.0 to 1.5 block-damage per second. This is a true hardness interaction, not an instant-delete exception.",
+      "grid_x": 17,
+      "grid_y": 28,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_wide_lens",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 42000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_laser_damage",
+          "value": 1.5
+        }
+      ]
+    },
+    {
+      "id": "laser_duration",
+      "display_name": "Extended Burn",
+      "description": "Increase the natural charged burst from 5 seconds to 7 seconds after both cooling and beam-power investment.",
+      "grid_x": 15,
+      "grid_y": 30,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_cooling",
+          "required_rank": 1
+        },
+        {
+          "node_id": "laser_hotter_beam",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 50000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "set_laser_duration_seconds",
+          "value": 7.0
+        }
+      ]
+    },
+    {
+      "id": "laser_resource_furnace",
+      "display_name": "Resource Furnace",
+      "description": "Unlock optional OVERBURN. After the free charged burst empties, keep the laser alive by literally burning ordinary resources at 300 per second until disabled or unaffordable; cooldown starts when the burn stops.",
+      "grid_x": 15,
+      "grid_y": 32,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_duration",
+          "required_rank": 1
+        },
+        {
+          "node_id": "laser_auto_coupler",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 75000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "unlock_laser_resource_burn"
+        },
+        {
+          "type": "set_laser_resource_cost_per_second",
+          "value": 300.0
+        }
+      ]
+    },
+    {
+      "id": "laser_furnace_efficiency",
+      "display_name": "Closed-Loop Furnace",
+      "description": "Late resource-sink refinement: overburn consumes 40% fewer ordinary resources while preserving the same beam output.",
+      "grid_x": 15,
+      "grid_y": 34,
+      "category": "manual",
+      "purchase_mode": "once",
+      "prerequisites": [
+        {
+          "node_id": "laser_resource_furnace",
+          "required_rank": 1
+        }
+      ],
+      "hide_until_prerequisites_met": true,
+      "cost": 90000,
+      "max_rank": 1,
+      "effects": [
+        {
+          "type": "multiply_laser_resource_cost",
+          "value": 0.6
+        }
+      ]
     }
   ]
 }
