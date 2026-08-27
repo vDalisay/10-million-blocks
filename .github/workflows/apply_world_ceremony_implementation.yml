@@ -58,7 +58,10 @@ jobs:
         run: |
           rm tools/apply_world_ceremony_implementation.py
           rm tools/apply_world_ceremony_fixups.py
-          rm .github/workflows/apply_world_ceremony_implementation.yml
+          rm -rf tools/__pycache__
+          rm -rf tools/completion_contract/bin tools/completion_contract/obj
+          rm -rf tools/generation_contract/bin tools/generation_contract/obj
+          rm -rf tools/replay_contract/bin tools/replay_contract/obj
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
