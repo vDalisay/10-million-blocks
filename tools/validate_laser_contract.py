@@ -108,6 +108,9 @@ require("_mining.TryMineManual(target, damage)" in laser,
         "laser damage must reuse the authored manual hardness/reward path")
 require("private const double DamageTickSeconds = 0.10" in laser,
         "laser gameplay damage cadence must remain bounded at 10 Hz")
+require("double activeDt = Math.Min(dt, _activeRemaining);" in laser
+        and "FireLaser(activeDt);" in laser,
+        "natural burst must clamp its final frame to the exact authored remaining duration")
 require("_mining.TrySpend(due)" in laser,
         "paid overburn must spend authoritative ordinary currency")
 require("_overburning ? Math.Max(1.0, _skills.Derived.LaserCooldownSeconds)" in laser,

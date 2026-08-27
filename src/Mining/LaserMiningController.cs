@@ -121,8 +121,11 @@ public partial class LaserMiningController : Node3D
 
         if (_activeRemaining > 0.0)
         {
-            _activeRemaining = Math.Max(0.0, _activeRemaining - dt);
-            FireLaser(dt);
+            // Consume only the authored natural-burst slice that actually remains. A long or final
+            // render frame must not turn a 5.0-second burst into 5.0s + one frame of free damage.
+            double activeDt = Math.Min(dt, _activeRemaining);
+            _activeRemaining = Math.Max(0.0, _activeRemaining - activeDt);
+            FireLaser(activeDt);
             if (_activeRemaining <= 0.0)
             {
                 if (_skills.Derived.LaserResourceBurnUnlocked && _resourceBurnEnabled && _mining.Currency > 0)
