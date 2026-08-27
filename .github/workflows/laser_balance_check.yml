@@ -1,0 +1,16 @@
+name: Laser balance check
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - .github/workflows/laser_balance_check.yml
+
+jobs:
+  balance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Simulate current 70-node economy
+        run: python3 tools/simulate_skill_economy.py --reserve 0.20
