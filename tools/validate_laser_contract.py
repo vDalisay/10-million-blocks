@@ -45,7 +45,7 @@ laser_ids = {
     "laser_hotter_beam",
     "laser_duration",
     "laser_resource_furnace",
-    "laser_resource_efficiency",
+    "laser_furnace_efficiency",
 }
 require(laser_ids <= nodes.keys(), f"missing laser nodes: {sorted(laser_ids - nodes.keys())}")
 require(len([node_id for node_id in nodes if node_id.startswith("laser_")]) == 9,
@@ -76,7 +76,7 @@ require(float(effect(nodes["laser_duration"], "set_laser_duration_seconds")["val
         "Extended Burn must remain a seven-second natural burst")
 require(effect(nodes["laser_resource_furnace"], "unlock_laser_resource_burn")["type"] == "unlock_laser_resource_burn",
         "Resource Furnace unlock effect missing")
-require(float(effect(nodes["laser_resource_efficiency"], "multiply_laser_resource_cost")["value"]) == 0.6,
+require(float(effect(nodes["laser_furnace_efficiency"], "multiply_laser_resource_cost")["value"]) == 0.6,
         "Closed-Loop Furnace must remain a 40% resource-cost reduction")
 
 stats = read("src/Skills/SkillTreeService.cs")
