@@ -174,6 +174,9 @@ public partial class WorldCompleteView : CanvasLayer
         long resources,
         long manualBlocks,
         long automatedBlocks,
+        double clearSeconds,
+        int scorePercent,
+        long bonusResources,
         bool replayAvailable)
     {
         _hasNextWorld = next is not null;
@@ -189,7 +192,14 @@ public partial class WorldCompleteView : CanvasLayer
         string sourceLine = otherBlocks > 0
             ? $"Manual {manualBlocks:N0}   ·   Automation {automatedBlocks:N0}   ·   Events {otherBlocks:N0}"
             : $"Manual {manualBlocks:N0}   ·   Automation {automatedBlocks:N0}";
-        _stats.Text = $"{blocksMined:N0} BLOCKS REMOVED\n{sourceLine}\n{resources:N0} RESOURCES AVAILABLE";
+        int totalSeconds = Math.Max(0, (int)Math.Floor(clearSeconds));
+        string clearTime = $"{totalSeconds / 60:00}:{totalSeconds % 60:00}";
+        _stats.Text =
+            $"CLEAR TIME   {clearTime}\n" +
+            $"SPEED SCORE  {Math.Clamp(scorePercent, 0, 100)}%\n" +
+            $"BLACK HOLE BONUS   +{Math.Max(0L, bonusResources):N0}\n" +
+            $"TOTAL RESOURCES    {resources:N0}\n\n" +
+            $"{blocksMined:N0} BLOCKS REMOVED\n{sourceLine}";
 
         if (next is null)
         {

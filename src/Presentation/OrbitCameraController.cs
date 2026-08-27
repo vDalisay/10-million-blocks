@@ -45,7 +45,9 @@ public partial class OrbitCameraController : Node3D
     private float _surfaceClearance;
     private bool _forceFarOnNextPreset;
     private double _mouseIdleSeconds;
+    private bool _cinematicFocus;
 
+    public bool InputEnabled { get; set; } = true;
     public string ActivePresetName { get; private set; } = MediumPreset.Name;
     public Camera3D Camera => _camera;
     public float CurrentDistance => _distance;
@@ -118,8 +120,17 @@ public partial class OrbitCameraController : Node3D
 
         _surfaceFocusBlend = CalculateSurfaceFocusBlend(_distance);
         Vector3 radial = Transform.Basis.Z.Normalized();
-        float supportRadius = SurfaceRadiusAlong(radial);
-        Vector3 pivot = _pan + radial * supportRadius * _surfaceFocusBlend;
+        Vector3 pivot;
+        if (_cinematicFocus)
+        {
+            _surfaceFocusBlend = 0.0f;
+            pivot = _pan;
+        }
+        else
+        {
+            float supportRadius = SurfaceRadiusAlong(radial);
+            pivot = _pan + radial * supportRadius * _surfaceFocusBlend;
+        }
         Position = pivot;
 
         float localDistance = _distance;
@@ -139,6 +150,7 @@ public partial class OrbitCameraController : Node3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (!InputEnabled) return;
         if (@event is InputEventMouseButton button)
         {
             HandleMouseButton(button);
@@ -217,6 +229,25 @@ public partial class OrbitCameraController : Node3D
     public void Recenter()
     {
         _targetPan = Vector3.Zero;
+        ResetIdleOrbit();
+    }
+
+    public void BeginCinematicFocus(Vector3 center, float distance, bool immediate = false)
+    {
+        _cinematicFocus = true;
+        InputEnabled = false;
+        _targetPan = center;
+        _targetDistance = Math.Max(1.0f, distance);
+        ResetIdleOrbit();
+        if (!immediate) return;
+        _pan = _targetPan;
+        _distance = _targetDistance;
+    }
+
+    public void EndCinematicFocus(bool restoreInput = true)
+    {
+        _cinematicFocus = false;
+        if (restoreInput) InputEnabled = true;
         ResetIdleOrbit();
     }
 

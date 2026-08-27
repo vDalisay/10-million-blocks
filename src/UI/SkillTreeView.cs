@@ -37,6 +37,7 @@ public partial class SkillTreeView : CanvasLayer
     private bool _refreshPending;
 
     public bool IsOpen => _root is not null && _root.Visible;
+    public bool InteractionEnabled { get; set; } = true;
 
     public void Initialize(SkillTreeService skills, MiningService mining, ManualMiningController manual)
     {
@@ -102,6 +103,7 @@ public partial class SkillTreeView : CanvasLayer
     public override void _UnhandledKeyInput(InputEvent @event)
     {
         if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
+        if (!InteractionEnabled && key.Keycode != Key.Escape) return;
 
         if (key.Keycode == Key.K)
         {
@@ -122,6 +124,7 @@ public partial class SkillTreeView : CanvasLayer
 
     public void Open()
     {
+        if (!InteractionEnabled) return;
         _transition?.Kill();
         _root.Visible = true;
         _manual.InputEnabled = false;

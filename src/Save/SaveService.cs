@@ -22,6 +22,11 @@ public sealed class WorldSaveData
     public long ManualBlocksMined { get; set; }
     public long AutomatedBlocksMined { get; set; }
     public double ActivePlaySeconds { get; set; }
+    public bool ClearReached { get; set; }
+    public double CompletionClearSeconds { get; set; }
+    public int CompletionScorePercent { get; set; }
+    public long CompletionBonusResources { get; set; }
+    public bool CompletionBonusClaimed { get; set; }
     public bool HoverMiningEnabled { get; set; }
     public bool Completed { get; set; }
     public long FirstStartedUnixSeconds { get; set; }
@@ -208,6 +213,14 @@ public sealed class SaveService
             world.InitialMineableBlocks = Math.Max(0L, world.InitialMineableBlocks);
             world.TutorialLocalCurrency = Math.Max(0L, world.TutorialLocalCurrency);
             world.ActivePlaySeconds = Math.Max(0.0, world.ActivePlaySeconds);
+            world.CompletionClearSeconds = Math.Max(0.0, world.CompletionClearSeconds);
+            world.CompletionScorePercent = Math.Clamp(world.CompletionScorePercent, 0, 100);
+            world.CompletionBonusResources = Math.Max(0L, world.CompletionBonusResources);
+            if (world.Completed)
+            {
+                world.ClearReached = true;
+                world.CompletionBonusClaimed = true;
+            }
             legacyLocalCurrency = checked(legacyLocalCurrency + world.TutorialLocalCurrency);
             if (world.LastPlayedUnixSeconds <= 0) world.LastPlayedUnixSeconds = world.FirstStartedUnixSeconds;
             world.MinedChunks ??= new List<MinedChunkSnapshot>();

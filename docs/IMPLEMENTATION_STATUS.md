@@ -278,3 +278,26 @@ No additional one-million performance benchmark is required for this progression
 - Ordinary collected block feedback now flies to the ordinary resource bucket when it has resource value; zero-value water still flies to the mined counter, and special gems retain their own colored resource buckets.
 - The three gem buckets remain visible at zero so future special resources read as part of the persistent economy rather than appearing as surprise top-bar panels.
 - The large automation-attention overlay is reduced to a compact left-side focus/cycle control beneath the automation rail.
+
+
+---
+
+## World ceremony / black-hole completion
+
+Implemented on the active branch:
+
+- every playable world load is interaction-locked until its initial presentation is ready and a three-second top-surface wave completes;
+- the wave uses the real currently saved `WorldView` batches and travels screen-left to screen-right from the locked initial camera;
+- Esc pause remains available once the loading overlay has dismissed, and SceneTree pause freezes the ceremony naturally;
+- per-world `ActivePlaySeconds` is authoritative/persistent and advances only during active gameplay;
+- offline automation is simulated chronologically and reports an exact clear offset when it finishes a world;
+- final-block removal freezes and saves clear time/score/bonus before the cinematic begins;
+- speed score loses 10 percentage points every five minutes from 100% to a 20% floor;
+- outstanding ordinary pickups resolve before the completion presentation;
+- completion recenters/locks the camera, implodes at the old cube center, emits exactly one GPU particle per bonus resource, scatters them radially, then spawns a black-hole visual and spirals them inward;
+- the exact bonus is granted once as a single authoritative currency transaction after suction;
+- pending/claimed completion state is saved so a crash cannot reroll or duplicate a reward;
+- results now lead with clear time, speed score and black-hole bonus before Continue/Replay;
+- CI includes score-boundary checks at every five-minute threshold.
+
+Remaining gate: run the 20³/40³/50³ ceremony locally and profile the exact-count GPU field, including a future one-million-particle stress pass, then tune only presentation constants if necessary.

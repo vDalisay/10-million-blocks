@@ -79,6 +79,7 @@ public partial class GameRoot : Node3D
 
     public override void _Process(double delta)
     {
+        ProcessWorldRun(delta);
         if (!_autosaveDirty || _world is null) return;
         _autosaveTimer += delta;
         if (_autosaveTimer >= 10.0) TrySaveCurrentSession();
@@ -158,6 +159,7 @@ public partial class GameRoot : Node3D
     {
         if (_sessionPersists) CaptureCurrentSession();
         TearDownWorldSession();
+        ResetWorldRunLifecycle();
         _sessionPersists = persistSession;
         _completionView.HideCompletion();
         _completionShown = false;
@@ -296,19 +298,23 @@ public partial class GameRoot : Node3D
 
         ApplyDefaultCameraPreset(profile);
 
+        OfflineProgressResult offlineProgress = default;
         if (profile.AutomationAvailable && persistSession && applyOfflineProgress && savedWorld is not null && _loadedSaveTimestamp > 0)
         {
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             double elapsed = Math.Max(0L, now - _loadedSaveTimestamp);
-            long offlineMined = _miners.ApplyOfflineProgress(elapsed);
-            if (offlineMined > 0)
+            offlineProgress = _miners.ApplyOfflineProgress(elapsed);
+            if (offlineProgress.BlocksRemoved > 0)
             {
-                GD.Print($"Applied {offlineMined:N0} exact offline mining operations after {elapsed:0} seconds away.");
+                string clearSuffix = offlineProgress.SecondsToWorldClear is double clearAt
+                    ? $"; world cleared at +{clearAt:0.00}s"
+                    : string.Empty;
+                GD.Print($"Applied {offlineProgress.BlocksRemoved:N0} exact offline mining operations after {elapsed:0} seconds away{clearSuffix}.");
                 MarkAutosaveDirty();
             }
         }
 
-        TryCompleteWorld();
+        InitializeWorldRunLifecycle(savedWorld, offlineProgress);
     }
 
     private void BuildReplaySession(WorldProfile profile, ReplayData replay)
@@ -394,13 +400,17 @@ public partial class GameRoot : Node3D
         if (!_sessionPersists || _world is null || _mining is null || _manualMining is null || _miners is null || _placement is null) return;
 
         _completionShown = true;
-        _skillTree?.Close();
-        _manualMining.InputEnabled = false;
-        _placement.InputEnabled = false;
-        _miners.ProcessMode = ProcessModeEnum.Disabled;
-        if (_worldEvents is not null) _worldEvents.ProcessMode = ProcessModeEnum.Disabled;
-
+        SetGameplayInteractionEnabled(false);
         WorldProfile? next = _progression.NextProfile();
+
+        double clearSeconds = debugPreview ? _activePlaySeconds : _completionClearSeconds;
+        int scorePercent = debugPreview
+            ? CompletionScore.CalculatePercent(clearSeconds)
+            : _completionScorePercent;
+        long bonus = debugPreview
+            ? CompletionScore.CalculateBonus(_world.InitialMineableBlocks, scorePercent)
+            : _completionBonusResources;
+
         _completionView.ShowCompletion(
             _world.Profile,
             next,
@@ -408,25 +418,13 @@ public partial class GameRoot : Node3D
             _mining.Currency,
             _manualBlocksThisWorld,
             _automatedBlocksThisWorld,
+            clearSeconds,
+            scorePercent,
+            bonus,
             replayAvailable: !debugPreview && ReplayAvailableForCurrentWorld());
 
         if (debugPreview)
-        {
-            GD.Print("DEBUG: showing completion-flow preview without marking the world cleared. Continue still tests the next-world transition.");
-        }
-        else
-        {
-            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            _save.CompletedWorldIds.Add(_world.Profile.Id);
-            if (next is not null) _save.UnlockedWorldIds.Add(next.Id);
-            if (_save.Worlds.TryGetValue(_world.Profile.Id, out WorldSaveData? existing))
-            {
-                existing.Completed = true;
-                if (existing.CompletedUnixSeconds <= 0) existing.CompletedUnixSeconds = now;
-            }
-            CaptureCurrentSession();
-            TrySaveCurrentSession(captureFirst: false);
-        }
+            GD.Print("DEBUG: showing completion results preview without changing progression or granting the bonus.");
     }
 
     private void OnContinueRequested()
@@ -530,6 +528,12 @@ public partial class GameRoot : Node3D
             TutorialLocalCurrency = tutorialLocalCurrency,
             ManualBlocksMined = _manualBlocksThisWorld,
             AutomatedBlocksMined = _automatedBlocksThisWorld,
+            ActivePlaySeconds = _activePlaySeconds,
+            ClearReached = _clearReached || (previous?.ClearReached ?? false),
+            CompletionClearSeconds = _clearReached ? _completionClearSeconds : previous?.CompletionClearSeconds ?? 0.0,
+            CompletionScorePercent = _clearReached ? _completionScorePercent : previous?.CompletionScorePercent ?? 0,
+            CompletionBonusResources = _clearReached ? _completionBonusResources : previous?.CompletionBonusResources ?? 0L,
+            CompletionBonusClaimed = _completionBonusClaimed || (previous?.CompletionBonusClaimed ?? false),
             HoverMiningEnabled = _manualMining.HoverMiningEnabled,
             Completed = completed,
             FirstStartedUnixSeconds = started,

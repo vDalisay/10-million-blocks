@@ -1,6 +1,6 @@
 # World Intro Wave + Black-Hole Completion Bonus — Reviewed Implementation Plan
 
-Status: **planning / implementation handoff only**
+Status: **implemented on `codex/future-world-progression`; local Godot visual/performance validation required**
 
 Branch: `codex/future-world-progression`
 

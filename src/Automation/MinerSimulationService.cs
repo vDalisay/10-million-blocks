@@ -12,6 +12,14 @@ using TenMillionBlocks.World.Rendering;
 
 namespace TenMillionBlocks.Automation;
 
+public readonly record struct OfflineProgressResult(
+    long BlocksRemoved,
+    double SimulatedSecondsConsumed,
+    double? SecondsToWorldClear)
+{
+    public bool ClearedWorld => SecondsToWorldClear.HasValue;
+}
+
 public partial class MinerSimulationService : Node3D
 {
     private const float ShovelScale = 0.22f;
@@ -276,51 +284,75 @@ public partial class MinerSimulationService : Node3D
         Changed?.Invoke();
     }
 
-    public long ApplyOfflineProgress(double elapsedSeconds, long operationCap = 50_000)
+    public OfflineProgressResult ApplyOfflineProgress(double elapsedSeconds, long operationCap = 50_000)
     {
-        if (elapsedSeconds <= 0.0 || operationCap <= 0 || _miners.Count == 0) return 0L;
+        if (elapsedSeconds <= 0.0 || operationCap <= 0 || _miners.Count == 0)
+            return default;
 
         double seconds = Math.Min(elapsedSeconds, 7.0 * 24.0 * 60.0 * 60.0);
-        long operationsLeft = operationCap;
         long minedBefore = _mining.TotalMined;
-        int minerCount = _miners.Count;
+        long operationsLeft = operationCap;
 
-        // Accrue the full offline duration for every active unit before enforcing the operation cap.
-        // This means the cap limits CPU work, not which units receive elapsed time. Any unprocessed
-        // backlog remains in WorkAccumulator and can be consumed by the normal fair scheduler later.
+        var initialAccumulators = new Dictionary<long, double>(_miners.Count);
+        var rates = new Dictionary<long, double>(_miners.Count);
+        var processed = new Dictionary<long, long>(_miners.Count);
+        var queue = new PriorityQueue<MinerInstance, (double Due, long Id)>();
+
         foreach (MinerInstance miner in _miners)
         {
             if (miner.Exhausted) continue;
             MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-            miner.WorkAccumulator += definition.BaseRate * EffectiveRateMultiplier(definition) * seconds;
+            double rate = Math.Max(0.0, definition.BaseRate * EffectiveRateMultiplier(definition));
+            if (rate <= 0.0) continue;
+
+            double initial = Math.Max(0.0, miner.WorkAccumulator);
+            initialAccumulators[miner.InstanceId] = initial;
+            rates[miner.InstanceId] = rate;
+            processed[miner.InstanceId] = 0L;
+            double firstDue = Math.Max(0.0, (1.0 - initial) / rate);
+            if (firstDue <= seconds) queue.Enqueue(miner, (firstDue, miner.InstanceId));
         }
 
-        int cursor = Math.Clamp(_simulationCursor, 0, Math.Max(0, minerCount - 1));
-        int idleVisits = 0;
+        double? clearAt = null;
         _mining.BeginCurrencyNotificationBatch();
         _deferVisualUpdates = true;
         try
         {
-            while (operationsLeft > 0 && idleVisits < minerCount)
+            while (operationsLeft > 0 && queue.TryDequeue(out MinerInstance? miner, out (double Due, long Id) priority))
             {
-                if (cursor >= minerCount) cursor = 0;
-                MinerInstance miner = _miners[cursor++];
-                if (miner.Exhausted || miner.WorkAccumulator < 1.0)
-                {
-                    idleVisits++;
-                    continue;
-                }
+                double due = priority.Due;
+                if (due > seconds) break;
+                if (miner.Exhausted || !rates.TryGetValue(miner.InstanceId, out double rate)) continue;
 
                 MinerDefinition definition = _catalog.Get(miner.DefinitionId);
-                miner.WorkAccumulator -= 1.0;
                 operationsLeft--;
+                processed[miner.InstanceId] = processed[miner.InstanceId] + 1L;
                 _ = Advance(miner, definition, emitPresentation: false);
-                idleVisits = 0;
+
+                if (_world.RemainingMineableBlocks == 0)
+                {
+                    clearAt = due;
+                    break;
+                }
+
+                if (miner.Exhausted) continue;
+                long count = processed[miner.InstanceId];
+                double initial = initialAccumulators[miner.InstanceId];
+                double nextDue = Math.Max(0.0, ((count + 1.0) - initial) / rate);
+                if (nextDue <= seconds) queue.Enqueue(miner, (nextDue, miner.InstanceId));
             }
         }
         finally
         {
-            _simulationCursor = minerCount == 0 ? 0 : cursor % minerCount;
+            double accrualSeconds = clearAt ?? seconds;
+            foreach (MinerInstance miner in _miners)
+            {
+                if (!rates.TryGetValue(miner.InstanceId, out double rate)) continue;
+                double initial = initialAccumulators[miner.InstanceId];
+                long count = processed[miner.InstanceId];
+                miner.WorkAccumulator = Math.Max(0.0, initial + rate * accrualSeconds - count);
+            }
+
             _deferVisualUpdates = false;
             try
             {
@@ -334,7 +366,8 @@ public partial class MinerSimulationService : Node3D
 
         long mined = _mining.TotalMined - minedBefore;
         if (mined > 0) Changed?.Invoke();
-        return mined;
+        double consumed = mined > 0 ? clearAt ?? seconds : 0.0;
+        return new OfflineProgressResult(mined, consumed, clearAt);
     }
 
     public void ClearMiners()
