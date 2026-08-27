@@ -33,6 +33,9 @@ public partial class WorldCompletionCeremony : Node3D
     private bool _finished;
     private WorldCompletionVisualStage _stage = WorldCompletionVisualStage.Implosion;
     private bool _reducedMotion;
+    private long _startingResources;
+    private CanvasLayer? _resourceLayer;
+    private Label? _resourceCounter;
 
     public event Action<WorldCompletionVisualStage>? StageChanged;
     public event Action? Completed;
@@ -44,7 +47,8 @@ public partial class WorldCompletionCeremony : Node3D
         Camera3D camera,
         Vector3 center,
         long bonusParticles,
-        float scatterRadius)
+        float scatterRadius,
+        long startingResources = 0L)
     {
         ArgumentNullException.ThrowIfNull(camera);
 
@@ -60,10 +64,12 @@ public partial class WorldCompletionCeremony : Node3D
         GlobalTransform = new Transform3D(presentationBasis, center);
 
         BonusParticleCount = Math.Max(0L, bonusParticles);
+        _startingResources = Math.Max(0L, startingResources);
         _reducedMotion = GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true;
         BuildImplosion(profile.BlockSpacing, scatterRadius);
         BuildBlackHole(profile.BlockSpacing);
         BuildBonusParticles(profile, assets, scatterRadius);
+        BuildResourceCounter();
     }
 
     public override void _Process(double delta)
@@ -78,6 +84,7 @@ public partial class WorldCompletionCeremony : Node3D
 
         UpdateImplosion(time);
         UpdateBlackHole(time, delta * speed);
+        UpdateResourceCounter(time);
 
         WorldCompletionVisualStage next = time < ScatterStart
             ? WorldCompletionVisualStage.Implosion
@@ -95,6 +102,52 @@ public partial class WorldCompletionCeremony : Node3D
         if (time < FinishAt) return;
         _finished = true;
         Completed?.Invoke();
+    }
+
+    private void BuildResourceCounter()
+    {
+        _resourceLayer = new CanvasLayer { Name = "CompletionResourceCounter", Layer = 36 };
+        AddChild(_resourceLayer);
+
+        var panel = new PanelContainer
+        {
+            AnchorLeft = 1.0f,
+            AnchorRight = 1.0f,
+            OffsetLeft = -330.0f,
+            OffsetTop = 24.0f,
+            OffsetRight = -24.0f,
+            OffsetBottom = 106.0f,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _resourceLayer.AddChild(panel);
+
+        var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        margin.AddThemeConstantOverride("margin_left", 14);
+        margin.AddThemeConstantOverride("margin_top", 10);
+        margin.AddThemeConstantOverride("margin_right", 14);
+        margin.AddThemeConstantOverride("margin_bottom", 10);
+        panel.AddChild(margin);
+
+        _resourceCounter = new Label
+        {
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _resourceCounter.AddThemeFontSizeOverride("font_size", 17);
+        margin.AddChild(_resourceCounter);
+        UpdateResourceCounter(0.0f);
+    }
+
+    private void UpdateResourceCounter(float time)
+    {
+        if (_resourceCounter is null) return;
+        float suction = Mathf.Clamp((time - SuctionStart) / Math.Max(0.001f, FinishAt - SuctionStart), 0.0f, 1.0f);
+        long visualBonus = Math.Clamp((long)Math.Floor(BonusParticleCount * suction), 0L, BonusParticleCount);
+        long displayed = checked(_startingResources + visualBonus);
+        _resourceCounter.Text = suction <= 0.0f
+            ? $"BLACK HOLE BONUS  +{BonusParticleCount:N0}\nRESOURCES  {_startingResources:N0}"
+            : $"ABSORBING  +{visualBonus:N0} / +{BonusParticleCount:N0}\nRESOURCES  {displayed:N0}";
     }
 
     private void BuildImplosion(float spacing, float scatterRadius)

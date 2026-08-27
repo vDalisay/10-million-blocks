@@ -28,6 +28,10 @@ public sealed class WorldSaveData
     public long CompletionBonusResources { get; set; }
     public bool CompletionBonusClaimed { get; set; }
     public bool HoverMiningEnabled { get; set; }
+    public double LaserCharge { get; set; }
+    public double LaserCooldownSeconds { get; set; }
+    public double LaserActiveSeconds { get; set; }
+    public bool LaserResourceBurnEnabled { get; set; }
     public bool Completed { get; set; }
     public long FirstStartedUnixSeconds { get; set; }
     public long LastPlayedUnixSeconds { get; set; }

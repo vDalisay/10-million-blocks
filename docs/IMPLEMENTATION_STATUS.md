@@ -301,3 +301,16 @@ Implemented on the active branch:
 - CI includes score-boundary checks at every five-minute threshold.
 
 Remaining gate: run the 20³/40³/50³ ceremony locally and profile the exact-count GPU field, including a future one-million-particle stress pass, then tune only presentation constants if necessary.
+
+
+## Late-game Flux Laser
+
+Implementation branch now contains the first Flux Laser pass described in
+`WORLD_INTRO_AND_BLACK_HOLE_COMPLETION_PLAN.md`: late capstone-gated charge meter, faster manual vs
+Hover Mining charge, automatic 5-second cursor burst, 60-second cooldown, authored hardness damage,
+3x3/5x5 beam footprints, persistent cycle state, and opt-in resource-funded overburn. The laser branch
+adds nine one-purchase nodes. Local Godot playtesting still owns final charge/cooldown/cost tuning.
+
+The same pass closes the remaining completion-presentation gaps with compressed pickup settlement,
+visual resource count-up during black-hole suction, and F6 exact-count GPU benchmark presets through
+1,000,000 particles.

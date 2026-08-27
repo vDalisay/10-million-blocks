@@ -155,6 +155,7 @@ public partial class GameRoot
     private void SetGameplayInteractionEnabled(bool enabled)
     {
         if (_manualMining is not null) _manualMining.InputEnabled = enabled;
+        if (_laser is not null) _laser.InputEnabled = enabled;
         if (_placement is not null)
             _placement.InputEnabled = enabled && (_world?.Profile.AutomationAvailable ?? false);
         if (_miners is not null)
@@ -245,7 +246,7 @@ public partial class GameRoot
 
         _runPhase = WorldRunPhase.CompletionLocked;
         SetGameplayInteractionEnabled(false);
-        _resourceCollection?.CollectAllPending();
+        _resourceCollection?.ResolveAllForCompletion();
 
         Aabb bounds = _world.GetWorldBounds();
         Vector3 center = bounds.Position + bounds.Size * 0.5f;
@@ -264,7 +265,8 @@ public partial class GameRoot
             _camera.Camera,
             center,
             _completionBonusResources,
-            scatterRadius);
+            scatterRadius,
+            _mining.Currency);
         _completionCeremony.StageChanged += OnCompletionVisualStageChanged;
         _completionCeremony.Completed += CommitCompletionRewardAndShowResults;
         _sessionRoot.AddChild(_completionCeremony);

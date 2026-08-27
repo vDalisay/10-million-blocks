@@ -41,6 +41,7 @@ public partial class GameRoot : Node3D
     private MiningService? _mining;
     private SkillTreeService? _skills;
     private ManualMiningController? _manualMining;
+    private LaserMiningController? _laser;
     private MinerSimulationService? _miners;
     private MinerPlacementController? _placement;
     private SkillTreeView? _skillTree;
@@ -149,6 +150,10 @@ public partial class GameRoot : Node3D
         harness.Initialize(_camera);
         AddChild(harness);
 
+        var completionBenchmark = new CompletionParticleBenchmark { Name = "CompletionParticleBenchmark" };
+        completionBenchmark.Initialize(_assets, _camera, () => _world);
+        AddChild(completionBenchmark);
+
         _completionView = new WorldCompleteView { Name = "WorldCompleteView" };
         _completionView.ContinueRequested += OnContinueRequested;
         _completionView.ReplayRequested += OnReplayRequested;
@@ -232,6 +237,19 @@ public partial class GameRoot : Node3D
         _manualMining.Initialize(_world, _camera, _worldView, _mining, _skills);
         if (savedWorld is not null) _manualMining.RestoreHoverMiningEnabled(savedWorld.HoverMiningEnabled);
         _sessionRoot.AddChild(_manualMining);
+
+        _laser = new LaserMiningController { Name = "FluxLaser" };
+        _laser.Initialize(_world, _camera, _worldView, _mining, _skills, _manualMining);
+        if (savedWorld is not null)
+        {
+            _laser.RestoreState(
+                savedWorld.LaserCharge,
+                savedWorld.LaserCooldownSeconds,
+                savedWorld.LaserActiveSeconds,
+                savedWorld.LaserResourceBurnEnabled);
+        }
+        _laser.StateChanged += MarkAutosaveDirty;
+        _sessionRoot.AddChild(_laser);
 
         _resourceCollection = new ResourceCollectionField { Name = "ResourceCollectionField" };
         _resourceCollection.Initialize(_world, _mining, _skills, _camera, _manualMining, _worldView, _assets);
@@ -365,6 +383,7 @@ public partial class GameRoot : Node3D
         _mining = null;
         _skills = null;
         _manualMining = null;
+        _laser = null;
         _resourceCollection = null;
         _miners = null;
         _placement = null;
@@ -535,6 +554,10 @@ public partial class GameRoot : Node3D
             CompletionBonusResources = _clearReached ? _completionBonusResources : previous?.CompletionBonusResources ?? 0L,
             CompletionBonusClaimed = _completionBonusClaimed || (previous?.CompletionBonusClaimed ?? false),
             HoverMiningEnabled = _manualMining.HoverMiningEnabled,
+            LaserCharge = _laser?.Charge ?? previous?.LaserCharge ?? 0.0,
+            LaserCooldownSeconds = _laser?.CooldownRemainingForSave ?? previous?.LaserCooldownSeconds ?? 0.0,
+            LaserActiveSeconds = _laser?.ActiveRemainingForSave ?? previous?.LaserActiveSeconds ?? 0.0,
+            LaserResourceBurnEnabled = _laser?.ResourceBurnEnabled ?? previous?.LaserResourceBurnEnabled ?? false,
             Completed = completed,
             FirstStartedUnixSeconds = started,
             CompletedUnixSeconds = completedAt,

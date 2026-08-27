@@ -290,6 +290,35 @@ public partial class ResourceCollectionField : Node3D
         System.Diagnostics.Debug.Assert(PendingCount == 0 && PendingAmount == 0, "End-of-world collection must clear every pickup.");
     }
 
+    /// <summary>
+    /// Completion-only settlement path. Pending ordinary rewards are credited once in one
+    /// currency transaction and all pickup presentation buckets are discarded as a single sweep.
+    /// This deliberately avoids emitting one HUD flight/event per pickup at the final block.
+    /// </summary>
+    public void ResolveAllForCompletion()
+    {
+        long amount = Math.Max(0L, _pendingAmount);
+        if (amount > 0) _mining.GrantCurrency(amount);
+
+        foreach (RenderBucket bucket in _buckets.Values)
+        {
+            bucket.Node.QueueFree();
+            bucket.OutlineNode.QueueFree();
+        }
+
+        _pickups.Clear();
+        _buckets.Clear();
+        _bucketsByCell.Clear();
+        _hoverCandidates.Clear();
+        _sweepIds.Clear();
+        _activeSpawnIds.Clear();
+        _suctionIds.Clear();
+        _coastingIds.Clear();
+        _pendingAmount = 0L;
+        NotifyPendingChanged();
+        System.Diagnostics.Debug.Assert(PendingCount == 0 && PendingAmount == 0, "Completion settlement must leave no authoritative pickup behind.");
+    }
+
     private void OnSkillsChanged()
         => CollectPending(
             _skills.Derived.ManualAutoCollectUnlocked,

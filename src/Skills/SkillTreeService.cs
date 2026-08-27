@@ -15,6 +15,16 @@ public sealed class SkillDerivedStats
     public double ManualMiningPower { get; internal set; } = 1.0;
     public int ManualPenetrationDepth { get; internal set; } = 1;
 
+    public bool LaserUnlocked { get; internal set; }
+    public double LaserManualChargePerAction { get; internal set; } = 0.0125;
+    public double LaserAutoChargePerAction { get; internal set; } = 0.0030;
+    public double LaserDamagePerSecond { get; internal set; } = 1.0;
+    public int LaserBeamRadius { get; internal set; } = 1;
+    public double LaserDurationSeconds { get; internal set; } = 5.0;
+    public double LaserCooldownSeconds { get; internal set; } = 60.0;
+    public bool LaserResourceBurnUnlocked { get; internal set; }
+    public double LaserResourceCostPerSecond { get; internal set; } = 300.0;
+
     public double CollectionRadiusBlocks { get; internal set; } = 0.32;
     public double CollectionRatePerSecond { get; internal set; } = 8.0;
     public bool ManualAutoCollectUnlocked { get; internal set; }
@@ -212,6 +222,16 @@ public sealed class SkillTreeService
             case "set_manual_penetration_depth": stats.ManualPenetrationDepth = Math.Max(stats.ManualPenetrationDepth, Math.Max(1, (int)Math.Round(effect.Value))); break;
             case "set_manual_footprint": stats.ManualFootprint = ManualMiningFootprint.Parse(effect.StringValue); break;
             case "unlock_hover_mining": stats.HoverMiningUnlocked = true; break;
+            case "unlock_laser": stats.LaserUnlocked = true; break;
+            case "multiply_laser_manual_charge_rate": stats.LaserManualChargePerAction *= Math.Max(0.01, effect.Value); break;
+            case "multiply_laser_auto_charge_rate": stats.LaserAutoChargePerAction *= Math.Max(0.01, effect.Value); break;
+            case "multiply_laser_damage": stats.LaserDamagePerSecond *= Math.Max(0.01, effect.Value); break;
+            case "set_laser_beam_radius": stats.LaserBeamRadius = Math.Max(stats.LaserBeamRadius, Math.Max(1, (int)Math.Round(effect.Value))); break;
+            case "set_laser_duration_seconds": stats.LaserDurationSeconds = Math.Max(stats.LaserDurationSeconds, Math.Max(0.5, effect.Value)); break;
+            case "set_laser_cooldown_seconds": stats.LaserCooldownSeconds = Math.Min(stats.LaserCooldownSeconds, Math.Max(1.0, effect.Value)); break;
+            case "unlock_laser_resource_burn": stats.LaserResourceBurnUnlocked = true; break;
+            case "set_laser_resource_cost_per_second": stats.LaserResourceCostPerSecond = Math.Max(1.0, effect.Value); break;
+            case "multiply_laser_resource_cost": stats.LaserResourceCostPerSecond *= Math.Clamp(effect.Value, 0.05, 10.0); break;
             case "set_collection_radius_blocks": stats.CollectionRadiusBlocks = Math.Max(stats.CollectionRadiusBlocks, Math.Max(0.05, effect.Value)); break;
             case "multiply_collection_rate": stats.CollectionRatePerSecond *= Math.Max(0.05, effect.Value); break;
             case "unlock_manual_auto_collect": stats.ManualAutoCollectUnlocked = true; break;

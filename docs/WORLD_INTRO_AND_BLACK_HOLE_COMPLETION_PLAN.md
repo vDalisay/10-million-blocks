@@ -953,3 +953,192 @@ Do not expand this implementation into:
 - redesigning the existing progression economy around the bonus before real playtest data exists.
 
 The black-hole bonus should be a strong world-completion reward layer on top of the current progression, not a new economy architecture.
+
+
+---
+
+# 22. Late-game Flux Laser branch
+
+## 22.1 Reference-game research
+
+The laser should feel like a qualitative late-game system rather than another flat Breaker Power rank.
+The implementation takes the following patterns heavily as design references while keeping this game's
+world/cursor mining identity:
+
+- **To The Core**: the Lens Enhancer is an equipment laser fired at range with LMB and explicitly costs
+  fuel. Equipment itself levels from collected materials. Reference:
+  https://steamcommunity.com/sharedfiles/filedetails/?id=3019699442
+- **Nodebuster**: a short, highly readable incremental built around a sprawling upgrade tree where
+  individual nodes create the sense of repeatedly transforming the core action rather than hiding every
+  improvement inside one repeated rank. Reference: https://store.steampowered.com/app/3107330/Nodebuster/
+- **(the) Gnorp Apologue**: qualitative upgrades/talents combine into synergistic late builds rather than
+  only applying linear output multipliers. Reference: https://gnorp.dev/
+- **Fire Bug**: its beam branch explicitly separates raw power, a bigger lens, hotter beam, faster
+  cooldown, split-ray behavior, lingering trails and critical effects. That is the clearest direct model
+  for giving a laser its own identity. Reference: https://store.steampowered.com/app/4924290/Fire_Bug/
+- **Revolution Idle-style charge grammar**: manual clicks fill the main progress faster while automation
+  also advances it, with separate click/auto upgrades and burst effects. Reference:
+  https://revolutionidle.org/wiki/mechanics
+- **Cosmic Brothers**: its incremental weapon tree separates Fire Rate, Chain Arc and Multi-Beam, useful
+  later references if Flux Laser eventually grows beyond one wide beam. Reference:
+  https://namjo-games.itch.io/cosmicbrothers/devlog/1285400/cosmic-brothers-v0110-lightning-strikes-twice
+
+The resulting rule is: copy the *upgrade grammar*, not another game's numbers or presentation.
+
+## 22.2 Base Flux Laser contract
+
+The first unlock is deliberately late and depends on both `manual_aftershock` and
+`orb_breaker_swarm`, making it a convergence capstone between active manual mining and autonomous
+late-game systems.
+
+Base behavior:
+
+```text
+state            behavior
+---------------  ----------------------------------------------------------
+Charging         valid manual click adds 1.25% capacitor charge
+Charging         Hover Mining auto-action adds 0.30% capacitor charge
+Primed           100% charge waits only until cursor has a valid world target
+Active           automatically fires a 3x3 cursor beam for exactly 5 seconds
+Damage           1.0 block-hardness damage per second to each covered block
+Cooldown         60 seconds; no charge can accumulate during cooldown
+Ready            cooldown completes -> empty capacitor can charge again
+```
+
+Active clicking is therefore roughly four times as valuable per action as the automatic route, but an
+idle/Hover Mining build will still eventually earn every laser burst.
+
+The laser uses the same authored hardness state as manual mining. It is not an instant-delete bypass and
+must not invent a second block-health system.
+
+## 22.3 Beam targeting
+
+- Beam follows the live cursor throughout the burst.
+- Target is resolved with the same authoritative voxel raycaster used by manual mining.
+- Base beam damages the exposed 3x3 face around the raycast center.
+- `Wide Lens` upgrades that to 5x5.
+- Damage is integrated at a bounded 10 Hz gameplay cadence so 1.0 damage/sec remains deterministic
+  without creating 60 damage events per affected block per second.
+- Removed blocks still flow through normal mining, collection, replay and completion observers.
+
+## 22.4 Laser skill branch
+
+Initial one-purchase nodes:
+
+1. **Flux Laser** — unlock the base 5s / 60s / 1.0 dmg/s cycle.
+2. **Click Capacitor** — +50% manual-click charge.
+3. **Auto Flux Coupler** — 2x Hover Mining charge contribution.
+4. **Wide Lens** — 3x3 -> 5x5 beam.
+5. **Cryo Radiator** — 60s -> 50s cooldown.
+6. **Hotter Beam** — 1.0 -> 1.5 block-damage/sec.
+7. **Extended Burn** — natural charged burst 5s -> 7s.
+8. **Resource Furnace** — optional paid overburn after the natural burst.
+9. **Closed-Loop Furnace** — 40% lower overburn resource consumption.
+
+Future full-release extensions, only after real balance data, may use the other researched patterns:
+refraction/multi-beam, chain arcs, a lingering heat trail, critical thermal events, or material-specific
+beam interactions. Those are deliberately not bundled into the first implementation.
+
+## 22.5 Resource Furnace / sacrifice mode
+
+Resource Furnace is a late resource sink inspired most directly by To The Core's fuel-cost laser.
+It never replaces the normal capacitor loop.
+
+- Player explicitly arms `OVERBURN` on the laser HUD.
+- The normal earned charge always supplies its complete free burst first.
+- Only after that timer reaches zero does paid overburn begin.
+- Overburn consumes ordinary resources continuously while the beam remains active.
+- Initial tuning target: 300 resources/sec.
+- If disabled or unaffordable, the beam stops immediately and normal cooldown begins.
+- Saving during overburn must not be a cooldown exploit; reload resumes from cooldown, not free paid fire.
+- `Closed-Loop Furnace` reduces the spend rate but never produces resources or refunds burned currency.
+
+## 22.6 Persistence / lifecycle
+
+Persist per-world:
+
+```text
+LaserCharge
+LaserCooldownSeconds
+LaserActiveSeconds
+LaserResourceBurnEnabled
+```
+
+Rules:
+
+- intro/completion locks stop laser progression exactly like manual/automation input;
+- pause freezes the node normally;
+- normal active burst can survive Save & Return and resume after reload;
+- overburn is serialized as cooldown-on-return rather than as an unpaid active beam;
+- cooldown cannot be bypassed by world/browser transitions;
+- reset-save clears all cycle state naturally with the rest of the world save.
+
+## 22.7 HUD
+
+A compact top-center capacitor bar is visible only after Flux Laser unlocks.
+
+States must be explicit:
+
+- `CHARGING 63%`;
+- `PRIMED`;
+- `ACTIVE 3.4s`;
+- `RESOURCE OVERBURN` plus resources/sec;
+- `COOLDOWN 47s`.
+
+The bar drains during Active, becomes a cooldown progress bar while locked, and returns to an empty
+charge bar afterward. Resource Furnace adds an explicit `OVERBURN ON/OFF` control so ordinary currency
+can never be destroyed accidentally by merely buying the skill.
+
+## 22.8 Implementation order
+
+### Phase I1 — finish black-hole plan gaps
+
+1. Add compressed `ResolveAllForCompletion()` pickup settlement.
+2. Add presentation-only resource count-up during suction.
+3. Add F6 exact-count particle benchmark presets: 25 / 6,824 / 61,225 / 123,412 / 1,000,000.
+
+### Phase I2 — laser foundation
+
+1. Add laser derived stats/effect types and nine-node late branch.
+2. Add world-save capacitor/cooldown/active/toggle fields.
+3. Add cursor beam controller and compact HUD.
+4. Feed manual clicks and Hover Mining auto-actions into the same capacitor with different weights.
+5. Reuse manual hardness damage and existing pickup/replay/completion paths.
+
+### Phase I3 — paid resource burn
+
+1. Add explicit overburn toggle.
+2. Start paid burn only after free burst ends.
+3. Spend ordinary currency continuously in bounded integer transactions.
+4. Start cooldown immediately on disable/insufficient funds.
+5. Add cost-efficiency skill.
+
+### Phase I4 — tuning / local regression
+
+Profile and tune:
+
+- clicks required for a base burst;
+- idle Hover Mining time-to-burst at each late Breaker Speed level;
+- 3x3 vs 5x5 effective blocks/sec on rough terrain;
+- cooldown uptime and whether 50s is too permissive;
+- paid overburn cost against real 50³ wallet sizes;
+- simultaneous laser + Hover Mining feedback density;
+- save/reload during charging, active burst, cooldown and overburn.
+
+## 22.9 Laser acceptance criteria
+
+1. Flux Laser is hidden until its two late capstone prerequisites are owned.
+2. Manual valid clicks charge faster per action than Hover Mining.
+3. Hover Mining can fill the capacitor without physical clicking.
+4. Charge cannot increase during intro, pause, completion lock, active beam or cooldown.
+5. At 100%, a valid cursor target automatically begins the burst.
+6. Base natural burst lasts 5.0 seconds before upgrades.
+7. Base cooldown lasts 60.0 seconds before upgrades.
+8. Base beam applies 1.0 authored hardness damage/sec, not one instant block deletion/sec.
+9. Base beam covers 3x3 exposed face cells and Wide Lens covers 5x5.
+10. Laser removals use normal reward/pickup/replay/completion accounting exactly once.
+11. Saving/reloading cannot reset cooldown or duplicate a burst.
+12. Resource Furnace is opt-in and only burns currency after free charge is exhausted.
+13. Resource burn can never drive currency negative.
+14. Running out of resources immediately ends overburn and starts cooldown.
+15. Normal CI remains green and the 50³ completion benchmark remains a local release gate.
