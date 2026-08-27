@@ -33,8 +33,6 @@ public partial class LaserMiningController : Node3D
     private double _resourceBurnAccumulator;
     private bool _overburning;
     private bool _resourceBurnEnabled;
-    private ulong _lastPhysicalClickFrame = ulong.MaxValue;
-    private ulong _lastAutoChargeFrame = ulong.MaxValue;
 
     private MeshInstance3D _beam = null!;
     private MeshInstance3D _beamGlow = null!;
@@ -70,19 +68,14 @@ public partial class LaserMiningController : Node3D
 
         BuildBeam();
         BuildHud();
-        _mining.BlockMined += OnManualMiningObserved;
-        _mining.BlockDamaged += OnManualMiningObserved;
+        _manual.MiningActionPerformed += OnMiningActionPerformed;
         _skills.Changed += OnSkillsChanged;
         RefreshHud();
     }
 
     public override void _ExitTree()
     {
-        if (_mining is not null)
-        {
-            _mining.BlockMined -= OnManualMiningObserved;
-            _mining.BlockDamaged -= OnManualMiningObserved;
-        }
+        if (_manual is not null) _manual.MiningActionPerformed -= OnMiningActionPerformed;
         if (_skills is not null) _skills.Changed -= OnSkillsChanged;
     }
 
@@ -96,23 +89,6 @@ public partial class LaserMiningController : Node3D
         if (_activeRemaining > 0.0) _cooldownRemaining = 0.0;
         else if (_cooldownRemaining > 0.0) _charge = 0.0;
         RefreshHud();
-    }
-
-    public override void _Input(InputEvent @event)
-    {
-        if (@event is not InputEventMouseButton button
-            || button.ButtonIndex != MouseButton.Left
-            || !button.Pressed
-            || !CanCharge()
-            || _manual.HoveredVoxel is null
-            || _manual.PlacementMode
-            || _camera.IsManipulating)
-        {
-            return;
-        }
-
-        _lastPhysicalClickFrame = Engine.GetProcessFrames();
-        AddCharge(_skills.Derived.LaserManualChargePerAction);
     }
 
     public override void _Process(double delta)
@@ -202,13 +178,12 @@ public partial class LaserMiningController : Node3D
            && !_overburning
            && _charge < 1.0;
 
-    private void OnManualMiningObserved(MiningResult result)
+    private void OnMiningActionPerformed(bool automatic)
     {
-        if (!result.Success || result.Source != MiningSource.Manual || !CanCharge()) return;
-        ulong frame = Engine.GetProcessFrames();
-        if (frame == _lastPhysicalClickFrame || frame == _lastAutoChargeFrame) return;
-        _lastAutoChargeFrame = frame;
-        AddCharge(_skills.Derived.LaserAutoChargePerAction);
+        if (!CanCharge()) return;
+        AddCharge(automatic
+            ? _skills.Derived.LaserAutoChargePerAction
+            : _skills.Derived.LaserManualChargePerAction);
     }
 
     private void AddCharge(double amount)

@@ -46,6 +46,7 @@ public partial class ManualMiningController : Node3D
     public bool InputEnabled { get; set; } = true;
     public bool PlacementMode { get; set; }
     public bool HoverMiningEnabled => _hoverMiningEnabled && _skills.Derived.HoverMiningUnlocked;
+    public event Action<bool>? MiningActionPerformed; // bool = automatic Hover Mining action
 
     public void Initialize(
         VirtualWorld world,
@@ -112,6 +113,7 @@ public partial class ManualMiningController : Node3D
         int actions = MineManualTick(_hoverTargets, hoverMining: false, _hoverSurfaceNormal);
         if (actions > 0)
         {
+            MiningActionPerformed?.Invoke(false);
             UpdateHover(button.Position, force: true);
             _highlight.PulseMine();
             GetViewport().SetInputAsHandled();
@@ -171,6 +173,7 @@ public partial class ManualMiningController : Node3D
         _hoverIndicator?.Pulse();
         if (MineManualTick(_hoverTargets, hoverMining: true, _hoverSurfaceNormal) > 0)
         {
+            MiningActionPerformed?.Invoke(true);
             _highlight.PulseMine();
             UpdateHover(mouse, force: true);
         }

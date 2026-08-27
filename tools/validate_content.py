@@ -282,6 +282,19 @@ def effect_strings(skill_id: str, effect_type: str):
     return [effect.get("string_value", "") for effect in skills[skill_id].get("effects", []) if effect.get("type") == effect_type]
 
 
+# Very-late Flux Laser contract. It converges the 50-cube manual/event capstones and stays hidden
+# through progressive disclosure until both have actually been purchased.
+laser = skills["laser_core"]
+assert {p["node_id"] for p in laser.get("prerequisites", [])} == {"manual_aftershock", "orb_breaker_swarm"}
+assert laser.get("hide_until_prerequisites_met") is True
+assert [e.get("type") for e in laser.get("effects", [])] == ["unlock_laser"]
+assert effect_values("laser_wide_lens", "set_laser_beam_radius") == [2.0]
+assert effect_values("laser_cooling", "set_laser_cooldown_seconds") == [50.0]
+assert effect_values("laser_hotter_beam", "multiply_laser_damage") == [1.5]
+assert effect_values("laser_duration", "set_laser_duration_seconds") == [7.0]
+assert effect_values("laser_resource_furnace", "set_laser_resource_cost_per_second") == [300.0]
+assert effect_values("laser_furnace_efficiency", "multiply_laser_resource_cost") == [0.6]
+
 assert effect_values("drill_hardened_bit", "set_drill_material_tier") == [1.0]
 assert effect_values("drill_ore_bit", "set_drill_material_tier") == [2.0]
 assert effect_values("drill_gem_bit", "set_drill_material_tier") == [3.0]
