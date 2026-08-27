@@ -20,8 +20,12 @@ public enum WorldCompletionVisualStage
 public partial class WorldCompletionCeremony : Node3D
 {
     private const float ScatterStart = 0.72f;
+    private const float ScatterDuration = 1.75f;
+    private const float MaxScatterDelay = 0.34f;
     private const float BlackHoleStart = 3.15f;
     private const float SuctionStart = 3.55f;
+    private const float SuctionDuration = 2.35f;
+    private const float SuctionDelayFactor = 0.35f;
     private const float FinishAt = 6.15f;
 
     private readonly List<ShaderMaterial> _particleMaterials = new();
@@ -247,6 +251,7 @@ public partial class WorldCompletionCeremony : Node3D
         AddVisual(visuals, profile.GoldBlock, assets);
         if (visuals.Count == 0) visuals.Add(profile.StoneBlock);
 
+        var sharedParticleShader = new Shader { Code = ParticleShaderCode };
         long remaining = BonusParticleCount;
         for (int visualIndex = 0; visualIndex < visuals.Count && remaining > 0; visualIndex++)
         {
@@ -259,9 +264,14 @@ public partial class WorldCompletionCeremony : Node3D
                 throw new InvalidOperationException($"Completion particle emitter exceeds Godot Amount range: {share:N0}.");
 
             string blockId = visuals[visualIndex];
-            var shader = new Shader { Code = ParticleShaderCode };
-            var processMaterial = new ShaderMaterial { Shader = shader };
+            var processMaterial = new ShaderMaterial { Shader = sharedParticleShader };
             processMaterial.SetShaderParameter("visual_time", 0.0f);
+            processMaterial.SetShaderParameter("scatter_start", ScatterStart);
+            processMaterial.SetShaderParameter("scatter_duration", ScatterDuration);
+            processMaterial.SetShaderParameter("max_scatter_delay", MaxScatterDelay);
+            processMaterial.SetShaderParameter("suction_start", SuctionStart);
+            processMaterial.SetShaderParameter("suction_duration", SuctionDuration);
+            processMaterial.SetShaderParameter("suction_delay_factor", SuctionDelayFactor);
             processMaterial.SetShaderParameter("scatter_radius", scatterRadius);
             processMaterial.SetShaderParameter("hop_height", Math.Max(profile.BlockSpacing * 1.8f, scatterRadius * 0.18f));
             processMaterial.SetShaderParameter("particle_scale", 0.13f);
@@ -334,6 +344,12 @@ public partial class WorldCompletionCeremony : Node3D
 render_mode disable_force;
 
 uniform float visual_time = 0.0;
+uniform float scatter_start = 0.72;
+uniform float scatter_duration = 1.75;
+uniform float max_scatter_delay = 0.34;
+uniform float suction_start = 3.55;
+uniform float suction_duration = 2.35;
+uniform float suction_delay_factor = 0.35;
 uniform float scatter_radius = 20.0;
 uniform float hop_height = 4.0;
 uniform float particle_scale = 0.13;
@@ -359,16 +375,16 @@ void process() {
     float rnd_s = hash11(id * 7.337 + 6.13);
     float angle = rnd_a * 6.28318530718;
     float radius = scatter_radius * mix(0.13, 1.0, sqrt(rnd_r));
-    float delay = rnd_d * 0.34;
+    float delay = rnd_d * max_scatter_delay;
 
-    float scatter_t = clamp((visual_time - 0.72 - delay) / 1.75, 0.0, 1.0);
+    float scatter_t = clamp((visual_time - scatter_start - delay) / scatter_duration, 0.0, 1.0);
     float scatter_eased = ease_out_cubic(scatter_t);
     float hop = sin(scatter_t * 3.14159265) * hop_height * mix(0.50, 1.0, rnd_s);
     vec3 direction = vec3(cos(angle), 0.0, sin(angle));
     vec3 settled = direction * radius;
     vec3 position = direction * radius * scatter_eased + vec3(0.0, hop, 0.0);
 
-    float suction_t = clamp((visual_time - 3.55 - delay * 0.35) / 2.35, 0.0, 1.0);
+    float suction_t = clamp((visual_time - suction_start - delay * suction_delay_factor) / suction_duration, 0.0, 1.0);
     if (suction_t > 0.0) {
         float remaining = pow(max(0.0, 1.0 - suction_t), 2.35);
         float turns = mix(3.2, 7.5, rnd_s);

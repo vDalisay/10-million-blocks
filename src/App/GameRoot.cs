@@ -397,7 +397,7 @@ public partial class GameRoot : Node3D
     private void OnBlockMined(MiningResult result)
     {
         if (result.Source is MiningSource.Automated or MiningSource.Offline) _automatedBlocksThisWorld++;
-        else if (result.Source == MiningSource.Manual) _manualBlocksThisWorld++;
+        else if (result.Source is MiningSource.Manual or MiningSource.Laser) _manualBlocksThisWorld++;
 
         MarkAutosaveDirty();
         if (result.Remaining == 0) TryCompleteWorld();

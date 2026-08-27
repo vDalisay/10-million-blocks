@@ -181,10 +181,10 @@ public partial class LaserMiningController : Node3D
            && !_overburning
            && _charge < 1.0;
 
-    private void OnMiningActionPerformed(bool automatic)
+    private void OnMiningActionPerformed(ManualMiningActionKind kind)
     {
         if (!CanCharge()) return;
-        AddCharge(automatic
+        AddCharge(kind == ManualMiningActionKind.HoverAutomatic
             ? _skills.Derived.LaserAutoChargePerAction
             : _skills.Derived.LaserManualChargePerAction);
     }
@@ -237,7 +237,7 @@ public partial class LaserMiningController : Node3D
             return;
         }
 
-        ShowBeam(hitPoint, normal);
+        ShowBeam(hitPoint);
         _damageAccumulator += Math.Max(0.0, delta);
         int ticks = 0;
         while (_damageAccumulator >= DamageTickSeconds && ticks < MaxDamageTicksPerFrame)
@@ -263,7 +263,7 @@ public partial class LaserMiningController : Node3D
         {
             foreach (Vector3I target in targets)
             {
-                MiningResult result = _mining.TryMineManual(target, damage);
+                MiningResult result = _mining.TryMineLaser(target, damage);
                 if (!result.Success || !result.Removed) continue;
                 _view.MarkDirtyVoxel(result.Voxel);
                 if (presentation++ < 3)
@@ -336,7 +336,7 @@ public partial class LaserMiningController : Node3D
         AddChild(_beam);
     }
 
-    private void ShowBeam(Vector3 target, Vector3I surfaceNormal)
+    private void ShowBeam(Vector3 target)
     {
         Camera3D camera = _camera.Camera;
         Vector3 start = camera.GlobalPosition + (-camera.GlobalBasis.Z.Normalized()) * 0.35f;

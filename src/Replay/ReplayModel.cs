@@ -57,7 +57,7 @@ public static class ReplaySourceMapper
     public static ReplayMiningSource FromMiningSource(MiningSource source)
         => source switch
         {
-            MiningSource.Manual => ReplayMiningSource.Manual,
+            MiningSource.Manual or MiningSource.Laser => ReplayMiningSource.Manual,
             MiningSource.Automated or MiningSource.Offline => ReplayMiningSource.Automation,
             MiningSource.WorldEvent => ReplayMiningSource.WorldEvent,
             _ => ReplayMiningSource.Other,

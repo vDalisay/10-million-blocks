@@ -140,10 +140,12 @@ public partial class PacingTelemetryRecorder : Node
         {
             _sessionAutomatedBlocks++;
         }
-        else if (result.Source == MiningSource.Manual)
+        else if (result.Source is MiningSource.Manual or MiningSource.Laser)
         {
             _sessionManualBlocks++;
-            MarkDecision();
+            // A physical click is a fresh player decision. Laser removals are consequences of an
+            // already-started mode and must not reset the action-gap metric every damage tick.
+            if (result.Source == MiningSource.Manual) MarkDecision();
         }
     }
 

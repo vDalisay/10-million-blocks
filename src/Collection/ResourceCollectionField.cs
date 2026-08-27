@@ -248,15 +248,15 @@ public partial class ResourceCollectionField : Node3D
     {
         if (!result.Success || !result.Removed) return;
         bool automated = result.Source == MiningSource.Automated;
-        bool manual = result.Source == MiningSource.Manual;
-        if (!manual && !automated) return;
+        bool personal = result.Source is MiningSource.Manual or MiningSource.Laser;
+        if (!personal && !automated) return;
 
-        bool autoCollect = manual
+        bool autoCollect = personal
             ? _skills.Derived.ManualAutoCollectUnlocked
             : _skills.Derived.AutomationAutoCollectUnlocked;
         if (autoCollect)
         {
-            Vector2 source = ProjectCollectionSource(result.Voxel, manual);
+            Vector2 source = ProjectCollectionSource(result.Voxel, personal);
             _manual.PulseCollectionCursor(source);
             PickupCollected?.Invoke(new ResourcePickupCollected(
                 result.BlockId,

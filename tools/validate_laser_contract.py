@@ -96,18 +96,24 @@ require(default_number("LaserManualChargePerAction") > default_number("LaserAuto
 
 manual = read("src/Mining/ManualMiningController.cs")
 laser = read("src/Mining/LaserMiningController.cs")
-require("event Action<bool>? MiningActionPerformed" in manual,
-        "manual controller must expose one semantic successful-action event for laser charging")
-require("MiningActionPerformed?.Invoke(false)" in manual and "MiningActionPerformed?.Invoke(true)" in manual,
-        "physical and Hover Mining actions must be tagged separately")
+require("event Action<ManualMiningActionKind>? MiningActionPerformed" in manual,
+        "manual controller must expose a typed semantic successful-action event for laser charging")
+require("ManualMiningActionKind.PhysicalClick" in manual and "ManualMiningActionKind.HoverAutomatic" in manual,
+        "physical and Hover Mining actions must use distinct typed action kinds")
 require("_manual.MiningActionPerformed += OnMiningActionPerformed" in laser,
         "laser must charge from semantic mining actions rather than raw click/frame inference")
 require("ManualMiningFootprintKind.Square3" in laser and "ManualMiningFootprintKind.Square5" in laser,
         "laser must retain 3x3 base and 5x5 Wide Lens footprints")
-require("_mining.TryMineManual(target, damage)" in laser,
-        "laser damage must reuse the authored manual hardness/reward path")
+require("_mining.TryMineLaser(target, damage)" in laser,
+        "laser damage must reuse authored hardness through its dedicated source path")
 require("private const double DamageTickSeconds = 0.10" in laser,
         "laser gameplay damage cadence must remain bounded at 10 Hz")
+require("MiningSource.Laser" in read("src/Mining/MiningService.cs"),
+        "laser removals must retain a dedicated authoritative source identity")
+require("MiningSource.Manual or MiningSource.Laser" in read("src/Replay/ReplayModel.cs"),
+        "laser replay removals must remain visually grouped with player-driven mining")
+require("MiningSource.Manual or MiningSource.Laser" in read("src/Collection/ResourceCollectionField.cs"),
+        "laser rewards must follow personal pickup/auto-collect policy")
 require("double activeDt = Math.Min(dt, _activeRemaining);" in laser
         and "FireLaser(activeDt);" in laser,
         "natural burst must clamp its final frame to the exact authored remaining duration")
