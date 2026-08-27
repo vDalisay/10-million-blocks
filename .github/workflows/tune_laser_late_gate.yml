@@ -1,0 +1,54 @@
+name: Tune late laser gate
+
+on:
+  push:
+    branches:
+      - codex/future-world-progression
+    paths:
+      - tools/tune_laser_late_gate.py
+      - .github/workflows/tune_laser_late_gate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  tune:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/future-world-progression
+          fetch-depth: 0
+      - name: Apply tuning
+        run: python3 tools/tune_laser_late_gate.py
+      - name: Validate content
+        run: |
+          python3 tools/validate_content.py
+          python3 tools/validate_progression_contracts.py
+      - name: Simulate 70-node economy
+        run: python3 tools/simulate_skill_economy.py --reserve 0.20
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore TenMillionBlocks.csproj
+      - name: Build
+        run: dotnet build TenMillionBlocks.csproj --configuration Release --no-restore
+      - name: Contracts
+        run: |
+          dotnet run --project tools/generation_contract/GenerationContract.csproj --configuration Release
+          dotnet run --project tools/replay_contract/ReplayContract.csproj --configuration Release
+          dotnet run --project tools/completion_contract/CompletionContract.csproj --configuration Release
+      - name: Commit tuning
+        run: |
+          rm tools/tune_laser_late_gate.py
+          rm -rf tools/__pycache__
+          rm -rf tools/completion_contract/bin tools/completion_contract/obj
+          rm -rf tools/generation_contract/bin tools/generation_contract/obj
+          rm -rf tools/replay_contract/bin tools/replay_contract/obj
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Tune Flux Laser late-game gate"
+          git push origin HEAD:codex/future-world-progression
