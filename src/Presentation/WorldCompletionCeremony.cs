@@ -25,7 +25,6 @@ public partial class WorldCompletionCeremony : Node3D
     private const float FinishAt = 6.15f;
 
     private readonly List<ShaderMaterial> _particleMaterials = new();
-    private Camera3D _camera = null!;
     private MeshInstance3D _implosionShell = null!;
     private MeshInstance3D _blackCore = null!;
     private MeshInstance3D _accretion = null!;
@@ -47,8 +46,19 @@ public partial class WorldCompletionCeremony : Node3D
         long bonusParticles,
         float scatterRadius)
     {
-        _camera = camera ?? throw new ArgumentNullException(nameof(camera));
-        Position = center;
+        ArgumentNullException.ThrowIfNull(camera);
+
+        // The particle shader scatters in local X/Z and uses local Y for the hop. Align those axes to
+        // camera-right / camera-up / camera-forward so the radial field reads as a true circle on-screen
+        // regardless of the player's world rotation. The hop comes slightly toward the viewer, which
+        // gives the fake ballistic motion depth without requiring physics.
+        Basis cameraBasis = camera.GlobalTransform.Basis.Orthonormalized();
+        Basis presentationBasis = new Basis(
+            cameraBasis.X,
+            -cameraBasis.Z,
+            cameraBasis.Y).Orthonormalized();
+        GlobalTransform = new Transform3D(presentationBasis, center);
+
         BonusParticleCount = Math.Max(0L, bonusParticles);
         _reducedMotion = GraphicsSettingsRuntime.Current?.ReducedMotionEnabled == true;
         BuildImplosion(profile.BlockSpacing, scatterRadius);
@@ -217,7 +227,9 @@ public partial class WorldCompletionCeremony : Node3D
                 ProcessMaterial = processMaterial,
                 DrawPass1 = assets.GetMesh(blockId),
                 MaterialOverride = assets.GetMaterialOverride(blockId),
-                VisibilityAabb = new Aabb(new Vector3(-extent, -extent, -extent), Vector3.One * extent * 2.0f),
+                VisibilityAabb = new Aabb(
+                    new Vector3(-extent, -extent, -extent),
+                    Vector3.One * extent * 2.0f),
                 CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
                 Emitting = true,
             };
