@@ -988,8 +988,11 @@ The resulting rule is: copy the *upgrade grammar*, not another game's numbers or
 ## 22.2 Base Flux Laser contract
 
 The first unlock is deliberately late and depends on both `manual_aftershock` and
-`orb_breaker_swarm`, making it a convergence capstone between active manual mining and autonomous
-late-game systems.
+`orb_breaker_radius_1`, making it a convergence capstone between active manual mining and autonomous
+late-game systems. The authored 20%-reserve pacing model puts that gate late in the 50³ finale but
+still leaves enough modeled play time to buy, charge and fire the base laser before the demo clear.
+Requiring Orb Swarm instead was rejected because simulation made the laser legal only about two
+seconds before the modeled world end, making the feature effectively unreachable.
 
 Base behavior:
 

@@ -1555,7 +1555,7 @@
     {
       "id": "laser_core",
       "display_name": "Flux Laser",
-      "description": "Very-late active/idle capstone. Manual clicks and Hover Mining charge a capacitor; at full charge a wide cursor laser fires automatically for 5 seconds at 1.0 block-damage per second, then locks into a 60-second cooldown.",
+      "description": "Very-late active/idle capstone. After Aftershock and Orb Breaker Radius converge, manual clicks and Hover Mining charge a capacitor; at full charge a wide cursor laser fires automatically for 5 seconds at 1.0 block-damage per second, then locks into a 60-second cooldown.",
       "grid_x": 15,
       "grid_y": 23,
       "category": "manual",
@@ -1566,7 +1566,7 @@
           "required_rank": 1
         },
         {
-          "node_id": "orb_breaker_swarm",
+          "node_id": "orb_breaker_radius_1",
           "required_rank": 1
         }
       ],

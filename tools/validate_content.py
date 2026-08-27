@@ -285,7 +285,7 @@ def effect_strings(skill_id: str, effect_type: str):
 # Very-late Flux Laser contract. It converges the 50-cube manual/event capstones and stays hidden
 # through progressive disclosure until both have actually been purchased.
 laser = skills["laser_core"]
-assert {p["node_id"] for p in laser.get("prerequisites", [])} == {"manual_aftershock", "orb_breaker_swarm"}
+assert {p["node_id"] for p in laser.get("prerequisites", [])} == {"manual_aftershock", "orb_breaker_radius_1"}
 assert laser.get("hide_until_prerequisites_met") is True
 assert [e.get("type") for e in laser.get("effects", [])] == ["unlock_laser"]
 assert effect_values("laser_wide_lens", "set_laser_beam_radius") == [2.0]
