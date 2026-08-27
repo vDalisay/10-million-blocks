@@ -54,6 +54,8 @@ public partial class WorldCompletionCeremony : Node3D
         float scatterRadius,
         long startingResources = 0L)
     {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(assets);
         ArgumentNullException.ThrowIfNull(camera);
 
         // The particle shader scatters in local X/Z and uses local Y for the hop. Align those axes to
@@ -397,7 +399,7 @@ void process() {
         position = settled;
     }
 
-    float appear = step(0.72 + delay, visual_time);
+    float appear = step(scatter_start + delay, visual_time);
     float vanish = 1.0 - smoothstep(0.78, 1.0, suction_t);
     float scale = particle_scale * appear * vanish;
     float spin = visual_time * mix(1.0, 3.5, rnd_s) + rnd_a * 6.2831853;
