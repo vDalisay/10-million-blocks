@@ -21,6 +21,7 @@ jobs:
         run: |
           python3 tools/validate_content.py
           python3 tools/validate_progression_contracts.py
+          python3 tools/validate_laser_contract.py
           python3 -m py_compile tools/analyze_pacing_reports.py
 
       - name: Setup .NET
